@@ -1,0 +1,5 @@
+OK: W3C example and reserved flag bits
+OK: lengths, suffixes and version policy
+OK: lowercase ASCII alphabet and character offsets
+OK: separators and nonzero IDs
+OK: all 256 flag bytes preserve format and sampled bit

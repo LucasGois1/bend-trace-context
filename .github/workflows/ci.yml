@@ -1,0 +1,80 @@
+name: Codec baseline
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native:
+    name: native (${{ matrix.platform }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux-x86_64
+            runner: ubuntu-24.04
+            system: Linux
+            architecture: x86_64
+          - platform: macos-arm64
+            runner: macos-14
+            system: Darwin
+            architecture: arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Verify runner architecture
+        env:
+          EXPECTED_SYSTEM: ${{ matrix.system }}
+          EXPECTED_ARCHITECTURE: ${{ matrix.architecture }}
+        run: |
+          test "$(uname -s)" = "$EXPECTED_SYSTEM"
+          test "$(uname -m)" = "$EXPECTED_ARCHITECTURE"
+      - name: Install verified Bend 2.0.27
+        run: ./scripts/setup-bend.sh
+      - name: Proofs, protocol corpus and static rejection gates
+        run: ./scripts/validate.sh native
+      - name: Independent consumer from this exact commit
+        run: ./scripts/test-consumer.sh native "$GITHUB_WORKSPACE" "$(git rev-parse HEAD)"
+
+  node:
+    name: node (${{ matrix.node }})
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['22', '24']
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Install verified Bend 2.0.27
+        run: ./scripts/setup-bend.sh
+      - name: Proofs, protocol corpus and static rejection gates
+        run: ./scripts/validate.sh node
+      - name: Independent consumer from this exact commit
+        run: ./scripts/test-consumer.sh node "$GITHUB_WORKSPACE" "$(git rev-parse HEAD)"
+
+  required-baseline:
+    name: required baseline
+    if: always()
+    needs: [native, node]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require every supported baseline
+        env:
+          NATIVE_RESULT: ${{ needs.native.result }}
+          NODE_RESULT: ${{ needs.node.result }}
+        run: |
+          test "$NATIVE_RESULT" = success
+          test "$NODE_RESULT" = success
