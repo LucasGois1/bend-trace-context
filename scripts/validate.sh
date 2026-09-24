@@ -9,6 +9,8 @@ case "$mode" in native|node) ;; *) echo "Usage: $0 [native|node]" >&2; exit 2 ;;
 cd "$repo_dir"
 build_dir="$repo_dir/build/validation-$mode"
 mkdir -p "$build_dir"
+cp tests/expected-codec.txt tests/expected-demo.txt "$build_dir/"
+{
 echo "Package commit: $(git rev-parse HEAD)"
 echo "Platform: $(uname -s) $(uname -m)"
 uname -a
@@ -23,6 +25,25 @@ else
   export CC
   "$CC" --version
 fi
+} > "$build_dir/environment.txt" 2>&1
+cat "$build_dir/environment.txt"
+
+run_logged() {
+  log_name=$1
+  shift
+  command_status=0
+  "$@" > "$build_dir/$log_name.txt" 2> "$build_dir/$log_name.stderr.txt" || command_status=$?
+  cat "$build_dir/$log_name.txt"
+  cat "$build_dir/$log_name.stderr.txt" >&2
+  return "$command_status"
+}
+
+compare_output() {
+  if ! diff -u "$1" "$2" > "$2.diff.txt"; then
+    cat "$2.diff.txt"
+    return 1
+  fi
+}
 
 ./bend packages/trace-context/PROOF.bend --check-only > "$build_dir/proofs.txt" 2>&1 || {
   cat "$build_dir/proofs.txt"; exit 1;
@@ -49,22 +70,21 @@ for fixture in zero_id wrong_length; do
   echo "PASS: compile-time rejection of $fixture"
 done
 
-./bend packages/trace-context/tests/TEST.bend > "$build_dir/direct-codec.txt"
-diff -u tests/expected-codec.txt "$build_dir/direct-codec.txt"
+run_logged direct-codec ./bend packages/trace-context/tests/TEST.bend
+compare_output tests/expected-codec.txt "$build_dir/direct-codec.txt"
 echo "PASS: direct Bend protocol corpus"
 
 if [ "$mode" = node ]; then
-  ./bend packages/trace-context/tests/TEST.bend -o "$build_dir/codec.js"
-  node "$build_dir/codec.js" > "$build_dir/codec.txt"
-  ./bend packages/trace-context/examples/demo.bend -o "$build_dir/demo.js"
-  node "$build_dir/demo.js" > "$build_dir/demo.txt"
+  run_logged codec-compile ./bend packages/trace-context/tests/TEST.bend -o "$build_dir/codec.js"
+  run_logged codec node "$build_dir/codec.js"
+  run_logged demo-compile ./bend packages/trace-context/examples/demo.bend -o "$build_dir/demo.js"
+  run_logged demo node "$build_dir/demo.js"
 else
-  ./bend packages/trace-context/tests/TEST.bend -o "$build_dir/codec"
-  "$build_dir/codec" > "$build_dir/codec.txt"
-  ./bend packages/trace-context/examples/demo.bend -o "$build_dir/demo"
-  "$build_dir/demo" > "$build_dir/demo.txt"
+  run_logged codec-compile ./bend packages/trace-context/tests/TEST.bend -o "$build_dir/codec"
+  run_logged codec "$build_dir/codec"
+  run_logged demo-compile ./bend packages/trace-context/examples/demo.bend -o "$build_dir/demo"
+  run_logged demo "$build_dir/demo"
 fi
-diff -u tests/expected-codec.txt "$build_dir/codec.txt"
-diff -u tests/expected-demo.txt "$build_dir/demo.txt"
-cat "$build_dir/codec.txt" "$build_dir/demo.txt"
+compare_output tests/expected-codec.txt "$build_dir/codec.txt"
+compare_output tests/expected-demo.txt "$build_dir/demo.txt"
 echo "PASS: proofs, protocol corpus, construction rejections and example ($mode)"
