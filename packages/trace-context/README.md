@@ -95,7 +95,7 @@ The [public corpus](tests/TEST.bend) uses eight valid inputs, 26 malformed input
 with expected errors/positions, and all 256 flag bytes with an independent
 numeric sampled-bit oracle. The [negative fixtures](tests/reject) must fail
 typechecking for the intended nonzero/length mismatch. The
-[validation guide](../../packages/trace-context/VALIDATION.md) describes reproducible commands
+[validation guide](../../README.md#validation) describes reproducible commands
 and the separate clean consumer.
 
 The strict v00 format follows

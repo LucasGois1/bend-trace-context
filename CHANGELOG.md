@@ -10,6 +10,8 @@ currently provides the strict v00 codec only; it is not a published release.
   negative-construction examples.
 - Establish reproducible Bend 2.0.27 setup, Git-pinned consumption, MIT licensing
   and baseline validation on native and Node targets.
+- Standardize documentation and package paths in English, including the public
+  entry `packages/trace-context/trace_context.bend` and `examples/` directory.
 
 The inverse law for every accepted text remains pending in issue #5. ID
 generation, tracestate, propagation and HTTP/browser integration are planned
@@ -29,6 +31,7 @@ promises, even where Bend makes their names importable.
 
 Future releases will record API, wire-policy and toolchain changes here, including
 migration steps for incompatible changes. Development toward 0.1.0 does not
-silently turn the strict codec into a normalizing propagator. Existing consumers
-need no source migration for this baseline; install the pinned compiler and
-import the same public entry from their pinned dependency checkout.
+silently turn the strict codec into a normalizing propagator. When upgrading an
+earlier development snapshot, update the dependency pin and imports together
+to use `packages/trace-context/trace_context.bend`. The protocol, public types
+and functions are unchanged by this directory migration.

@@ -34,7 +34,10 @@ sampled: True
 Setup downloads the exact official release, verifies its SHA-256 before
 extraction and installs it under `.tools/bend-2.0.27/`. It does not install
 global shell configuration.
-See [compiler provenance](scripts/setup-bend.sh) for the release commit and hashes.
+The [installer](scripts/setup-bend.sh) records the platform archive hashes for
+the official [Bend 2.0.27 release](https://github.com/bendlang/bend/releases/tag/v2.0.27),
+whose tag resolves to `63bee70b55a71024d6bdcb49a745111bc54b114e`. Setup rejects
+an existing destination that differs from the verified release.
 
 ## Use it from another project
 
@@ -89,13 +92,15 @@ policy](CHANGELOG.md) before updating a dependency pin.
 ```sh
 ./scripts/validate.sh native
 ./scripts/validate.sh node
+./scripts/test-installer.sh
 ./scripts/test-consumer.sh native
 ./scripts/test-consumer.sh node
 ```
 
 The consumer commands test the current **committed HEAD** in a separate fresh
-clone; they do not test uncommitted edits. See [the validation guide](packages/trace-context/VALIDATION.md)
-for explicit source/revision arguments and evidence limits.
+clone; they do not test uncommitted edits. To select a source and revision, run
+`./scripts/test-consumer.sh native REPOSITORY_SOURCE FULL_COMMIT_SHA` (or use
+`node` as the first argument).
 
 Baseline gates cover proofs, independent protocol vectors, all 256 flag bytes,
 expected static rejections, the exact README example above and a consumer
@@ -104,17 +109,30 @@ outside the repository. Consumer logs and outputs are saved under
 native macOS ARM64/Linux x86_64 and Node 22/24, recording exact runtime versions.
 Configuring a job is distinct from observing a successful run.
 
+The installer suite covers fresh/repeated installation, corrupt and interrupted
+downloads, and preservation of existing directories, files and symlinks. It
+downloads the official release once and controls only its delivery; checksum,
+extraction and installation checks remain real.
+
+CI also requires actionlint, ShellCheck, zizmor and local-link checks. Logs,
+proof diagnostics, expected/actual outputs and runtime versions are uploaded
+as artifacts retained for 14 days, including after failures. A separate weekly
+workflow checks external links. Dependabot proposes weekly GitHub Actions
+updates with a seven-day release cooldown. These schedules activate from the
+default branch. GitHub secret scanning and push protection are enabled.
+
 The universal `parse(format(context)) == Done{context}` and fixed-length laws
 are proved. The inverse law for every accepted text is still pending. Neither
 these laws nor the finite corpus establish full W3C propagator conformance.
 
 ## Development
 
-The [approved ticket plan](https://github.com/LucasGois1/bend-trace-context/issues/1) records
-dependencies and acceptance criteria. Each slice includes its applicable laws,
-tests and consumer documentation.
+The [parent specification](https://github.com/LucasGois1/bend-trace-context/issues/1)
+and its linked issues record dependencies and acceptance criteria. Each slice
+includes its applicable laws, tests and consumer documentation. English is the
+repository language for code, comments, documentation and file/directory names.
 
 The package targets [Bend 2](https://bend-lang.com/), maintained at
-[bendlang/bend](https://github.com/bendlang/bend). See the
-[validation guide](packages/trace-context/VALIDATION.md) for reproducible checks and the
-[compiler provenance](scripts/setup-bend.sh) for the pinned toolchain.
+[bendlang/bend](https://github.com/bendlang/bend). See [Validation](#validation)
+for reproducible checks and the [installer](scripts/setup-bend.sh) for the
+pinned toolchain.
