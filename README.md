@@ -6,8 +6,9 @@ types and checked proofs. Licensed under [MIT](LICENSE).
 **Status: 0.1.0-dev.** The complete Trace Context propagator is being developed
 under [specification #1](https://github.com/LucasGois1/bend-trace-context/issues/1).
 The current codec parses, formats and inspects the sampled bit. ID generation,
-`tracestate`, context lifecycles and HTTP/browser adapters are not implemented
-yet. No BendHub package has been published.
+`tracestate`, context lifecycles and HTTP/Fetch propagation are not implemented
+yet. Pure JavaScript module consumption and a WebCrypto source are qualified
+separately below. No BendHub package has been published.
 
 ## Try the codec
 
@@ -124,6 +125,14 @@ default branch. GitHub secret scanning and push protection are enabled.
 The universal `parse(format(context)) == Done{context}` and fixed-length laws
 are proved. The inverse law for every accepted text is still pending. Neither
 these laws nor the finite corpus establish full W3C propagator conformance.
+
+## JavaScript and browser consumers
+
+The [JavaScript qualification guide](packages/trace-context/JAVASCRIPT.md)
+provides executable Node and browser examples, an input-validating adapter over
+the real Bend codec, and a shared WebCrypto source with structured failures.
+It explains the official Node loader, Bend HTML bundler and foreign-value/proof
+boundary. ID generation and HTTP/Fetch propagation remain later deliverables.
 
 ## Development
 
