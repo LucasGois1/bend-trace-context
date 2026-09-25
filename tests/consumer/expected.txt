@@ -1,3 +1,11 @@
 00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01
 sampled: True
 rejected: ZeroTraceId
+server: 00-0af7651916cd43dd8448eb211c80319c-00f067aa0ba902b7-01
+client: 00-0af7651916cd43dd8448eb211c80319c-53995c3f42cd8ad8-01
+unsampled client: 00-0af7651916cd43dd8448eb211c80319c-a3ce929d0e0e4736-00
+reused span rejected: ReusedSpanId
+restart: 00-4bf92f3577b34da6a3ce929d0e0e4736-b9c7c989f97918e1-02
+root: 00-5b8efff798038103d269b633813fc60c-eee19b7ec3c1b174-00
+existing sampled operation: 00-5b8efff798038103d269b633813fc60c-2f1c8a36d5e97b40-01
+supplied span rejected: ZeroSpanId

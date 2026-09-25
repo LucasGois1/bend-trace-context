@@ -32,6 +32,9 @@ A context received from another participant that identifies the sender's operati
 **Local context**:
 A context that identifies an operation of the current participant, to be represented in messages sent by that participant.
 
+**Parent context**:
+The remote or local context whose trace a child context continues. Its span ID identifies the previous operation.
+
 **Transparent forwarding**:
 Transmitting received context fields without representing a new operation or changing the traceparent/tracestate pair.
 _Avoid_: Child context creation
@@ -45,6 +48,10 @@ A standardized field carrying an ordered list of information specific to tracing
 **Sampling indication (sampled)**:
 The trace-flags bit used to communicate the sampling indication between participants. Its value does not guarantee that operations have been or will be recorded.
 _Avoid_: Proof of collection, exporter activation
+
+**Randomness assertion (random-trace-id)**:
+The trace-flags bit stating that a trace ID was generated randomly. It is made by whoever produced the trace ID and travels with it; it is not evidence of how the ID was generated.
+_Avoid_: Proof of entropy, uniqueness guarantee
 
 **Traceparent codec**:
 The ability to convert between the textual representation of traceparent and its structured values according to a declared format.

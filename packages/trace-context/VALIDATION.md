@@ -73,4 +73,6 @@ the examples readable; these are the same type families used for 32- and
 We did not run the complete W3C HTTP suite, GPU execution, other operating
 systems, benchmarks or performance assessments. The current consumer is local,
 without HTTP package integration yet. The universal inverse property, covering
-every accepted text, remains a future obligation explicitly stated in the README.
+every accepted text, was then a future obligation; it has since been proved in
+[#5](https://github.com/LucasGois1/bend-trace-context/issues/5) and is listed
+in the [package reference](README.md#proofs).

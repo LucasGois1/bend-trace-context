@@ -71,10 +71,9 @@ to typed internal functions. Future lifecycle adapters must accept validated
 wire/scalar inputs and return values constructed by Bend, rather than trusting
 an external object's shape or a previously returned mutable object.
 
-Existing Bend round-trip and fixed-length proofs still apply to their typed
-domain. The JavaScript guard and host effects are tested foreign-code boundaries;
-they are not additional formal proofs. The inverse accepted-text law is pending
-in [#5](https://github.com/LucasGois1/bend-trace-context/issues/5).
+Existing Bend round-trip, fixed-length and inverse accepted-text proofs still
+apply to their typed domain. The JavaScript guard and host effects are tested
+foreign-code boundaries; they are not additional formal proofs.
 
 ## WebCrypto and explicit effects
 

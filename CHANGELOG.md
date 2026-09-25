@@ -3,12 +3,27 @@
 ## 0.1.0-dev — unreleased
 
 Development toward the complete 0.1.0 Trace Context propagator. This version
-currently provides the strict v00 codec and qualified JavaScript/entropy
-boundaries; it is not a published release.
+currently provides the strict v00 codec, contexts created from supplied IDs and
+qualified JavaScript/entropy boundaries; it is not a published release.
 
 - Preserve the pure Bend codec, dependent ID representation, universal
   round-trip and fixed-length proofs, independent protocol corpus and
   negative-construction examples.
+- Prove the strict codec's inverse law: formatting every accepted text
+  reproduces it exactly. The hexadecimal decoder now searches the encoder's
+  alphabet; the accepted characters are unchanged.
+- Add validated `TraceId` and `SpanId` constructors for supplied IDs, an
+  explicit randomness assertion, separate `RemoteContext` and `LocalContext`
+  types, and `Context.root_from_ids`, `Context.from_ids`,
+  `Context.child_from_id` (from a remote or local parent) and
+  `Context.restart_from_ids`. Roots start unsampled; children keep the trace ID
+  and its randomness assertion and inherit sampled unless it is set
+  explicitly; restarts apply the root defaults. A child whose span ID equals
+  its parent's and a restart whose trace ID equals the received one fail with a
+  `ContextError`. Local contexts emit version `00` with only the known flags.
+  The lifecycle guarantees, including acceptance of every other ID, are proved
+  as laws.
+- Add `TraceParentV00.is_random` for the random-trace-id bit.
 - Establish reproducible Bend 2.0.27 setup, Git-pinned consumption, MIT licensing
   and baseline validation on native and Node targets.
 - Standardize documentation and package paths in English, including the public
@@ -24,9 +39,15 @@ boundaries; it is not a published release.
   no-redirect behavior and the listener's header-size limit. This is a
   development transport fixture, not Trace Context propagation or a tracer.
 
-The inverse law for every accepted text remains pending in issue #5. ID
-generation, tracestate, propagation and HTTP/Fetch integration are planned
-under [specification #1](https://github.com/LucasGois1/bend-trace-context/issues/1).
+ID generation, tracestate, header extraction/injection, propagation and
+HTTP/Fetch integration are planned under
+[specification #1](https://github.com/LucasGois1/bend-trace-context/issues/1).
+
+**Migration within 0.1.0-dev:** `Field` gains `SpanIdField{}`, so
+`Error.ZeroId` can now name a supplied span ID. Code that matches every `Field`
+constructor, or every `ZeroId{...}` case of `Error`, without a default case
+must handle it. Context creation reports the new `ContextError` type; `Error`
+itself gains no constructor.
 
 ## Versioning and compatibility
 

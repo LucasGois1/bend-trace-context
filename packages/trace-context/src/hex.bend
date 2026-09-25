@@ -159,23 +159,69 @@ def Digit.is_odd(digit: Digit) -> Bool:
     case Hf{}:
       True{}
 
-# Internal entries for the finite decoder table.
-type Entry is Data:
-  Entry{char: Char, digit: Digit}
+# Whether bit 1 (value 2) of the digit is set.
+def Digit.has_bit1(digit: Digit) -> Bool:
+  match digit:
+    case H0{}:
+      False{}
+    case H1{}:
+      False{}
+    case H2{}:
+      True{}
+    case H3{}:
+      True{}
+    case H4{}:
+      False{}
+    case H5{}:
+      False{}
+    case H6{}:
+      True{}
+    case H7{}:
+      True{}
+    case H8{}:
+      False{}
+    case H9{}:
+      False{}
+    case Ha{}:
+      True{}
+    case Hb{}:
+      True{}
+    case Hc{}:
+      False{}
+    case Hd{}:
+      False{}
+    case He{}:
+      True{}
+    case Hf{}:
+      True{}
 
-def Digit.from_char.lookup(table: List<&2, Entry>, +char: Char) -> Maybe<&2, Digit>:
-  match table:
+# The digit whose value is bit0 + 2 * bit1.
+def Digit.from_low_bits(bit0: Bool, bit1: Bool) -> Digit:
+  match bit0 bit1:
+    case False{} False{}:
+      H0{}
+    case True{} False{}:
+      H1{}
+    case False{} True{}:
+      H2{}
+    case True{} True{}:
+      H3{}
+
+# Every digit, in encoding order.
+def Digit.all() -> List<&2, Digit>:
+  [H0{}, H1{}, H2{}, H3{}, H4{}, H5{}, H6{}, H7{},
+   H8{}, H9{}, Ha{}, Hb{}, Hc{}, Hd{}, He{}, Hf{}]
+
+# Search the encoder's own alphabet, so an accepted character is exactly the
+# encoding of the digit returned for it.
+def Digit.from_char.find(digits: List<&2, Digit>, +char: Char) -> Maybe<&2, Digit>:
+  match digits:
     case Nil{}:
       None{}
-    case Con{Entry{candidate, digit}, tail}:
-      Bool.pick(Maybe<&2, Digit>, Char.is_eq(char, candidate),
-        Some{digit}, Digit.from_char.lookup(tail, char))
+    case Con{+digit, tail}:
+      Bool.pick(Maybe<&2, Digit>, Char.is_eq(char, Digit.to_char(digit)),
+        Some{digit}, Digit.from_char.find(tail, char))
 
 # Uppercase and every non-hexadecimal character are rejected.
 def Digit.from_char(char: Char) -> Maybe<&2, Digit>:
-  Digit.from_char.lookup([
-    Entry{'0', H0{}}, Entry{'1', H1{}}, Entry{'2', H2{}}, Entry{'3', H3{}},
-    Entry{'4', H4{}}, Entry{'5', H5{}}, Entry{'6', H6{}}, Entry{'7', H7{}},
-    Entry{'8', H8{}}, Entry{'9', H9{}}, Entry{'a', Ha{}}, Entry{'b', Hb{}},
-    Entry{'c', Hc{}}, Entry{'d', Hd{}}, Entry{'e', He{}}, Entry{'f', Hf{}}
-  ], char)
+  Digit.from_char.find(Digit.all(), char)

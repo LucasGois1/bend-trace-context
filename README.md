@@ -5,9 +5,11 @@ types and checked proofs. Licensed under [MIT](LICENSE).
 
 **Status: 0.1.0-dev.** The complete Trace Context propagator is being developed
 under [specification #1](https://github.com/LucasGois1/bend-trace-context/issues/1).
-The current codec parses, formats and inspects the sampled bit. ID generation,
-`tracestate`, context lifecycles and HTTP/Fetch propagation are not implemented
-yet. Native HTTP transport is separately qualified as a development harness;
+The current package parses, formats and inspects strict v00 values, and creates
+root, child and restarted local contexts from validated IDs that the caller
+supplies. ID generation, `tracestate`, header extraction/injection and
+HTTP/Fetch propagation are not implemented yet. Native HTTP transport is
+separately qualified as a development harness;
 it does not add a Trace Context propagator or tracer. Pure JavaScript module
 consumption and a WebCrypto source are qualified separately below. No BendHub
 package has been published.
@@ -63,16 +65,31 @@ Create `main.bend` in your project:
 import Base
 import ./deps/bend-trace-context/packages/trace-context/trace_context.bend as TC
 
-def display(result: Result<&2, &2, TC.Error, TC.TraceParentV00>) -> IO(Unit):
+def print_context(result: Result<&2, &2, TC.ContextError, TC.LocalContext>) -> IO(Unit):
   match result:
     case Fail{error}:
-      IO.die(Unit, 1, TC.Error.show(error))
+      IO.die(Unit, 1, TC.ContextError.show(error))
     case Done{context}:
-      IO.print(TC.TraceParentV00.format(context))
+      IO.print(TC.TraceParentV00.format(TC.LocalContext.to_traceparent(context)))
+
+# Start a trace with IDs from an existing system, then create the operation
+# that calls another service.
+def start(trace: Result<&2, &2, TC.Error, TC.TraceId>, root: Result<&2, &2, TC.Error, TC.SpanId>,
+  call: Result<&2, &2, TC.Error, TC.SpanId>) -> IO(Unit):
+  match trace root call:
+    case Done{trace_id} Done{root_span} Done{call_span}:
+      print_context(TC.Context.child_from_id(TC.LocalParent{TC.Context.root_from_ids(trace_id, root_span)},
+        call_span, TC.InheritSampled{}))
+    case Fail{error} _ _:
+      IO.die(Unit, 1, TC.Error.show(error))
+    case _ Fail{error} _:
+      IO.die(Unit, 1, TC.Error.show(error))
+    case _ _ Fail{error}:
+      IO.die(Unit, 1, TC.Error.show(error))
 
 def main() -> IO(Unit):
-  display(TC.TraceParentV00.parse(
-    "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"))
+  start(TC.TraceId.parse("4bf92f3577b34da6a3ce929d0e0e4736"),
+    TC.SpanId.parse("00f067aa0ba902b7"), TC.SpanId.parse("53995c3f42cd8ad8"))
 ```
 <!-- test:readme-consumer:end -->
 
@@ -80,10 +97,11 @@ Then run `./deps/bend-trace-context/bend main.bend`. No implementation files nee
 to be copied into the application. The documented public entry is the file
 imported above; internal helpers are not a compatibility contract.
 
-Expected output:
+Expected output: the trace ID, the calling operation's span ID and the root's
+unsampled default, as they would be sent to the called service.
 
 ```text
-00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01
+00-4bf92f3577b34da6a3ce929d0e0e4736-53995c3f42cd8ad8-00
 ```
 
 Read the [API and error reference](packages/trace-context/README.md) for strict
@@ -124,9 +142,11 @@ workflow checks external links. Dependabot proposes weekly GitHub Actions
 updates with a seven-day release cooldown. These schedules activate from the
 default branch. GitHub secret scanning and push protection are enabled.
 
-The universal `parse(format(context)) == Done{context}` and fixed-length laws
-are proved. The inverse law for every accepted text is still pending. Neither
-these laws nor the finite corpus establish full W3C propagator conformance.
+The universal fixed-length, `parse(format(context)) == Done{context}` and
+inverse laws of the strict codec are proved, as are the supplied-ID and
+context lifecycle laws listed in the [package reference](packages/trace-context/README.md#proofs).
+Neither these laws nor the finite corpus establish full W3C propagator
+conformance.
 
 ## JavaScript and browser consumers
 

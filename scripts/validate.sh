@@ -55,7 +55,7 @@ if grep -F '@unsafe' "$build_dir/proofs.txt" >/dev/null; then
   exit 1
 fi
 
-for fixture in zero_id wrong_length; do
+for fixture in zero_id wrong_length remote_as_local; do
   status=0
   ./bend "packages/trace-context/tests/reject/$fixture.bend" --check-only > "$build_dir/$fixture.txt" 2>&1 || status=$?
   [ "$status" -eq 1 ] || { cat "$build_dir/$fixture.txt"; echo "Expected checker rejection (exit 1): $fixture" >&2; exit 1; }
@@ -63,9 +63,12 @@ for fixture in zero_id wrong_length; do
   if [ "$fixture" = zero_id ]; then
     grep -F 'expected : True{}' "$build_dir/$fixture.txt" >/dev/null
     grep -F 'observed : False{}' "$build_dir/$fixture.txt" >/dev/null
-  else
+  elif [ "$fixture" = wrong_length ]; then
     grep -E 'expected : .*Digits.Con<0n>' "$build_dir/$fixture.txt" >/dev/null
     grep -E 'observed : .*Digits.Nil' "$build_dir/$fixture.txt" >/dev/null
+  else
+    grep -E 'expected : .*trace_context\.LocalContext$' "$build_dir/$fixture.txt" >/dev/null
+    grep -E 'observed : .*trace_context\.RemoteContext$' "$build_dir/$fixture.txt" >/dev/null
   fi
   echo "PASS: compile-time rejection of $fixture"
 done
