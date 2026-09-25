@@ -7,8 +7,10 @@ types and checked proofs. Licensed under [MIT](LICENSE).
 under [specification #1](https://github.com/LucasGois1/bend-trace-context/issues/1).
 The current codec parses, formats and inspects the sampled bit. ID generation,
 `tracestate`, context lifecycles and HTTP/Fetch propagation are not implemented
-yet. Pure JavaScript module consumption and a WebCrypto source are qualified
-separately below. No BendHub package has been published.
+yet. Native HTTP transport is separately qualified as a development harness;
+it does not add a Trace Context propagator or tracer. Pure JavaScript module
+consumption and a WebCrypto source are qualified separately below. No BendHub
+package has been published.
 
 ## Try the codec
 
@@ -133,6 +135,11 @@ provides executable Node and browser examples, an input-validating adapter over
 the real Bend codec, and a shared WebCrypto source with structured failures.
 It explains the official Node loader, Bend HTML bundler and foreign-value/proof
 boundary. ID generation and HTTP/Fetch propagation remain later deliverables.
+
+The [native HTTP transport guide](packages/trace-context/NATIVE-HTTP.md)
+documents the pinned `bend-net` route, native macOS/Linux checks and its scope
+boundary. Its W3C action/callback envelope and opaque header relay are transport
+fixtures; they do not implement or claim propagator conformance.
 
 ## Development
 

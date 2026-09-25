@@ -1,0 +1,3 @@
+[submodule "vendor/bend-net"]
+	path = vendor/bend-net
+	url = https://github.com/paymog/bend-net.git
