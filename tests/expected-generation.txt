@@ -1,0 +1,7 @@
+OK: big-endian word conversion and zero rejection
+OK: generated roots
+OK: eight candidates and no ninth
+OK: a root may read all 48 words
+OK: source errors end generation at once
+OK: generated children
+OK: generated restarts

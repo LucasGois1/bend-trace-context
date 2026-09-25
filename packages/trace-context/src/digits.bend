@@ -34,6 +34,30 @@ def Digits.is_zero(n: Nat, digits: Digits(n)) -> Bool:
         case DCon{head, tail}:
           Bool.and(Hex.Digit.is_zero(head), Digits.is_zero(p, tail))
 
+# The eight digits of a word, most significant first: the first digit holds
+# bits 31 to 28 and the last digit bits 3 to 0.
+def Digits.of_u32(word: U32) -> Digits(8n):
+  match word:
+    case U32{WCon{b0, WCon{b1, WCon{b2, WCon{b3, WCon{b4, WCon{b5, WCon{b6, WCon{b7, WCon{b8, WCon{b9, WCon{b10, WCon{b11, WCon{b12, WCon{b13, WCon{b14, WCon{b15, WCon{b16, WCon{b17, WCon{b18, WCon{b19, WCon{b20, WCon{b21, WCon{b22, WCon{b23, WCon{b24, WCon{b25, WCon{b26, WCon{b27, WCon{b28, WCon{b29, WCon{b30, WCon{b31, WNil{}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}:
+      DCon{Hex.Digit.from_bits(b28, b29, b30, b31), DCon{Hex.Digit.from_bits(b24, b25, b26, b27), DCon{Hex.Digit.from_bits(b20, b21, b22, b23), DCon{Hex.Digit.from_bits(b16, b17, b18, b19), DCon{Hex.Digit.from_bits(b12, b13, b14, b15), DCon{Hex.Digit.from_bits(b8, b9, b10, b11), DCon{Hex.Digit.from_bits(b4, b5, b6, b7), DCon{Hex.Digit.from_bits(b0, b1, b2, b3), DNil{}}}}}}}}}
+
+# The word whose eight digits these are, most significant first.
+def Digits.to_u32(digits: Digits(8n)) -> U32:
+  match digits:
+    case DCon{+d7, DCon{+d6, DCon{+d5, DCon{+d4, DCon{+d3, DCon{+d2, DCon{+d1, DCon{+d0, DNil{}}}}}}}}}:
+      U32{WCon{Hex.Digit.is_odd(d0), WCon{Hex.Digit.has_bit1(d0), WCon{Hex.Digit.has_bit2(d0), WCon{Hex.Digit.has_bit3(d0), WCon{Hex.Digit.is_odd(d1), WCon{Hex.Digit.has_bit1(d1), WCon{Hex.Digit.has_bit2(d1), WCon{Hex.Digit.has_bit3(d1), WCon{Hex.Digit.is_odd(d2), WCon{Hex.Digit.has_bit1(d2), WCon{Hex.Digit.has_bit2(d2), WCon{Hex.Digit.has_bit3(d2), WCon{Hex.Digit.is_odd(d3), WCon{Hex.Digit.has_bit1(d3), WCon{Hex.Digit.has_bit2(d3), WCon{Hex.Digit.has_bit3(d3), WCon{Hex.Digit.is_odd(d4), WCon{Hex.Digit.has_bit1(d4), WCon{Hex.Digit.has_bit2(d4), WCon{Hex.Digit.has_bit3(d4), WCon{Hex.Digit.is_odd(d5), WCon{Hex.Digit.has_bit1(d5), WCon{Hex.Digit.has_bit2(d5), WCon{Hex.Digit.has_bit3(d5), WCon{Hex.Digit.is_odd(d6), WCon{Hex.Digit.has_bit1(d6), WCon{Hex.Digit.has_bit2(d6), WCon{Hex.Digit.has_bit3(d6), WCon{Hex.Digit.is_odd(d7), WCon{Hex.Digit.has_bit1(d7), WCon{Hex.Digit.has_bit2(d7), WCon{Hex.Digit.has_bit3(d7), WNil{}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}
+
+def Digits.append(m: Nat, -n: Nat, left: Digits(m), right: Digits(n)) -> Digits(Nat.add(m, n)):
+  match m:
+    case 0n:
+      match left:
+        case DNil{}:
+          right
+    case 1n+p:
+      match left:
+        case DCon{head, tail}:
+          DCon{head, Digits.append(p, n, tail, right)}
+
 # The equality is checked statically; compiled evidence is a null placeholder.
 # Keeping its binder usable lets later proofs recover and reuse this guarantee.
 # Even direct construction must supply a proof that these digits are not zero.

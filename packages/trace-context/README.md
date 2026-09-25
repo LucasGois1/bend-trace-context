@@ -1,12 +1,15 @@
-# Traceparent v00 codec and supplied-ID contexts
+# Traceparent v00 codec and local contexts
 
 The currently implemented part of **bend-trace-context 0.1.0-dev** is a pure,
-strict v00 codec for Bend 2.0.27, plus validated trace and span IDs and the
-creation of root, child and restarted local contexts from IDs the caller
-supplies. It has no external package dependencies beyond the compiler's bundled
-`Base`. The public entry is [trace_context.bend](trace_context.bend). See the
-root [installation guide](../../README.md) to consume it from a pinned Git
-checkout.
+strict v00 codec for Bend 2.0.27, validated trace and span IDs, and root, child
+and restarted local contexts, either from IDs the caller supplies or from IDs
+generated on a cryptographic source. It has no external package dependencies
+beyond the compiler's bundled `Base`. The public entries are
+[trace_context.bend](trace_context.bend), which performs no host effect of its
+own, and [generation.bend](generation.bend), which adds the host's
+cryptographic source.
+See the root [installation guide](../../README.md) to consume them from a pinned
+Git checkout.
 
 ## Codec API
 
@@ -55,10 +58,9 @@ RemoteContext.from_traceparent(value: TraceParentV00) -> RemoteContext
 LocalContext.to_traceparent(context: LocalContext) -> TraceParentV00
 ```
 
-The `_from_ids` operations take identifiers the caller already has. The names
-`Context.root`, `Context.child` and `Context.restart` are reserved for the
-generated-ID operations planned in
-[#6](https://github.com/LucasGois1/bend-trace-context/issues/6).
+The `_from_ids` operations take identifiers the caller already has. The
+operations that generate identifiers are `Context.root`, `Context.child` and
+`Context.restart` in [generation.bend](#generated-contexts).
 
 The types that carry these values are:
 
@@ -121,6 +123,106 @@ The [consumer example](../../tests/consumer/main.bend) receives a context,
 creates a server operation and sampled and unsampled client operations,
 rejects a reused span ID, restarts a trace, starts a root and represents an
 existing operation with `Context.from_ids`.
+
+## Generated contexts
+
+[generation.bend](generation.bend) generates identifiers on the host's
+cryptographic source: the operating system's generator natively
+(`arc4random_buf` on macOS, `getrandom` on Linux, as Base's `IO.random_u32`)
+and WebCrypto in JavaScript. Qualified here for native programs and for Bend
+programs compiled to Node; browser generation belongs to
+[#14](https://github.com/LucasGois1/bend-trace-context/issues/14). Names below
+are qualified by the aliases `Generate` for generation.bend and `TC` for
+trace_context.bend:
+
+```bend
+Generate.Context.root() -> IO(Result<&2, &2, TC.GenerationError, TC.LocalContext>)
+Generate.Context.child(parent: TC.Parent, sampling: TC.Sampling) ->
+  IO(Result<&2, &2, TC.GenerationError, TC.LocalContext>)
+Generate.Context.restart(previous: TC.RemoteContext) ->
+  IO(Result<&2, &2, TC.GenerationError, TC.LocalContext>)
+TC.GenerationError.show(error: TC.GenerationError) -> String
+```
+
+The [generation example](examples/generate.bend) starts a trace and creates
+the operation that calls another service. From the repository root:
+
+```sh
+./bend packages/trace-context/examples/generate.bend
+```
+
+Each run prints new IDs. Both lines share the trace ID and end in `-02`:
+
+```text
+00-<32 random hexadecimal digits>-<16 random hexadecimal digits>-02
+00-<the same trace ID>-<16 other random hexadecimal digits>-02
+```
+
+Every operation follows the same rules:
+
+- A trace ID candidate takes four 32-bit source words and a span ID candidate
+  two, most significant first: the first word gives the first eight digits.
+  A root or restart draws its trace ID before its span ID.
+- Each identifier gets at most eight candidates. An all-zero candidate is
+  rejected, a child's candidate equal to the parent's span ID is rejected, and
+  a restart's candidate equal to the received trace ID is rejected. After the
+  eighth rejection the operation fails with `ExhaustedTraceId{}` or
+  `ExhaustedSpanId{}` and reads no further word.
+- The first source error ends the operation with
+  `SourceFailure{code, message}`; the remaining words are not read. There is no
+  retry and no time, counter or other fallback.
+- Generation trusts its source to be random, so a generated trace ID asserts
+  random-trace-id. A root or restart is not sampled, so it is emitted with
+  flags `02`. A child keeps its parent's trace ID and randomness assertion and
+  resolves sampled as `Context.child_from_id` does, so generating its span ID
+  never changes a received random bit.
+
+| Error | Meaning |
+| --- | --- |
+| `SourceFailure{code, message}` | The source failed with its own code and message |
+| `ExhaustedTraceId{}` | Eight trace ID candidates were rejected |
+| `ExhaustedSpanId{}` | Eight span ID candidates were rejected |
+
+The host source fails with `1 unavailable` or `2 source-failure` in JavaScript,
+as the [WebCrypto adapter](JAVASCRIPT.md#webcrypto-and-explicit-effects)
+documents. Natively, a Linux `getrandom` error gives its `errno` and
+`strerror` text, and `arc4random_buf` on macOS cannot fail. The tests induce
+the JavaScript failures but not the native one. `Source.tape` fails with
+`1 tape-exhausted` when its words run out.
+
+The same operations take a caller's source in trace_context.bend:
+
+```bend
+TC.Context.root_with(~S: Type, ~read: S -> IO(S & Result<&1, &1, U32 & String, U32>), source: S) ->
+  IO(S & Result<&2, &2, TC.GenerationError, TC.LocalContext>)
+TC.Context.child_with(~S, ~read, source: S, parent: TC.Parent, sampling: TC.Sampling) -> ...
+TC.Context.restart_with(~S, ~read, source: S, previous: TC.RemoteContext) -> ...
+TC.Source.tape(tape: List<&1, Result<&1, &1, U32 & String, U32>>) -> ...
+```
+
+A source is a template: `read` receives the source's state and returns the next
+state with one word result, and the operation returns the final state. It reads
+one word at a time and never more than it needs: at most 48 words for a root or
+restart and 16 for a child. `Source.tape` replays a list of word results, so
+tests and integrations can exercise zero words, reuse, failures and
+exhaustion, and can check which words were read. Every source is trusted to be
+random: a generated trace ID asserts random-trace-id whatever the source, and
+the package cannot check the words' unpredictability.
+
+The conversion is available on its own:
+
+```bend
+TC.TraceId.from_words(first: U32, second: U32, third: U32, fourth: U32) -> Maybe<&2, TC.TraceId>
+TC.SpanId.from_words(first: U32, second: U32) -> Maybe<&2, TC.SpanId>
+TC.U32.to_hex(word: U32) -> String
+```
+
+`U32.to_hex` gives a word's eight lowercase digits, most significant first,
+and `from_words` returns `None{}` for an all-zero candidate. Like parsing,
+`TraceId.from_words` makes no randomness assertion; add one with
+`TraceId.assert_random` only when the words are random. The `Draw`/`Step`
+machine that the operations share is stated in the laws but is internal, like
+the parsing helpers: it is not a compatibility contract.
 
 ## Parsing contract
 
@@ -205,24 +307,56 @@ every value of their types, not over examples:
   keeps the bits that `TraceParentV00.is_sampled` and `is_random` read. The
   corpus checks those two readers on all 256 flag bytes; no law restates them
   for the reserved bit patterns.
+- **Conversion:** a candidate trace ID's text is `U32.to_hex` of its four words
+  in reading order and a span ID's of its two. Read as a base-16 numeral,
+  `U32.to_hex(word)` is the number Base's `U32.to_nat` assigns to the word, so
+  digits are big-endian within each word too. `U32.to_hex` is injective, so no
+  source information is lost, and converting words makes no randomness
+  assertion.
+- **Generation:** a source error ends generation at once. Reading a tape, the
+  IO operations compute exactly the pure tape driver, word for word. For every
+  tape, a root or restart ends within 48 words and a child within 16. Eight
+  zero candidates exhaust a root's trace ID or a child's span ID without
+  reading a ninth; the other exhaustion paths are tested. A generated root
+  asserts randomness and is unsampled; a generated child keeps the parent's
+  trace ID and randomness assertion, resolves sampled and never reuses the
+  parent's span ID; a generated restart's trace ID differs from the received
+  one, asserts randomness and is unsampled.
+
+The generation laws quantify over tapes, that is, over every sequence of word
+results. The host source runs through the same driver with its effect in
+`read`; that path is tested, not proved.
 
 Auxiliary universal proofs cover hexadecimal and character decoding, encoded
 lengths, reading an encoded sequence while preserving its suffix, recovery of a
-nonzero ID and string comparison. Proofs use structural induction/composition,
-without local axioms or `@unsafe` shortcuts. The laws do not cover the origin
-of supplied IDs, the truth of a randomness assertion or global uniqueness.
+nonzero ID, string comparison and the word-to-digit round trip. Proofs use
+structural induction/composition, without local axioms or `@unsafe`
+shortcuts. The laws do not cover the origin of supplied IDs, the truth of a
+randomness assertion, the quality of a source or global uniqueness.
 
 ## Validation and scope
 
 The [public corpus](tests/TEST.bend) uses eight valid traceparent inputs, 26
 malformed traceparent inputs with expected errors/positions, 14 malformed
 supplied IDs, roots and children for all four known flag combinations, both
-restart outcomes (`00` and `02`), and all 256 flag bytes. For each flag byte it checks the codec, the received
-sampled and random bits and the flags a child emits against independent
-numeric oracles. The [negative fixtures](tests/reject) must fail typechecking
-for the intended nonzero, length and remote/local mismatch. The
-[validation guide](../../README.md#validation) describes reproducible commands
-and the separate clean consumer.
+restart outcomes (`00` and `02`), and all 256 flag bytes. For each flag byte
+it checks the codec, the received sampled and random bits and the flags a child
+emits against independent numeric oracles. The [negative fixtures](tests/reject)
+must fail typechecking for the intended nonzero, length and remote/local
+mismatch.
+
+The [generation corpus](tests/GENERATION.bend) replays tapes through the public
+operations: conversion vectors in decimal for the W3C example words, the digit
+order within a word, zero then valid candidates, eight zero candidates with no ninth read, a 48-word
+worst case, a source error in the middle of a candidate, an empty tape, a
+child that must not reuse the parent's span ID and a restart that must not
+reuse the received trace ID, each checking how many words were left unread.
+The [smoke check](tests/SMOKE.bend) and the
+[generation example](examples/generate.bend) generate on the real host source;
+they check only that the results are well formed. The JavaScript suite runs a compiled
+root through WebCrypto with real host exceptions and counts the words read.
+The [validation guide](../../README.md#validation) describes reproducible
+commands and the separate clean consumer.
 
 The strict v00 format follows
 [W3C Trace Context Level 1](https://www.w3.org/TR/2021/REC-trace-context-1-20211123/#traceparent-header).
@@ -230,8 +364,8 @@ The planned propagator targets the pinned
 [Level 2 Candidate Recommendation Draft](https://www.w3.org/TR/2024/CRD-trace-context-2-20240328/).
 The random-trace-id flag `0x02` still uses wire version `00`.
 
-This package does not yet implement tracestate, ID generation, header
-extraction/injection, future-version participation or HTTP/browser
+This package does not yet implement tracestate, header extraction/injection,
+future-version participation, browser generation or HTTP/browser
 integration. Its faithful formatter does not mask reserved bits of a parsed
 value; `LocalContext.to_traceparent` emits only known flags. There is no claim of
 complete W3C propagator conformance or a full OpenTelemetry SDK.

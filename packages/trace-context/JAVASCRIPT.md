@@ -2,9 +2,10 @@
 
 This slice qualifies the existing strict v00 codec as an imported pure Bend
 module, plus a shared WebCrypto source and an explicit Bend JavaScript effect.
-It does not implement context generation, Fetch/HTTP propagation or a complete
-JavaScript SDK. Those capabilities remain in issues
-[#6](https://github.com/LucasGois1/bend-trace-context/issues/6),
+Bend programs compiled to Node also generate contexts through that effect, as
+described in the [package reference](README.md#generated-contexts). A
+JavaScript facade for generation, Fetch/HTTP propagation and a complete
+JavaScript SDK remain in issues
 [#13](https://github.com/LucasGois1/bend-trace-context/issues/13) and
 [#14](https://github.com/LucasGois1/bend-trace-context/issues/14).
 
@@ -90,8 +91,8 @@ explicit provider has the same `getRandomValues(array)` interface; it is useful
 for integration and deterministic tests. Passing `null` models unavailability.
 Providers are trusted to supply entropy: validating a returned integer cannot
 prove its cryptographic origin. There is no time, counter or `Math.random`
-fallback, and no implicit retries. Zero is valid at this source boundary; ID
-validation and bounded generation belong to #6.
+fallback, and no implicit retries. Zero is valid at this source boundary: ID
+validation and the bounded candidate rules belong to generation.
 
 | Result | Meaning |
 | --- | --- |
@@ -123,9 +124,16 @@ Save this as `entropy-example.bend` at the repository root, then run
 `./bend entropy-example.bend -o build/entropy-example.cjs` followed by
 `node build/entropy-example.cjs`.
 
-This is a **JavaScript-only effect**; it is not a qualified native entropy adapter.
-The shared file uses CommonJS because Bend embeds foreign effect functions in a
-generated closure, where ESM declarations are invalid. Node and the official
+The same effect has a native twin, [`entropy/native.c`](entropy/native.c), which
+reads one word from the host primitive Base's `IO.random_u32` uses:
+`arc4random_buf` on macOS, which cannot fail, and `getrandom` on Linux,
+returning its error as `Fail` with the `errno` and its `strerror` text. The
+tests do not induce that native failure. The twin uses the pinned compiler's
+documented [C effect interface](https://github.com/bendlang/bend/blob/63bee70b55a71024d6bdcb49a745111bc54b114e/guide/EFFECTS.md),
+so a compiler update must requalify it.
+
+The shared JavaScript file uses CommonJS because Bend embeds foreign effect
+functions in a generated closure, where ESM declarations are invalid. Node and the official
 browser bundler import that same file. Its conditional `module.exports` also
 assigns unused exports inside a compiled CLI; that CLI has no library interface.
 
@@ -135,9 +143,15 @@ The [reproducer](../../tests/javascript/fixtures/base-entropy.bend) and the
 [qualification tests](../../tests/javascript/entropy.test.mjs) demonstrate that
 behavior alongside the package adapter, whose Bend continuation receives
 `Done` or `Fail`. This adapter resolves the qualification requirement without
-patching the compiler. Native generation and later JS/browser generation must
-still satisfy their separate tickets; this result does not qualify Base's
-uncaught failure behavior as supported.
+patching the compiler; it does not qualify Base's uncaught failure behavior as
+supported. [Generation](README.md#generated-contexts) reads its words through
+this adapter. The qualification tests compile a generated root to JavaScript
+and run it on real WebCrypto, on each induced host failure (reported as a
+structured `SourceFailure` without fallback), on constant providers and on a
+provider that fails at the third word, counting the words read: six for a
+root, 32 before exhaustion when every word is zero, and three when the third
+fails. Browser generation remains in
+[#14](https://github.com/LucasGois1/bend-trace-context/issues/14).
 
 ## Reproduce the qualification
 

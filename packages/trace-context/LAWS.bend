@@ -183,3 +183,185 @@ law restart_accepts:
     Trace.TraceId.to_string(Trace.RemoteContext.trace_id(previous)) : String}
   {Trace.Context.restart_from_ids(previous, trace_id, span_id) ==
     Done{Trace.Context.root_from_ids(trace_id, span_id)} : Result<&2, &2, Trace.ContextError, Trace.LocalContext>}
+
+# Identifiers from words. Words are converted most significant first: a
+# candidate trace ID's text is its four words' texts in order, and a span ID's
+# its two. No information is lost converting a word.
+law trace_words:
+  for first: U32
+  for second: U32
+  for third: U32
+  for fourth: U32
+  for id: Trace.TraceId
+  for made: {Trace.TraceId.from_words(first, second, third, fourth) == Some{id} : Maybe<&2, Trace.TraceId>}
+  {Trace.TraceId.to_string(id) ==
+    Trace.U32.to_hex(first) ++ Trace.U32.to_hex(second) ++ Trace.U32.to_hex(third) ++ Trace.U32.to_hex(fourth) : String}
+
+law span_words:
+  for first: U32
+  for second: U32
+  for id: Trace.SpanId
+  for made: {Trace.SpanId.from_words(first, second) == Some{id} : Maybe<&2, Trace.SpanId>}
+  {Trace.SpanId.to_string(id) == Trace.U32.to_hex(first) ++ Trace.U32.to_hex(second) : String}
+
+law hex_injective:
+  for left: U32
+  for right: U32
+  for same: {Trace.U32.to_hex(left) == Trace.U32.to_hex(right) : String}
+  {left == right : U32}
+
+# The value of a lowercase hexadecimal digit: its position in `alphabet`,
+# counted from `index`.
+def hex_digit_value(alphabet: String, +char: Char, +index: Nat) -> Nat:
+  match alphabet:
+    case SNil{}:
+      index
+    case SCon{candidate, rest}:
+      Bool.pick(Nat, Char.is_eq(char, candidate), index, hex_digit_value(rest, char, 1n+index))
+
+def times16(value: Nat) -> Nat:
+  Nat.double(Nat.double(Nat.double(Nat.double(value))))
+
+# The value of a hexadecimal numeral, its first digit most significant.
+def hex_numeral(text: String, value: Nat) -> Nat:
+  match text:
+    case SNil{}:
+      value
+    case SCon{char, rest}:
+      hex_numeral(rest, Nat.add(hex_digit_value("0123456789abcdef", char, 0n), times16(value)))
+
+# Digits are big-endian within a word too: a word's text is the base-16
+# numeral of the number Base assigns to the word.
+law word_hex:
+  for word: U32
+  {hex_numeral(Trace.U32.to_hex(word), 0n) == U32.to_nat(word) : Nat}
+
+# Converting words makes no randomness assertion, as parsing makes none;
+# generation makes it (generated_root, generated_restart).
+law words_unasserted:
+  for first: U32
+  for second: U32
+  for third: U32
+  for fourth: U32
+  for id: Trace.TraceId
+  for made: {Trace.TraceId.from_words(first, second, third, fourth) == Some{id} : Maybe<&2, Trace.TraceId>}
+  {Trace.TraceId.is_random(id) == False{} : Bool}
+
+# A source error ends a generation at once.
+law feed_failure:
+  for code: U32
+  for message: String
+  for draw: Trace.Draw
+  {Trace.Draw.feed(Fail{(code, message)}, draw) == Trace.Failed{Trace.SourceFailure{code, message}} : Trace.Step}
+
+# A tape of source results, and what reading it leaves.
+def Tape() -> Type:
+  List<&1, Result<&1, &1, U32 & String, U32>>
+
+def TapeStep() -> Type:
+  Tape() & Trace.Step
+
+def TapeOutcome() -> Type:
+  Tape() & Result<&2, &2, Trace.GenerationError, Trace.LocalContext>
+
+# The value an IO action produces when every effect in it is pure.
+def Observe(-A: Type, action: IO(A)) -> IO.OP<A>:
+  action(A, value => Emit{value})
+
+def zeros(count: Nat) -> Tape():
+  match count:
+    case 0n:
+      Nil{}
+    case 1n+p:
+      Con{Done{0}, zeros(p)}
+
+# Generating from a tape performs exactly the pure tape driver: the same words
+# are read, in order, and the unread words are handed back.
+law root_tape:
+  for tape: Tape()
+  {Observe(TapeOutcome(), Trace.Context.root_with(~Tape(), ~Trace.Source.tape, tape)) ==
+    Emit{Trace.Draw.outcome(Tape(), Trace.Draw.run(48n, (tape, Trace.Draw.root())))} : IO.OP<TapeOutcome()>}
+
+law child_tape:
+  for tape: Tape()
+  for parent: Trace.Parent
+  for sampling: Trace.Sampling
+  {Observe(TapeOutcome(), Trace.Context.child_with(~Tape(), ~Trace.Source.tape, tape, parent, sampling)) ==
+    Emit{Trace.Draw.outcome(Tape(), Trace.Draw.run(16n, (tape, Trace.Draw.child(parent, sampling))))} :
+    IO.OP<TapeOutcome()>}
+
+law restart_tape:
+  for tape: Tape()
+  for previous: Trace.RemoteContext
+  {Observe(TapeOutcome(), Trace.Context.restart_with(~Tape(), ~Trace.Source.tape, tape, previous)) ==
+    Emit{Trace.Draw.outcome(Tape(), Trace.Draw.run(48n, (tape, Trace.Draw.restart(previous))))} :
+    IO.OP<TapeOutcome()>}
+
+# Whatever a tape holds, a root or restart ends within 48 words and a child
+# within 16: eight candidates of four words and eight of two.
+law root_ends:
+  for tape: Tape()
+  {Trace.Draw.ended(Trace.Draw.run(48n, (tape, Trace.Draw.root()))) == True{} : Bool}
+
+law child_ends:
+  for tape: Tape()
+  for +parent: Trace.Parent
+  for +sampling: Trace.Sampling
+  {Trace.Draw.ended(Trace.Draw.run(16n, (tape, Trace.Draw.child(parent, sampling)))) == True{} : Bool}
+
+law restart_ends:
+  for tape: Tape()
+  for +previous: Trace.RemoteContext
+  {Trace.Draw.ended(Trace.Draw.run(48n, (tape, Trace.Draw.restart(previous)))) == True{} : Bool}
+
+# Eight all-zero candidates exhaust a root's trace ID or a child's span ID
+# without reading a ninth: the words after them stay on the tape.
+law root_exhaustion:
+  for rest: Tape()
+  {Trace.Draw.run(48n, (List.append(&1, Result<&1, &1, U32 & String, U32>, zeros(32n), rest), Trace.Draw.root())) ==
+    (rest, Trace.Failed{Trace.ExhaustedTraceId{}}) : TapeStep()}
+
+law child_exhaustion:
+  for parent: Trace.Parent
+  for sampling: Trace.Sampling
+  for rest: Tape()
+  {Trace.Draw.run(16n, (List.append(&1, Result<&1, &1, U32 & String, U32>, zeros(16n), rest),
+    Trace.Draw.child(parent, sampling))) == (rest, Trace.Failed{Trace.ExhaustedSpanId{}}) : TapeStep()}
+
+# A generated root asserts random-trace-id and is not sampled: flags 02.
+law generated_root:
+  for tape: Tape()
+  for rest: Tape()
+  for created: Trace.LocalContext
+  for generated: {Trace.Draw.run(48n, (tape, Trace.Draw.root())) == (rest, Trace.Created{created}) : TapeStep()}
+  {Trace.TraceId.is_random(Trace.LocalContext.trace_id(created)) == True{} : Bool} &
+  {Trace.LocalContext.is_sampled(created) == False{} : Bool}
+
+# A generated child keeps the parent's trace ID and randomness assertion, takes
+# sampled from the parent unless set, and never reuses the parent's span ID.
+law generated_child:
+  for tape: Tape()
+  for +parent: Trace.Parent
+  for +sampling: Trace.Sampling
+  for rest: Tape()
+  for created: Trace.LocalContext
+  for generated: {Trace.Draw.run(16n, (tape, Trace.Draw.child(parent, sampling))) ==
+    (rest, Trace.Created{created}) : TapeStep()}
+  {Trace.LocalContext.trace_id(created) == Trace.Parent.trace_id(parent) : Trace.TraceId} &
+  {Trace.LocalContext.is_sampled(created) == Trace.Sampling.resolve(sampling, Trace.Parent.is_sampled(parent)) : Bool} &
+  {Trace.SpanId.to_string(Trace.LocalContext.span_id(created)) !=
+    Trace.SpanId.to_string(Trace.Parent.span_id(parent)) : String}
+
+# A generated restart starts a new trace: its trace ID differs from the
+# received one and asserts randomness, and it is not sampled.
+law generated_restart:
+  for tape: Tape()
+  for +previous: Trace.RemoteContext
+  for rest: Tape()
+  for created: Trace.LocalContext
+  for generated: {Trace.Draw.run(48n, (tape, Trace.Draw.restart(previous))) ==
+    (rest, Trace.Created{created}) : TapeStep()}
+  {Trace.TraceId.to_string(Trace.LocalContext.trace_id(created)) !=
+    Trace.TraceId.to_string(Trace.RemoteContext.trace_id(previous)) : String} &
+  {Trace.TraceId.is_random(Trace.LocalContext.trace_id(created)) == True{} : Bool} &
+  {Trace.LocalContext.is_sampled(created) == False{} : Bool}

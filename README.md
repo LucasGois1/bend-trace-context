@@ -7,9 +7,10 @@ types and checked proofs. Licensed under [MIT](LICENSE).
 under [specification #1](https://github.com/LucasGois1/bend-trace-context/issues/1).
 The current package parses, formats and inspects strict v00 values, and creates
 root, child and restarted local contexts from validated IDs that the caller
-supplies. ID generation, `tracestate`, header extraction/injection and
-HTTP/Fetch propagation are not implemented yet. Native HTTP transport is
-separately qualified as a development harness;
+supplies or from IDs generated on the host's cryptographic source, natively and
+in Bend programs compiled to Node. `tracestate`, header extraction/injection,
+browser generation and HTTP/Fetch propagation are not implemented yet. Native
+HTTP transport is separately qualified as a development harness;
 it does not add a Trace Context propagator or tracer. Pure JavaScript module
 consumption and a WebCrypto source are qualified separately below. No BendHub
 package has been published.
@@ -104,9 +105,17 @@ unsampled default, as they would be sent to the called service.
 00-4bf92f3577b34da6a3ce929d0e0e4736-53995c3f42cd8ad8-00
 ```
 
+To generate the IDs instead, import
+`./deps/bend-trace-context/packages/trace-context/generation.bend` and call
+`Context.root()`, `Context.child(parent, sampling)` or `Context.restart(previous)`
+from it; a generated root is emitted with flags `02`. The
+[generation example](packages/trace-context/examples/generate.bend) starts a
+trace and creates a child on the host's source, and the
+[consumer example](tests/consumer/main.bend) shows both paths.
+
 Read the [API and error reference](packages/trace-context/README.md) for strict
-parsing semantics, typed values and proof scope. See [versioning and migration
-policy](CHANGELOG.md) before updating a dependency pin.
+parsing semantics, typed values, generation rules and proof scope. See
+[versioning and migration policy](CHANGELOG.md) before updating a dependency pin.
 
 ## Validation
 
@@ -124,8 +133,9 @@ clone; they do not test uncommitted edits. To select a source and revision, run
 `node` as the first argument).
 
 Baseline gates cover proofs, independent protocol vectors, all 256 flag bytes,
-expected static rejections, the exact README example above and a consumer
-outside the repository. Consumer logs and outputs are saved under
+expected static rejections, deterministic generation from replayed tapes,
+real-source generation smoke checks, the examples, the exact README example
+above and a consumer outside the repository. Consumer logs and outputs are saved under
 `build/consumer-native/` or `build/consumer-node/`. CI exercises
 native macOS ARM64/Linux x86_64 and Node 22/24, recording exact runtime versions.
 Configuring a job is distinct from observing a successful run.
@@ -143,8 +153,11 @@ updates with a seven-day release cooldown. These schedules activate from the
 default branch. GitHub secret scanning and push protection are enabled.
 
 The universal fixed-length, `parse(format(context)) == Done{context}` and
-inverse laws of the strict codec are proved, as are the supplied-ID and
-context lifecycle laws listed in the [package reference](packages/trace-context/README.md#proofs).
+inverse laws of the strict codec are proved, as are the supplied-ID, context
+lifecycle and generation laws listed in the
+[package reference](packages/trace-context/README.md#proofs). The generation
+laws cover every sequence of words replayed from a tape; the host source's
+path through the same driver is tested, and its quality is not proved.
 Neither these laws nor the finite corpus establish full W3C propagator
 conformance.
 
@@ -154,7 +167,8 @@ The [JavaScript qualification guide](packages/trace-context/JAVASCRIPT.md)
 provides executable Node and browser examples, an input-validating adapter over
 the real Bend codec, and a shared WebCrypto source with structured failures.
 It explains the official Node loader, Bend HTML bundler and foreign-value/proof
-boundary. ID generation and HTTP/Fetch propagation remain later deliverables.
+boundary. A JavaScript generation facade, browser generation and HTTP/Fetch
+propagation remain later deliverables.
 
 The [native HTTP transport guide](packages/trace-context/NATIVE-HTTP.md)
 documents the pinned `bend-net` route, native macOS/Linux checks and its scope
