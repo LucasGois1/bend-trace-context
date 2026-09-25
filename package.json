@@ -1,0 +1,16 @@
+{
+  "name": "bend-trace-context-qualification",
+  "private": true,
+  "engines": {
+    "node": "22.x || 24.x"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0"
+  },
+  "scripts": {
+    "setup:source": "./scripts/setup-bend-source.sh",
+    "test:node": "node --import ./.tools/bend-source-2.0.27/bend2/main.ts --test --test-reporter=tap tests/javascript/*.test.mjs",
+    "build:browser": "./bend examples/javascript/index.html -o build/browser",
+    "test:browser": "playwright test"
+  }
+}

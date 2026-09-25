@@ -17,6 +17,10 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          package-manager-cache: false
       - name: Install actionlint
         env:
           GOBIN: ${{ runner.temp }}/quality-bin
@@ -24,8 +28,13 @@ jobs:
       - name: Check workflow syntax and shell scripts
         run: |
           shellcheck --version
-          shellcheck bend scripts/*.sh tests/installer/curl
+          shellcheck bend scripts/*.sh tests/installer/curl tests/installer-source/*.sh
           "$RUNNER_TEMP/quality-bin/actionlint" -color
+      - name: Check JavaScript syntax
+        run: |
+          while IFS= read -r -d '' file; do
+            node --check "$file"
+          done < <(git ls-files -z -- '*.js' '*.mjs')
       - name: Check workflow security
         uses: zizmorcore/zizmor-action@cc914d7f3750a2d13d75c7f184a1060aa0e9d482 # v0.6.4
         with:
@@ -113,6 +122,15 @@ jobs:
           package-manager-cache: false
       - name: Install verified Bend 2.0.27
         run: ./scripts/setup-bend.sh
+      - name: Install locked JavaScript qualification tooling
+        run: npm ci --ignore-scripts
+      - name: Source installer integrity and destination preservation
+        if: matrix.node == '24'
+        run: ./tests/installer-source/test.sh
+      - name: Install verified Bend JavaScript module loader
+        run: npm run setup:source
+      - name: Public JavaScript imports and WebCrypto boundary
+        run: ./scripts/qualify-js.sh node
       - name: Proofs, protocol corpus and static rejection gates
         run: ./scripts/validate.sh node
       - name: Independent consumer from this exact commit
@@ -125,13 +143,46 @@ jobs:
           path: |
             build/validation-node/*.txt
             build/consumer-node/
+            build/installer-source/
+            build/javascript/
+          if-no-files-found: error
+          retention-days: 14
+
+  browser:
+    name: browser (Chromium, Firefox, WebKit)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Install verified Bend 2.0.27
+        run: ./scripts/setup-bend.sh
+      - name: Install locked JavaScript qualification tooling
+        run: npm ci --ignore-scripts
+      - name: Install target browser engines
+        run: npx --no-install playwright install --with-deps chromium firefox webkit
+      - name: Bundle the public browser consumer
+        run: npm run build:browser
+      - name: Public browser imports and WebCrypto boundary
+        run: ./scripts/qualify-js.sh browser
+      - name: Preserve browser qualification evidence and failure traces
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: browser-${{ github.sha }}
+          path: build/javascript/
           if-no-files-found: error
           retention-days: 14
 
   required-baseline:
     name: required baseline
     if: always()
-    needs: [quality, native, node]
+    needs: [quality, native, node, browser]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -140,7 +191,9 @@ jobs:
           NATIVE_RESULT: ${{ needs.native.result }}
           NODE_RESULT: ${{ needs.node.result }}
           QUALITY_RESULT: ${{ needs.quality.result }}
+          BROWSER_RESULT: ${{ needs.browser.result }}
         run: |
           test "$QUALITY_RESULT" = success
           test "$NATIVE_RESULT" = success
           test "$NODE_RESULT" = success
+          test "$BROWSER_RESULT" = success

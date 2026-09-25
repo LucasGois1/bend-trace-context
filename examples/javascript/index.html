@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Bend Trace Context consumer</title>
+  </head>
+  <body>
+    <h1>Inspect a traceparent</h1>
+    <p>This page uses the package's strict v00 Bend codec.</p>
+    <label for="traceparent">Traceparent</label>
+    <input id="traceparent" size="60" value="00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01">
+    <button id="inspect" type="button">Inspect traceparent</button>
+    <pre role="status" id="result"></pre>
+    <script type="module" src="./browser.mjs"></script>
+  </body>
+</html>
