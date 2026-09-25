@@ -18,6 +18,11 @@ boundaries; it is not a published release.
   a shared WebCrypto source whose explicit Bend JS effect returns structured
   failures. Native entropy, ID generation and HTTP/Fetch integration remain
   separate planned capabilities.
+- Pin `paymog/bend-net` at `274591f1d1fcca2e4aa39ba65e505b32e2dbff21` and
+  qualify its native HTTP client/server on macOS ARM64 and Linux x86_64 with a
+  real loopback observer, repeated trace-header values, whitespace handling,
+  no-redirect behavior and the listener's header-size limit. This is a
+  development transport fixture, not Trace Context propagation or a tracer.
 
 The inverse law for every accepted text remains pending in issue #5. ID
 generation, tracestate, propagation and HTTP/Fetch integration are planned

@@ -76,7 +76,12 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          submodules: true
           persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          package-manager-cache: false
       - name: Verify runner architecture
         env:
           EXPECTED_SYSTEM: ${{ matrix.system }}
@@ -90,6 +95,8 @@ jobs:
         run: ./scripts/test-installer.sh
       - name: Proofs, protocol corpus and static rejection gates
         run: ./scripts/validate.sh native
+      - name: Qualify pinned native HTTP transport
+        run: ./scripts/qualify-native-http.sh
       - name: Independent consumer from this exact commit
         run: ./scripts/test-consumer.sh native "$GITHUB_WORKSPACE" "$(git rev-parse HEAD)"
       - name: Preserve validation evidence
@@ -99,6 +106,7 @@ jobs:
           name: native-${{ matrix.platform }}-${{ github.sha }}
           path: |
             build/validation-native/*.txt
+            build/native-http/
             build/consumer-native/
             build/installer-tests/
           if-no-files-found: error
