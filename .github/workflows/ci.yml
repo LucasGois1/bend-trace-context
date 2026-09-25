@@ -1,0 +1,146 @@
+name: Codec baseline
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    name: workflow, shell and documentation quality
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install actionlint
+        env:
+          GOBIN: ${{ runner.temp }}/quality-bin
+        run: go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+      - name: Check workflow syntax and shell scripts
+        run: |
+          shellcheck --version
+          shellcheck bend scripts/*.sh tests/installer/curl
+          "$RUNNER_TEMP/quality-bin/actionlint" -color
+      - name: Check workflow security
+        uses: zizmorcore/zizmor-action@cc914d7f3750a2d13d75c7f184a1060aa0e9d482 # v0.6.4
+        with:
+          version: v1.30.1
+          advanced-security: false
+          annotations: true
+      - name: Check local documentation links
+        uses: lycheeverse/lychee-action@e7477775783ea5526144ba13e8db5eec57747ce8 # v2.9.0
+        with:
+          lycheeVersion: v0.24.2
+          args: --offline --include-fragments --no-progress '*.md' 'packages/**/*.md'
+          output: build/quality/local-links.md
+          fail: true
+      - name: Preserve documentation report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: quality-${{ github.sha }}
+          path: build/quality/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  native:
+    name: native (${{ matrix.platform }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux-x86_64
+            runner: ubuntu-24.04
+            system: Linux
+            architecture: x86_64
+          - platform: macos-arm64
+            runner: macos-14
+            system: Darwin
+            architecture: arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Verify runner architecture
+        env:
+          EXPECTED_SYSTEM: ${{ matrix.system }}
+          EXPECTED_ARCHITECTURE: ${{ matrix.architecture }}
+        run: |
+          test "$(uname -s)" = "$EXPECTED_SYSTEM"
+          test "$(uname -m)" = "$EXPECTED_ARCHITECTURE"
+      - name: Install verified Bend 2.0.27
+        run: ./scripts/setup-bend.sh
+      - name: Installer integrity and destination preservation
+        run: ./scripts/test-installer.sh
+      - name: Proofs, protocol corpus and static rejection gates
+        run: ./scripts/validate.sh native
+      - name: Independent consumer from this exact commit
+        run: ./scripts/test-consumer.sh native "$GITHUB_WORKSPACE" "$(git rev-parse HEAD)"
+      - name: Preserve validation evidence
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: native-${{ matrix.platform }}-${{ github.sha }}
+          path: |
+            build/validation-native/*.txt
+            build/consumer-native/
+            build/installer-tests/
+          if-no-files-found: error
+          retention-days: 14
+
+  node:
+    name: node (${{ matrix.node }})
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['22', '24']
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ matrix.node }}
+          package-manager-cache: false
+      - name: Install verified Bend 2.0.27
+        run: ./scripts/setup-bend.sh
+      - name: Proofs, protocol corpus and static rejection gates
+        run: ./scripts/validate.sh node
+      - name: Independent consumer from this exact commit
+        run: ./scripts/test-consumer.sh node "$GITHUB_WORKSPACE" "$(git rev-parse HEAD)"
+      - name: Preserve validation evidence
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: node-${{ matrix.node }}-${{ github.sha }}
+          path: |
+            build/validation-node/*.txt
+            build/consumer-node/
+          if-no-files-found: error
+          retention-days: 14
+
+  required-baseline:
+    name: required baseline
+    if: always()
+    needs: [quality, native, node]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require every supported baseline
+        env:
+          NATIVE_RESULT: ${{ needs.native.result }}
+          NODE_RESULT: ${{ needs.node.result }}
+          QUALITY_RESULT: ${{ needs.quality.result }}
+        run: |
+          test "$QUALITY_RESULT" = success
+          test "$NATIVE_RESULT" = success
+          test "$NODE_RESULT" = success
