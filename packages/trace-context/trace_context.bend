@@ -5,6 +5,7 @@ import ./src/digits.bend as Digits
 type Field is Data:
   TraceIdField{}
   ParentIdField{}
+  SpanIdField{}
 
 type Error is Data:
   UnexpectedEnd{offset: Nat}
@@ -15,6 +16,14 @@ type Error is Data:
   UnsupportedVersion{version: String}
   ZeroId{field: Field}
 
+# Why creating a context from supplied IDs was refused.
+type ContextError is Data:
+  ReusedSpanId{}
+  ReusedTraceId{}
+
+type Parsed<-n: Nat> is Data:
+  Parsed{digits: Digits.Digits(n), rest: String}
+
 # Length and alphabet are structural. The IDs carry checked nonzero proofs.
 type TraceParentV00 is Data:
   TraceParentV00{
@@ -23,8 +32,34 @@ type TraceParentV00 is Data:
     flags: Digits.Digits(2n)
   }
 
-type Parsed<-n: Nat> is Data:
-  Parsed{digits: Digits.Digits(n), rest: String}
+# A validated trace ID. `random` records whether the random-trace-id flag may
+# be emitted for it. A parsed ID makes no such assertion; only its origin can
+# justify one.
+type TraceId is Data:
+  TraceId{value: Digits.NonZero<32n>, random: Bool}
+
+# A validated span ID: the nonzero identifier of one operation.
+type SpanId is Data:
+  SpanId{value: Digits.NonZero<16n>}
+
+# How a child operation obtains its sampled indication.
+type Sampling is Data:
+  InheritSampled{}
+  SetSampled{sampled: Bool}
+
+# A context received from another participant. It identifies the sender's
+# operation and keeps only the known flags: sampled and random-trace-id.
+type RemoteContext is Data:
+  RemoteContext{trace_id: TraceId, span_id: SpanId, sampled: Bool}
+
+# A context that identifies an operation of this participant.
+type LocalContext is Data:
+  LocalContext{trace_id: TraceId, span_id: SpanId, sampled: Bool}
+
+# The context whose trace a child operation continues.
+type Parent is Data:
+  RemoteParent{context: RemoteContext}
+  LocalParent{context: LocalContext}
 
 def Parsed.prepend(-n: Nat, digit: Hex.Digit, parsed: Parsed<n>) -> Parsed<1n+n>:
   match parsed:
@@ -160,6 +195,186 @@ def TraceParentV00.is_sampled(context: TraceParentV00) -> Bool:
       Digits.DCon{high, Digits.DCon{low, Digits.DNil{}}}}:
       Hex.Digit.is_odd(low)
 
+# Reads the random-trace-id flag (bit 1). It records the sender's assertion;
+# it does not prove how the trace ID was generated.
+def TraceParentV00.is_random(context: TraceParentV00) -> Bool:
+  match context:
+    case TraceParentV00{trace_id, parent_id,
+      Digits.DCon{high, Digits.DCon{low, Digits.DNil{}}}}:
+      Hex.Digit.has_bit1(low)
+
+def Parse.id.finish(n: Nat, parsed: Parsed<n>, field: Field) ->
+  Result<&2, &2, Error, Digits.NonZero<n>>:
+  match parsed:
+    case Parsed{digits, rest}:
+      do Result<&2, &2, Error, Digits.NonZero<n>>:
+        end : Unit <- Parse.end(rest)
+        Parse.nonzero(n, digits, field)
+
+# A supplied ID is exactly n lowercase hexadecimal digits, not all zero.
+def Parse.id(+n: Nat, text: String, field: Field) ->
+  Result<&2, &2, Error, Digits.NonZero<n>>:
+  do Result<&2, &2, Error, Digits.NonZero<n>>:
+    parsed : Parsed<n> <- Parse.digits(n, text, 0n)
+    Parse.id.finish(n, parsed, field)
+
+def TraceId.parse(text: String) -> Result<&2, &2, Error, TraceId>:
+  do Result<&2, &2, Error, TraceId>:
+    value : Digits.NonZero<32n> <- Parse.id(32n, text, TraceIdField{})
+    return TraceId{value, False{}}
+
+# Record the caller's assertion that these digits were generated randomly.
+# The caller is responsible for it; validation cannot establish it.
+def TraceId.assert_random(id: TraceId) -> TraceId:
+  match id:
+    case TraceId{value, random}:
+      TraceId{value, True{}}
+
+def TraceId.is_random(id: TraceId) -> Bool:
+  match id:
+    case TraceId{value, random}:
+      random
+
+def TraceId.to_string(id: TraceId) -> String:
+  match id:
+    case TraceId{value, random}:
+      Digits.NonZero.to_string(32n, value)
+
+# Compares identifiers; a randomness assertion is not part of the identifier.
+def TraceId.is_eq(a: TraceId, b: TraceId) -> Bool:
+  String.eq(TraceId.to_string(a), TraceId.to_string(b))
+
+def SpanId.parse(text: String) -> Result<&2, &2, Error, SpanId>:
+  do Result<&2, &2, Error, SpanId>:
+    value : Digits.NonZero<16n> <- Parse.id(16n, text, SpanIdField{})
+    return SpanId{value}
+
+def SpanId.to_string(id: SpanId) -> String:
+  match id:
+    case SpanId{value}:
+      Digits.NonZero.to_string(16n, value)
+
+def SpanId.is_eq(a: SpanId, b: SpanId) -> Bool:
+  String.eq(SpanId.to_string(a), SpanId.to_string(b))
+
+def Sampling.resolve(sampling: Sampling, inherited: Bool) -> Bool:
+  match sampling:
+    case InheritSampled{}:
+      inherited
+    case SetSampled{sampled}:
+      sampled
+
+# Interpret a received strict-v00 value. Bit 0 is sampled and bit 1 is
+# random-trace-id; the reserved bits are not interpreted.
+def RemoteContext.from_traceparent(value: TraceParentV00) -> RemoteContext:
+  match value:
+    case TraceParentV00{trace_id, parent_id,
+      Digits.DCon{high, Digits.DCon{+low, Digits.DNil{}}}}:
+      RemoteContext{TraceId{trace_id, Hex.Digit.has_bit1(low)}, SpanId{parent_id},
+        Hex.Digit.is_odd(low)}
+
+def RemoteContext.trace_id(context: RemoteContext) -> TraceId:
+  match context:
+    case RemoteContext{trace_id, span_id, sampled}:
+      trace_id
+
+def RemoteContext.span_id(context: RemoteContext) -> SpanId:
+  match context:
+    case RemoteContext{trace_id, span_id, sampled}:
+      span_id
+
+def RemoteContext.is_sampled(context: RemoteContext) -> Bool:
+  match context:
+    case RemoteContext{trace_id, span_id, sampled}:
+      sampled
+
+def LocalContext.trace_id(context: LocalContext) -> TraceId:
+  match context:
+    case LocalContext{trace_id, span_id, sampled}:
+      trace_id
+
+def LocalContext.span_id(context: LocalContext) -> SpanId:
+  match context:
+    case LocalContext{trace_id, span_id, sampled}:
+      span_id
+
+def LocalContext.is_sampled(context: LocalContext) -> Bool:
+  match context:
+    case LocalContext{trace_id, span_id, sampled}:
+      sampled
+
+# The participating representation: version 00, and flags limited to sampled
+# (bit 0) and random-trace-id (bit 1), with every reserved bit zero.
+def LocalContext.to_traceparent(context: LocalContext) -> TraceParentV00:
+  match context:
+    case LocalContext{TraceId{trace_id, random}, SpanId{span_id}, sampled}:
+      TraceParentV00{trace_id, span_id,
+        Digits.DCon{Hex.H0{}, Digits.DCon{Hex.Digit.from_low_bits(sampled, random), Digits.DNil{}}}}
+
+def Parent.trace_id(parent: Parent) -> TraceId:
+  match parent:
+    case RemoteParent{context}:
+      RemoteContext.trace_id(context)
+    case LocalParent{context}:
+      LocalContext.trace_id(context)
+
+def Parent.span_id(parent: Parent) -> SpanId:
+  match parent:
+    case RemoteParent{context}:
+      RemoteContext.span_id(context)
+    case LocalParent{context}:
+      LocalContext.span_id(context)
+
+def Parent.is_sampled(parent: Parent) -> Bool:
+  match parent:
+    case RemoteParent{context}:
+      RemoteContext.is_sampled(context)
+    case LocalParent{context}:
+      LocalContext.is_sampled(context)
+
+# Represent an operation the caller owns, using supplied IDs and an explicit
+# sampled indication. Validation cannot establish where the IDs came from.
+def Context.from_ids(trace_id: TraceId, span_id: SpanId, sampled: Bool) -> LocalContext:
+  LocalContext{trace_id, span_id, sampled}
+
+# Start a trace with supplied IDs. A new root is not sampled. The names
+# Context.root, Context.child and Context.restart are left for generated IDs.
+def Context.root_from_ids(trace_id: TraceId, span_id: SpanId) -> LocalContext:
+  Context.from_ids(trace_id, span_id, False{})
+
+def Context.child_from_id.checked(trace_id: TraceId, span_id: SpanId, sampled: Bool, reused: Bool) ->
+  Result<&2, &2, ContextError, LocalContext>:
+  match reused:
+    case True{}:
+      Fail{ReusedSpanId{}}
+    case False{}:
+      Done{Context.from_ids(trace_id, span_id, sampled)}
+
+# Continue the parent's trace with a new operation identified by a supplied
+# span ID. The child keeps the trace ID and its randomness assertion, and its
+# span ID must differ from the parent's. Sampling is inherited unless set.
+def Context.child_from_id(+parent: Parent, +span_id: SpanId, sampling: Sampling) ->
+  Result<&2, &2, ContextError, LocalContext>:
+  Context.child_from_id.checked(Parent.trace_id(parent), span_id,
+    Sampling.resolve(sampling, Parent.is_sampled(parent)),
+    SpanId.is_eq(span_id, Parent.span_id(parent)))
+
+def Context.restart_from_ids.checked(trace_id: TraceId, span_id: SpanId, reused: Bool) ->
+  Result<&2, &2, ContextError, LocalContext>:
+  match reused:
+    case True{}:
+      Fail{ReusedTraceId{}}
+    case False{}:
+      Done{Context.root_from_ids(trace_id, span_id)}
+
+# Start a new trace with supplied IDs instead of continuing a received context.
+# The new trace ID must differ from the received one, and the root defaults
+# apply.
+def Context.restart_from_ids(previous: RemoteContext, +trace_id: TraceId, span_id: SpanId) ->
+  Result<&2, &2, ContextError, LocalContext>:
+  Context.restart_from_ids.checked(trace_id, span_id,
+    TraceId.is_eq(trace_id, RemoteContext.trace_id(previous)))
+
 def Error.show(error: Error) -> String:
   match error:
     case UnexpectedEnd{offset}:
@@ -178,3 +393,12 @@ def Error.show(error: Error) -> String:
       "ZeroTraceId"
     case ZeroId{ParentIdField{}}:
       "ZeroParentId"
+    case ZeroId{SpanIdField{}}:
+      "ZeroSpanId"
+
+def ContextError.show(error: ContextError) -> String:
+  match error:
+    case ReusedSpanId{}:
+      "ReusedSpanId"
+    case ReusedTraceId{}:
+      "ReusedTraceId"

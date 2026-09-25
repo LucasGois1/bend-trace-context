@@ -2,4 +2,9 @@ OK: W3C example and reserved flag bits
 OK: lengths, suffixes and version policy
 OK: lowercase ASCII alphabet and character offsets
 OK: separators and nonzero IDs
-OK: all 256 flag bytes preserve format and sampled bit
+OK: supplied trace and span IDs
+OK: roots and explicit construction
+OK: children of received contexts
+OK: children of local operations
+OK: explicit restarts
+OK: all 256 flag bytes: codec, received flags and emitted child flags

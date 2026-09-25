@@ -130,7 +130,7 @@ conformance to that draft; the propagator baseline is part of the new plan above
 | Property | Evidence |
 | --- | --- |
 | For a typed context `c`, `parse(format(c))` recovers `Done{c}` | Proved universal law, with no external validity precondition |
-| If `parse(s)` succeeds, reformatting recovers exactly `s` | Covered by test cases; the universal proof of this direction is still pending |
+| If `parse(s)` succeeds, reformatting recovers exactly `s` | Proved universal law over every `String`, added by [#5](https://github.com/LucasGois1/bend-trace-context/issues/5) |
 | Formatting produces 55 characters | Universal law and a proof by composition of indexed lengths |
 | IDs have the correct length and are nonzero | Dependent types and evidence required by constructors; negative compilation fixtures |
 | Reading digits preserves their values and the suffix | Universal law, proved by induction on length |

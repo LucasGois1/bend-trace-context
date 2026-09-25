@@ -273,8 +273,9 @@ the standard.
 - Successful generation produces valid IDs; the deterministic algorithm
   respects the candidate budget. The entropy source remains an external
   assumption.
-- Preserve/complete the codec laws, including the still-pending inverse
-  direction. The strict codec's exact textual equivalence is not the right
+- Preserve/complete the codec laws, including the inverse direction (proved in
+  [#5](https://github.com/LucasGois1/bend-trace-context/issues/5)). The strict
+  codec's exact textual equivalence is not the right
   equivalence for the entire propagation layer, which normalizes representations.
 
 Final statements must make preconditions and normalizations explicit. Critical
