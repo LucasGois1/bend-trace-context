@@ -1,10 +1,11 @@
-# Traceparent v00 codec and local contexts
+# Traceparent codec, contexts and tracestate
 
 The currently implemented part of **bend-trace-context 0.1.0-dev** is a pure,
-strict v00 codec for Bend 2.0.27, validated trace and span IDs, and root, child
+strict v00 codec for Bend 2.0.27, validated trace and span IDs, root, child
 and restarted local contexts, either from IDs the caller supplies or from IDs
-generated on a cryptographic source. It has no external package dependencies
-beyond the compiler's bundled `Base`. The public entries are
+generated on a cryptographic source, and a bounded Level 2 `tracestate` parser
+with validated limits. It has no external package dependencies beyond the
+compiler's bundled `Base`. The public entries are
 [trace_context.bend](trace_context.bend), which performs no host effect of its
 own, and [generation.bend](generation.bend), which adds the host's
 cryptographic source.
@@ -224,6 +225,157 @@ and `from_words` returns `None{}` for an all-zero candidate. Like parsing,
 machine that the operations share is stated in the laws but is internal, like
 the parsing helpers: it is not a compatibility contract.
 
+## Tracestate
+
+`TraceState` holds the vendor entries of a received `tracestate` in order: at
+most 32 entries with distinct keys, the leftmost first. It follows the Level 2
+grammar of the pinned publication. Names below are qualified by the alias `TC`
+for trace_context.bend:
+
+```bend
+TC.TraceState.parse(limits: TC.Limits, text: String) -> Result<&2, &2, TC.StateError, TC.TraceState>
+TC.TraceState.parse_fields(limits: TC.Limits, fields: List<&2, String>) ->
+  Result<&2, &2, TC.StateError, TC.TraceState>
+TC.TraceState.get(state: TC.TraceState, key: TC.StateKey) -> Maybe<&2, TC.StateValue>
+TC.TraceState.format(state: TC.TraceState) -> String
+TC.TraceState.entries(state: TC.TraceState) -> List<&2, TC.StateEntry>
+TC.TraceState.is_empty(state: TC.TraceState) -> Bool
+TC.TraceState.empty() -> TC.TraceState
+TC.StateEntry.key(entry: TC.StateEntry) -> TC.StateKey
+TC.StateEntry.key_text(entry: TC.StateEntry) -> String
+TC.StateEntry.value(entry: TC.StateEntry) -> TC.StateValue
+TC.StateEntry.format(entry: TC.StateEntry) -> String
+TC.StateKey.parse(text: String) -> Result<&2, &2, TC.EntryError, TC.StateKey>
+TC.StateKey.to_string(key: TC.StateKey) -> String
+TC.StateValue.parse(text: String) -> Result<&2, &2, TC.EntryError, TC.StateValue>
+TC.StateValue.to_string(value: TC.StateValue) -> String
+TC.StateError.show(error: TC.StateError) -> String
+TC.EntryError.show(error: TC.EntryError) -> String
+```
+
+`parse_fields` takes the repeated `tracestate` field values of a message in
+arrival order and reads them as their comma-joined combination, so member
+numbers run across fields. Read a message's tracestate only once its
+traceparent has been accepted: the standard gives tracestate no meaning
+without a valid traceparent, and extraction
+([#9](https://github.com/LucasGois1/bend-trace-context/issues/9)) will apply
+that rule itself. `parse` reads one combined value. `format` returns
+the normalized value: the entries in order, as `key=value`, joined by commas
+without optional whitespace. The empty state formats as `""`, which header
+injection will omit
+([#10](https://github.com/LucasGois1/bend-trace-context/issues/10)). `get`
+takes a validated key: the application parses its own key once with
+`StateKey.parse`, as it does its IDs.
+
+The [tracestate example](examples/tracestate.bend) reads two received fields,
+looks up its own entry and shows a discarded value. From the repository root:
+
+```sh
+./bend packages/trace-context/examples/tracestate.bend
+```
+
+```text
+tracestate: congo=t61rcWkgMzE,rojo=00f067aa0ba902b7
+congo: t61rcWkgMzE
+discarded: InvalidEntry 1 InvalidKey
+```
+
+### Grammar and reading rules
+
+- A key has 1 to 256 characters: a lowercase ASCII letter or a digit, then
+  lowercase letters, digits, `_`, `-`, `*`, `/` or `@`. The Level 1
+  `tenant@system` restriction does not apply.
+- A value has 1 to 256 printable ASCII characters (`0x20` to `0x7E`) other
+  than `,` and `=`, and does not end with a space. Leading spaces are part of
+  the value.
+- Spaces and horizontal tabs around a member are optional whitespace: before a
+  key they are skipped, and after a value they are not part of it. No
+  whitespace may separate a key from its `=`. Other whitespace, such as
+  newlines, is refused.
+- Empty and whitespace-only members are ignored and are not counted.
+- The value is read left to right, and reading stops at the first problem.
+  Every nonempty member is validated when it is reached, before duplicates are
+  considered, so a malformed duplicate is never dropped silently. It then
+  counts toward the 32 members allowed, whether or not its key is new: a 33rd
+  member fails with `TooManyMembers{}` even when it repeats a key.
+- The first entry of each key is kept; later entries with that key are
+  dropped.
+- Any invalid member or a 33rd member discards the whole state. Extraction
+  ([#9](https://github.com/LucasGois1/bend-trace-context/issues/9)) will keep a
+  valid traceparent when its state is discarded.
+
+### Limits
+
+`Limits` bounds what a received message may make the package read and what it
+emits. Every budget counts UTF-8 octets; Bend characters are Unicode code
+points, measured by their UTF-8 encoding.
+
+```bend
+TC.Limits.default() -> TC.Limits
+TC.Limits.new(traceparent_input: Nat, tracestate_input: Nat, tracestate_output: Nat) ->
+  Result<&2, &2, TC.LimitsError, TC.Limits>
+TC.Limits.traceparent_input(limits: TC.Limits) -> Nat
+TC.Limits.tracestate_input(limits: TC.Limits) -> Nat
+TC.Limits.tracestate_output(limits: TC.Limits) -> Nat
+TC.LimitsError.show(error: TC.LimitsError) -> String
+```
+
+| Budget | Default | Rule |
+| --- | --- | --- |
+| `traceparent_input` | 32768 | At least 55, the size of an emitted traceparent |
+| `tracestate_input` | 32768 | At least `tracestate_output`, so a configuration accepts what it emits |
+| `tracestate_output` | 512 | At least 512 |
+
+The 512-octet output budget is this package's capacity policy, not a W3C
+maximum; truncating emitted state to it belongs to
+[#8](https://github.com/LucasGois1/bend-trace-context/issues/8), and the
+traceparent input budget to extraction
+([#9](https://github.com/LucasGois1/bend-trace-context/issues/9)).
+`Limits.new` reports the first rule a configuration breaks.
+
+The tracestate input budget bounds the combined value, its whitespace and the
+commas that join repeated fields included. A value over the budget fails with
+`StateTooLarge{}` before any member is read, whatever it contains; measuring
+stops at the first character past the budget, so the rest of an oversized
+input is never read. Limits applied by a transport before the package remain
+the transport's responsibility.
+
+### Diagnostics
+
+| `StateError` | Meaning |
+| --- | --- |
+| `StateTooLarge{}` | The combined value exceeds the tracestate input budget |
+| `TooManyMembers{}` | A 33rd nonempty member was reached |
+| `InvalidEntry{member, error}` | The member numbered `member`, counting every comma-separated member from zero, is invalid |
+
+| `EntryError` | Meaning |
+| --- | --- |
+| `MissingEquals{}` | A nonempty member has no `=` |
+| `InvalidKey{}` | The text before the first `=` is not a key |
+| `InvalidValue{}` | The text after it, without trailing optional whitespace, is not a value |
+
+| `LimitsError` | Meaning |
+| --- | --- |
+| `TraceParentInputTooSmall{}` | The traceparent input budget is below 55 |
+| `TraceStateOutputTooSmall{}` | The tracestate output budget is below 512 |
+| `TraceStateInputTooSmall{}` | The tracestate input budget is below the output budget |
+
+`StateKey.parse` and `StateValue.parse` fail with `InvalidKey{}` and
+`InvalidValue{}`; they trim nothing, so a value with a trailing space is
+refused there. Diagnostics carry positions and categories, never the received
+text, and the package does not log.
+
+Parsing does not attach state to a context, and a parsed state gives no
+permission to change the state sent with an unchanged remote traceparent.
+Editing entries and emitting them within the output budget belong to
+[#8](https://github.com/LucasGois1/bend-trace-context/issues/8). As with the
+contexts, Bend constructors are not private: `StateKey`, `StateValue` and
+`TraceState` values carry proofs of their rules, so direct construction must
+supply them (the [negative fixture](tests/reject/invalid_state_key.bend) is
+refused). The reading machine behind `parse` (`Scan`, `Member`) and the
+measuring helpers (`Utf8`, `Budget`) are internal; the laws state budgets with
+`Utf8.length`.
+
 ## Parsing contract
 
 - Exactly 55 characters, version `00`, lowercase ASCII hexadecimal, and dashes
@@ -322,10 +474,38 @@ every value of their types, not over examples:
   trace ID and randomness assertion, resolves sampled and never reuses the
   parent's span ID; a generated restart's trace ID differs from the received
   one, asserts randomness and is unsampled.
+- **Limits:** a validated configuration has a traceparent input budget of at
+  least 55, an output budget of at least 512 and an input budget no smaller
+  than its output budget; `Limits.new` accepts exactly those configurations,
+  keeps their budgets, and the defaults are 32768, 32768 and 512.
+- **Keys and values:** an accepted key or value is exactly the text accepted,
+  every key's and value's text is accepted back, and neither contains `,` or
+  `=`.
+- **States:** every state, parsed or not, has distinct keys and at most 32
+  entries. Distinct keys are stated independently of the package: no entry's
+  key appears in a later entry.
+- **Queries:** every entry of a state is found by its key, and a key that no
+  entry has is absent.
+- **Parsing:** parsing a state's normalized value gives back that state
+  whenever the value fits the budget, and optional whitespace before and after
+  it changes nothing. Two states' values joined by a comma give the first
+  state's entries followed, in order, by the second's entries whose keys the
+  first lacks, whenever the value fits and they have at most 32 entries
+  together. In particular, an entry repeating a key of the state before it is
+  dropped and an entry with a new key follows the others. After 32 entries any
+  further entry is refused, even a repeated one, because members are counted
+  before duplicates are dropped. A value over the budget fails with
+  `StateTooLarge{}` whatever it holds, and within the budget its size changes
+  nothing. Repeated fields parse exactly as their comma-joined combination.
 
 The generation laws quantify over tapes, that is, over every sequence of word
 results. The host source runs through the same driver with its effect in
-`read`; that path is tested, not proved.
+`read`; that path is tested, not proved. The tracestate laws quantify over
+every state, entry and limits, and over any optional whitespace around a
+normalized value. Whitespace and empty members between members, other inputs
+that are not normalized values, the character classes, the octet width of each
+character and the member numbers in diagnostics are covered by the corpus, not
+by laws.
 
 Auxiliary universal proofs cover hexadecimal and character decoding, encoded
 lengths, reading an encoded sequence while preserving its suffix, recovery of a
@@ -333,6 +513,15 @@ nonzero ID, string comparison and the word-to-digit round trip. Proofs use
 structural induction/composition, without local axioms or `@unsafe`
 shortcuts. The laws do not cover the origin of supplied IDs, the truth of a
 randomness assertion, the quality of a source or global uniqueness.
+
+The sources are written to be read by developers new to Bend. Each law in
+[LAWS.bend](LAWS.bend) is preceded by a comment that states its claim in
+words, the requirement it verifies (a section of W3C Trace Context Level 2 or
+of the approved specification), why it matters and how to read its statement.
+[PROOF.bend](PROOF.bend) opens with a guide to reading Bend proofs and a map of
+the modules under [proofs](proofs), each of which starts with a summary of what
+it proves. [trace_context.bend](trace_context.bend) opens with notes on the
+Bend features the implementation relies on, and documents every definition.
 
 ## Validation and scope
 
@@ -344,6 +533,14 @@ it checks the codec, the received sampled and random bits and the flags a child
 emits against independent numeric oracles. The [negative fixtures](tests/reject)
 must fail typechecking for the intended nonzero, length and remote/local
 mismatch.
+
+The [tracestate corpus](tests/TRACESTATE.bend) uses literal fixtures for keys
+and values at every character-class boundary and length limit, optional
+whitespace, empty members, member errors and their numbers, duplicates,
+exactly 32 and 33 members, repeated fields, every limit rule, and inputs at and
+past the budget with one-, two-, three- and four-octet characters, up to a
+mebibyte that must be refused without being read. It also parses the largest
+valid state, 16447 octets, within the default budget.
 
 The [generation corpus](tests/GENERATION.bend) replays tapes through the public
 operations: conversion vectors in decimal for the W3C example words, the digit
@@ -364,9 +561,9 @@ The planned propagator targets the pinned
 [Level 2 Candidate Recommendation Draft](https://www.w3.org/TR/2024/CRD-trace-context-2-20240328/).
 The random-trace-id flag `0x02` still uses wire version `00`.
 
-This package does not yet implement tracestate, header extraction/injection,
-future-version participation, browser generation or HTTP/browser
-integration. Its faithful formatter does not mask reserved bits of a parsed
+This package does not yet implement tracestate editing or emission, header
+extraction/injection, future-version participation, browser generation or
+HTTP/browser integration. Its faithful formatter does not mask reserved bits of a parsed
 value; `LocalContext.to_traceparent` emits only known flags. There is no claim of
 complete W3C propagator conformance or a full OpenTelemetry SDK.
 

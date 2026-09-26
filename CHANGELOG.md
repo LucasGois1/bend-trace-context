@@ -4,8 +4,8 @@
 
 Development toward the complete 0.1.0 Trace Context propagator. This version
 currently provides the strict v00 codec, contexts created from supplied or
-generated IDs and qualified JavaScript/entropy boundaries; it is not a
-published release.
+generated IDs, Level 2 tracestate parsing within validated limits and
+qualified JavaScript/entropy boundaries; it is not a published release.
 
 - Preserve the pure Bend codec, dependent ID representation, universal
   round-trip and fixed-length proofs, independent protocol corpus and
@@ -40,6 +40,35 @@ published release.
   is not proved. A runnable generation example is added.
 - `entropy.bend` gains a native twin reading the host primitive of Base's
   `IO.random_u32`, so native programs can use it too.
+- Parse, query and format Level 2 tracestate with `TraceState.parse` and
+  `TraceState.parse_fields`, `TraceState.get`, `TraceState.format` and
+  `TraceState.entries`, over validated `StateKey`, `StateValue` and
+  `StateEntry` values. Optional whitespace and empty members are ignored,
+  leading value spaces are kept, every nonempty member is validated and counted
+  before duplicates are dropped, the first entry of a key is kept and a 33rd
+  member discards the state. Repeated fields are read as their comma-joined
+  combination. Failures are `StateError` diagnostics: `StateTooLarge`,
+  `TooManyMembers` or `InvalidEntry{member, error}` with an `EntryError`.
+- Add validated `Limits` with `Limits.new` and `Limits.default()`: traceparent
+  and tracestate input budgets of 32 KiB and a tracestate output budget of 512
+  octets by default, in UTF-8 octets. A configuration needs at least 55 octets
+  of traceparent input, at least 512 of output and no less tracestate input
+  than output; `LimitsError` names the first rule broken. A tracestate value
+  over its input budget is refused before any member is read, without
+  measuring the rest. Laws prove the rules of limits, keys, values and states,
+  lookups by key, the round trip of a normalized value with optional whitespace
+  around it, the parse of two joined states (the first entry of a key kept,
+  order preserved, 32 members counted before duplicates are dropped), repeated
+  fields and the budget. Whitespace between members and other inputs that are
+  not normalized values are tested by the corpus. A runnable tracestate example
+  is added.
+- Document the sources for developers new to Bend. Every law in `LAWS.bend`
+  states its claim in words, the W3C or specification requirement it verifies,
+  its motivation and how to read it; `PROOF.bend` explains how to read a Bend
+  proof; every definition of the package and every helper law under `proofs/`
+  has a comment. The proof modules drop unused imports and lemmas and keep
+  general lemmas in the shared libraries; law statements and code are
+  unchanged.
 - Establish reproducible Bend 2.0.27 setup, Git-pinned consumption, MIT licensing
   and baseline validation on native and Node targets.
 - Standardize documentation and package paths in English, including the public
@@ -54,15 +83,16 @@ published release.
   no-redirect behavior and the listener's header-size limit. This is a
   development transport fixture, not Trace Context propagation or a tracer.
 
-Tracestate, header extraction/injection, browser generation, propagation and
-HTTP/Fetch integration are planned under
+Tracestate editing and emission, header extraction/injection, browser
+generation, propagation and HTTP/Fetch integration are planned under
 [specification #1](https://github.com/LucasGois1/bend-trace-context/issues/1).
 
 **Migration within 0.1.0-dev:** `Field` gains `SpanIdField{}`, so
 `Error.ZeroId` can now name a supplied span ID. Code that matches every `Field`
 constructor, or every `ZeroId{...}` case of `Error`, without a default case
 must handle it. Context creation reports the new `ContextError` type; `Error`
-itself gains no constructor.
+itself gains no constructor. Tracestate and limits add new types and functions
+only; no existing name or behavior changes.
 
 ## Versioning and compatibility
 
@@ -76,8 +106,9 @@ which performs no host effect of its own, and
 `packages/trace-context/generation.bend`, which generates on the host's
 cryptographic source. Their documented types, constructors, functions and
 error behavior form the current API contract. Internal parsing, generation
-machine (`Draw`/`Step`) and proof helpers are not compatibility promises, even
-where Bend makes their names importable.
+machine (`Draw`/`Step`), tracestate reading machine (`Scan`/`Member`) and
+proof helpers are not compatibility promises, even where Bend makes their names
+importable.
 
 The additional JavaScript inspection and entropy entries and their error
 contracts are documented in the [qualification guide](packages/trace-context/JAVASCRIPT.md).

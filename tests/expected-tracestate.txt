@@ -1,0 +1,11 @@
+OK: validated limits and their defaults
+OK: Level 2 keys
+OK: Level 2 values
+OK: parse, query and format
+OK: optional whitespace, empty members and member errors
+OK: first entry of a key, validated and counted before duplicates are dropped
+OK: UTF-8 input budget
+OK: repeated fields and joining commas
+OK: the largest valid state
+OK: bounded reading at and past the default budget
+OK: diagnostics

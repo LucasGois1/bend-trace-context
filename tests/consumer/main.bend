@@ -134,6 +134,68 @@ def generation() -> IO(Unit):
         [Done{183985433}, Done{382551005}, Done{2219371297}, Done{478163356}, Done{3081595761}, Done{1763717937}])
     replayed(outcome)
 
+# Provider state received in two tracestate fields, read with the package's
+# default limits and with a smaller configured budget.
+def state(label: String, result: Result<&2, &2, TC.StateError, TC.TraceState>) -> IO(TC.TraceState):
+  match result:
+    case Fail{error}:
+      IO.die(TC.TraceState, 1, label ++ ": " ++ TC.StateError.show(error))
+    case Done{parsed}:
+      IO.pure(TC.TraceState, parsed)
+
+def discarded(label: String, result: Result<&2, &2, TC.StateError, TC.TraceState>) -> IO(Unit):
+  match result:
+    case Done{_}:
+      IO.die(Unit, 1, "FAIL: accepted " ++ label)
+    case Fail{error}:
+      IO.print(label ++ " discarded: " ++ TC.StateError.show(error))
+
+def entry_value(found: Maybe<&2, TC.StateValue>) -> String:
+  match found:
+    case None{}:
+      "absent"
+    case Some{value}:
+      "\"" ++ TC.StateValue.to_string(value) ++ "\""
+
+def lookup.key(state: TC.TraceState, result: Result<&2, &2, TC.EntryError, TC.StateKey>) -> IO(Unit):
+  match result:
+    case Fail{error}:
+      IO.die(Unit, 1, "invalid state key: " ++ TC.EntryError.show(error))
+    case Done{+key}:
+      IO.print(TC.StateKey.to_string(key) ++ ": " ++ entry_value(TC.TraceState.get(state, key)))
+
+# The application's own key is validated once, like its IDs.
+def lookup(state: TC.TraceState, text: String) -> IO(Unit):
+  lookup.key(state, TC.StateKey.parse(text))
+
+def limits(result: Result<&2, &2, TC.LimitsError, TC.Limits>) -> IO(TC.Limits):
+  match result:
+    case Fail{error}:
+      IO.die(TC.Limits, 1, "limits: " ++ TC.LimitsError.show(error))
+    case Done{configured}:
+      IO.pure(TC.Limits, configured)
+
+def refused_limits(result: Result<&2, &2, TC.LimitsError, TC.Limits>) -> IO(Unit):
+  match result:
+    case Done{_}:
+      IO.die(Unit, 1, "FAIL: accepted a 54-octet traceparent budget")
+    case Fail{error}:
+      IO.print("limits refused: " ++ TC.LimitsError.show(error))
+
+def tracestate() -> IO(Unit):
+  do IO<Unit>:
+    +received : TC.TraceState <- state("received state", TC.TraceState.parse_fields(TC.Limits.default(),
+      ["rojo=00f067aa0ba902b7,congo=t61rcWkgMzE", " congo=later ,, vendor@system= opaque value  "]))
+    Unit <- IO.print("received state: " ++ TC.TraceState.format(received))
+    Unit <- IO.print("entries: " ++ Nat.show(List.length(&2, TC.StateEntry, TC.TraceState.entries(received))))
+    Unit <- lookup(received, "congo")
+    Unit <- lookup(received, "vendor@system")
+    Unit <- lookup(received, "absent")
+    Unit <- discarded("state without a value", TC.TraceState.parse(TC.Limits.default(), "rojo=1,rojo"))
+    +small : TC.Limits <- limits(TC.Limits.new(55n, 512n, 512n))
+    Unit <- discarded("513-octet state", TC.TraceState.parse(small, "rojo=1" ++ String.repeat(" ", 507n)))
+    refused_limits(TC.Limits.new(54n, 512n, 512n))
+
 def main() -> IO(Unit):
   do IO<Unit>:
     Unit <- show(TC.TraceParentV00.parse(
@@ -141,4 +203,5 @@ def main() -> IO(Unit):
     Unit <- reject(TC.TraceParentV00.parse(
       "00-00000000000000000000000000000000-b7ad6b7169203331-01"))
     Unit <- lifecycle()
-    generation()
+    Unit <- generation()
+    tracestate()

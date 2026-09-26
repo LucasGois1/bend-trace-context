@@ -5,11 +5,13 @@ types and checked proofs. Licensed under [MIT](LICENSE).
 
 **Status: 0.1.0-dev.** The complete Trace Context propagator is being developed
 under [specification #1](https://github.com/LucasGois1/bend-trace-context/issues/1).
-The current package parses, formats and inspects strict v00 values, and creates
+The current package parses, formats and inspects strict v00 values, creates
 root, child and restarted local contexts from validated IDs that the caller
 supplies or from IDs generated on the host's cryptographic source, natively and
-in Bend programs compiled to Node. `tracestate`, header extraction/injection,
-browser generation and HTTP/Fetch propagation are not implemented yet. Native
+in Bend programs compiled to Node, and parses, queries and formats Level 2
+`tracestate` within validated limits. Tracestate editing and emission, header
+extraction/injection, browser generation and HTTP/Fetch propagation are not
+implemented yet. Native
 HTTP transport is separately qualified as a development harness;
 it does not add a Trace Context propagator or tracer. Pure JavaScript module
 consumption and a WebCrypto source are qualified separately below. No BendHub
@@ -113,6 +115,13 @@ from it; a generated root is emitted with flags `02`. The
 trace and creates a child on the host's source, and the
 [consumer example](tests/consumer/main.bend) shows both paths.
 
+To read the vendor state of a received request whose traceparent you have
+accepted, pass its `tracestate` field values in arrival order to
+`TC.TraceState.parse_fields(TC.Limits.default(), fields)`; tracestate has no
+meaning without a valid traceparent.
+The [tracestate example](packages/trace-context/examples/tracestate.bend) looks
+up its own entry and prints the state's normalized value.
+
 Read the [API and error reference](packages/trace-context/README.md) for strict
 parsing semantics, typed values, generation rules and proof scope. See
 [versioning and migration policy](CHANGELOG.md) before updating a dependency pin.
@@ -134,8 +143,8 @@ clone; they do not test uncommitted edits. To select a source and revision, run
 
 Baseline gates cover proofs, independent protocol vectors, all 256 flag bytes,
 expected static rejections, deterministic generation from replayed tapes,
-real-source generation smoke checks, the examples, the exact README example
-above and a consumer outside the repository. Consumer logs and outputs are saved under
+real-source generation smoke checks, the tracestate corpus, the examples, the
+exact README example above and a consumer outside the repository. Consumer logs and outputs are saved under
 `build/consumer-native/` or `build/consumer-node/`. CI exercises
 native macOS ARM64/Linux x86_64 and Node 22/24, recording exact runtime versions.
 Configuring a job is distinct from observing a successful run.
@@ -154,7 +163,7 @@ default branch. GitHub secret scanning and push protection are enabled.
 
 The universal fixed-length, `parse(format(context)) == Done{context}` and
 inverse laws of the strict codec are proved, as are the supplied-ID, context
-lifecycle and generation laws listed in the
+lifecycle, generation, limits and tracestate laws listed in the
 [package reference](packages/trace-context/README.md#proofs). The generation
 laws cover every sequence of words replayed from a tape; the host source's
 path through the same driver is tested, and its quality is not proved.

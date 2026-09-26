@@ -8,6 +8,7 @@
 - Keep the public repository dedicated to the Trace Context package. Personal studies and learning experiments must stay out of versioned files and published history; public examples must demonstrate actual package use. Keep `docs/` local and untracked, including research and supporting planning notes; it must not appear in published history. Publish approved product specifications and decisions in GitHub issues so contributors can access the contract from a fresh clone.
 - Use English as the repository standard for code identifiers, comments, documentation, filenames, directories, and GitHub artifacts. Preserve non-English protocol fixtures or data only when required to verify behavior.
 - Complete planning through the selected Matt workflow before expanding implementation: `grill-with-docs`, specification, and tickets. Resolve factual questions through research and routine engineering choices using the criteria above; bring product trade-offs to the user when those criteria do not resolve them.
+- Every pull request must be complete when it is opened. Fix in the pull request every problem found during the work that fits its scope; do not leave known problems as follow-up notes. Open a new issue for a problem outside that scope only when it truly needs work.
 
 ## Issue tracker: GitHub
 
