@@ -3,8 +3,10 @@
 The currently implemented part of **bend-trace-context 0.1.0-dev** is a pure,
 strict v00 codec for Bend 2.0.27, validated trace and span IDs, root, child
 and restarted local contexts, either from IDs the caller supplies or from IDs
-generated on a cryptographic source, and a bounded Level 2 `tracestate` parser
-with validated limits. It has no external package dependencies beyond the
+generated on a cryptographic source, a bounded Level 2 `tracestate` parser
+with validated limits, and the operations that update a local operation's
+tracestate and emit it within the output budget. It has no external package
+dependencies beyond the
 compiler's bundled `Base`. The public entries are
 [trace_context.bend](trace_context.bend), which performs no host effect of its
 own, and [generation.bend](generation.bend), which adds the host's
@@ -327,9 +329,9 @@ TC.LimitsError.show(error: TC.LimitsError) -> String
 | `tracestate_output` | 512 | At least 512 |
 
 The 512-octet output budget is this package's capacity policy, not a W3C
-maximum; truncating emitted state to it belongs to
-[#8](https://github.com/LucasGois1/bend-trace-context/issues/8), and the
-traceparent input budget to extraction
+maximum; emission truncates to it (see
+[Updating and emitting tracestate](#updating-and-emitting-tracestate)). The
+traceparent input budget belongs to extraction
 ([#9](https://github.com/LucasGois1/bend-trace-context/issues/9)).
 `Limits.new` reports the first rule a configuration breaks.
 
@@ -366,15 +368,103 @@ refused there. Diagnostics carry positions and categories, never the received
 text, and the package does not log.
 
 Parsing does not attach state to a context, and a parsed state gives no
-permission to change the state sent with an unchanged remote traceparent.
-Editing entries and emitting them within the output budget belong to
-[#8](https://github.com/LucasGois1/bend-trace-context/issues/8). As with the
+permission to change the state sent with an unchanged remote traceparent;
+[Updating and emitting tracestate](#updating-and-emitting-tracestate)
+explains how state travels with a local operation. As with the
 contexts, Bend constructors are not private: `StateKey`, `StateValue` and
 `TraceState` values carry proofs of their rules, so direct construction must
 supply them (the [negative fixture](tests/reject/invalid_state_key.bend) is
 refused). The reading machine behind `parse` (`Scan`, `Member`) and the
 measuring helpers (`Utf8`, `Budget`) are internal; the laws state budgets with
 `Utf8.length`.
+
+## Updating and emitting tracestate
+
+A participant edits the state it sends with an operation of its own: a
+changed entry moves to the front and the other entries keep their order (W3C
+Level 2, section 3.5). The state it emits must fit the output budget of its
+limits.
+
+```bend
+TC.TraceState.set(state: TC.TraceState, key: TC.StateKey, value: TC.StateValue) -> TC.TraceState
+TC.TraceState.remove(state: TC.TraceState, key: TC.StateKey) -> TC.TraceState
+TC.TraceState.size(state: TC.TraceState) -> Nat
+TC.TraceState.truncate(limits: TC.Limits, state: TC.TraceState) -> TC.Truncation
+TC.Truncation.kept(truncation: TC.Truncation) -> TC.TraceState
+TC.Truncation.dropped(truncation: TC.Truncation) -> List<&2, TC.StateKey>
+TC.StateEntry.size(entry: TC.StateEntry) -> Nat
+```
+
+- `set` adds or updates the entry of a key: it goes first with the new
+  value, and at most 31 of the other entries follow, in their order.
+  Updating a key that the state has evicts nothing, even from a full state;
+  adding a new key to a full state removes the last entry.
+- `remove` deletes the entry of a key, if there is one, and keeps the others
+  in order. W3C asks participants not to delete keys that other vendors
+  generated; the package cannot tell who generated a key, so that choice is
+  the caller's.
+- `size` is the number of UTF-8 octets of `format(state)`: each entry's key,
+  `=` and value, and the commas between entries.
+- `truncate` fits a state to the tracestate output budget by removing whole
+  entries (section 3.3.3.1 and spec #1): while the value is over the budget,
+  it removes the rightmost entry larger than 128 octets, or the rightmost
+  entry when none is, and it stops as soon as the value fits. The surviving
+  entries keep their order. `dropped` lists the keys of the removed entries
+  in their original order, and is empty when nothing was removed. It reports
+  keys, not the opaque values.
+
+### Outgoing contexts
+
+An `OutgoingContext` is a local context together with the state its participant
+sends with it:
+
+```bend
+TC.OutgoingContext.new(context: TC.LocalContext) -> TC.OutgoingContext
+TC.OutgoingContext.with_state(context: TC.LocalContext, state: TC.TraceState) -> TC.OutgoingContext
+TC.OutgoingContext.context(outgoing: TC.OutgoingContext) -> TC.LocalContext
+TC.OutgoingContext.state(outgoing: TC.OutgoingContext) -> TC.TraceState
+TC.OutgoingContext.get(outgoing: TC.OutgoingContext, key: TC.StateKey) -> Maybe<&2, TC.StateValue>
+TC.OutgoingContext.set(outgoing: TC.OutgoingContext, key: TC.StateKey, value: TC.StateValue) -> TC.OutgoingContext
+TC.OutgoingContext.remove(outgoing: TC.OutgoingContext, key: TC.StateKey) -> TC.OutgoingContext
+TC.OutgoingContext.emit(limits: TC.Limits, outgoing: TC.OutgoingContext) -> TC.Emission
+TC.Emission.traceparent(emission: TC.Emission) -> String
+TC.Emission.tracestate(emission: TC.Emission) -> String
+TC.Emission.dropped(emission: TC.Emission) -> List<&2, TC.StateKey>
+```
+
+`OutgoingContext.new` gives a context with no state, as for a new root;
+`OutgoingContext.with_state` attaches a state, such as the state received with the
+parent of a child operation. Editing an outgoing context changes only its
+state. `emit` gives the two header values to send: the participating
+traceparent of the local context, and the normalized value of its state
+truncated to the output budget, `""` when there is no state. The same limits
+always accept the emitted value when parsing it.
+
+Editing a `TraceState` value is a pure operation, and it does not authorize
+sending the result with a received traceparent: the standard forbids
+changing or truncating the state of a traceparent that is sent unchanged (W3C
+Level 2, section 3.4). A service that changes the state it passes on creates
+a child operation first, so the new traceparent identifies its own
+operation. An outgoing context holds a local context, so a `RemoteContext`
+cannot be passed to it; a local context built with `Context.from_ids` must
+carry the IDs of the caller's own operation, which the package cannot check.
+Forwarding a received pair unchanged belongs to
+[#10](https://github.com/LucasGois1/bend-trace-context/issues/10).
+
+The [outgoing example](examples/outgoing.bend) continues a received trace with
+a child operation, puts its own entry first and emits both fields, then shows
+the truncation of a state that exceeds 512 octets. From the repository root:
+
+```sh
+./bend packages/trace-context/examples/outgoing.bend
+```
+
+```text
+traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-53995c3f42cd8ad8-01
+tracestate: fw529a3039=cHJpbWFyeQ,congo=t61rcWkgMzE,rojo=00f067aa0ba902b7
+dropped: none
+large state: 298 octets sent, dropped: b
+```
 
 ## Parsing contract
 
@@ -497,6 +587,18 @@ every value of their types, not over examples:
   before duplicates are dropped. A value over the budget fails with
   `StateTooLarge{}` whatever it holds, and within the budget its size changes
   nothing. Repeated fields parse exactly as their comma-joined combination.
+- **Updates:** setting a key puts its new entry first, followed by at most 31
+  of the other entries in their order; updating a present key keeps all the
+  others, and adding a new key keeps the state's first 31 entries. A lookup
+  finds the value just set, and removing a key leaves the other entries in
+  order and the key absent.
+- **Emission:** a state's size is exactly the UTF-8 octets of its normalized
+  value, commas included. Truncation keeps exactly what spec #1's procedure
+  keeps, restated independently in LAWS.bend; in particular it keeps a state
+  that fits whole, keeps entries in their order otherwise, fits the output
+  budget and reports exactly the keys it dropped. An outgoing context emits the traceparent of
+  its local context and its truncated state, which fits the output budget and
+  which the same limits parse back into that state.
 
 The generation laws quantify over tapes, that is, over every sequence of word
 results. The host source runs through the same driver with its effect in
@@ -505,7 +607,9 @@ every state, entry and limits, and over any optional whitespace around a
 normalized value. Whitespace and empty members between members, other inputs
 that are not normalized values, the character classes, the octet width of each
 character and the member numbers in diagnostics are covered by the corpus, not
-by laws.
+by laws. Truncation is stated as spec #1's procedure itself: while over the
+budget, the rightmost entry larger than 128 octets goes, or the rightmost
+entry when none is, and removal stops as soon as the value fits.
 
 Auxiliary universal proofs cover hexadecimal and character decoding, encoded
 lengths, reading an encoded sequence while preserving its suffix, recovery of a
@@ -542,6 +646,14 @@ past the budget with one-, two-, three- and four-octet characters, up to a
 mebibyte that must be refused without being read. It also parses the largest
 valid state, 16447 octets, within the default budget.
 
+The [outgoing corpus](tests/OUTGOING.bend) sets and removes entries of
+literal states, including full states that must evict nothing or exactly the
+last entry, checks emitted sizes, and truncates states at 512 and 513 octets,
+with entries of 128 and 129 octets, several large entries, a single entry
+larger than the budget and a larger configured budget, checking the entries
+kept and the keys dropped. It also emits outgoing contexts for a root and for
+a child of a received context.
+
 The [generation corpus](tests/GENERATION.bend) replays tapes through the public
 operations: conversion vectors in decimal for the W3C example words, the digit
 order within a word, zero then valid candidates, eight zero candidates with no ninth read, a 48-word
@@ -561,9 +673,9 @@ The planned propagator targets the pinned
 [Level 2 Candidate Recommendation Draft](https://www.w3.org/TR/2024/CRD-trace-context-2-20240328/).
 The random-trace-id flag `0x02` still uses wire version `00`.
 
-This package does not yet implement tracestate editing or emission, header
-extraction/injection, future-version participation, browser generation or
-HTTP/browser integration. Its faithful formatter does not mask reserved bits of a parsed
+This package does not yet implement header extraction/injection,
+future-version participation, browser generation or HTTP/browser
+integration. Its faithful formatter does not mask reserved bits of a parsed
 value; `LocalContext.to_traceparent` emits only known flags. There is no claim of
 complete W3C propagator conformance or a full OpenTelemetry SDK.
 

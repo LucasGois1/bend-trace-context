@@ -55,6 +55,9 @@
 #   proofs/merge.bend               a state's value followed by one entry
 #   proofs/normal.bend              separators and optional whitespace
 #   proofs/first.bend               two states' values joined by a comma
+#   proofs/order.bend               entries kept in order
+#   proofs/update.bend              setting and removing entries
+#   proofs/emit.bend                sizes, truncation and emission
 
 import Base
 import ./LAWS.bend as Laws
@@ -75,6 +78,8 @@ import ./proofs/distinct.bend as DistinctProof
 import ./proofs/merge.bend as MergeProof
 import ./proofs/normal.bend as NormalProof
 import ./proofs/first.bend as FirstProof
+import ./proofs/update.bend as UpdateProof
+import ./proofs/emit.bend as EmitProof
 
 # 1. Strict v00 codec
 # ===================
@@ -418,3 +423,96 @@ def Laws.full_state(limits, state, entry, full, fits):
 # proofs/first.bend.
 def Laws.first_wins(limits, first, second, count, fits):
   FirstProof.first_wins(limits, first, second, count, fits)
+
+# 11. Tracestate updates and emission
+# ===================================
+
+# The new entry first, then at most 31 of the others, in their order
+# (proofs/update.bend).
+def Laws.set_entries(state, key, value):
+  UpdateProof.set_entries(state, key, value)
+
+# With the key present, the other entries are at most 31, so none is
+# evicted.
+def Laws.update_keeps_all(state, key, value, present):
+  UpdateProof.update_keeps_all(state, key, value, present)
+
+# With the key absent, removing it changes nothing, so the first 31 entries
+# follow the new one.
+def Laws.insert_entries(state, key, value, absent):
+  UpdateProof.insert_entries(state, key, value, absent)
+
+# The lookup meets the new entry first.
+def Laws.set_get(state, key, value):
+  UpdateProof.set_get(state, key, value)
+
+# The other entries, in their order.
+def Laws.remove_entries(state, key):
+  UpdateProof.remove_entries(state, key)
+
+# The entries left lack the key.
+def Laws.remove_get(state, key):
+  UpdateProof.remove_get(state, key)
+
+# The octets of key, "=" and value add up (proofs/emit.bend).
+def Laws.entry_size(entry):
+  EmitProof.entry_size(entry)
+
+# The octets of the entries and their commas add up as Entries.format writes
+# them.
+def Laws.state_size(state):
+  EmitProof.state_size(state)
+
+# One removal step per entry reaches entries that fit.
+def Laws.truncate_fits(limits, state):
+  EmitProof.truncate_fits(limits, state)
+
+# A state that fits comes out of the loop unchanged, with its own evidence.
+def Laws.truncate_whole(limits, state, fits):
+  EmitProof.truncate_whole(limits, state, fits)
+
+# Each removal step keeps the other entries in order, and in_order is
+# transitive.
+def Laws.truncate_order(limits, state):
+  EmitProof.truncate_order(limits, state)
+
+# The keys reported are those of the entries the loop did not keep.
+def Laws.truncate_dropped(limits, state):
+  EmitProof.truncate_dropped(limits, state)
+
+# The loop measures the same octets and takes the same step as the
+# procedure, one step at a time.
+def Laws.truncate_steps(limits, state):
+  EmitProof.truncate_steps(limits, state)
+
+# By computation once the outgoing context is split into its fields.
+def Laws.outgoing_set(outgoing, key, value):
+  match outgoing:
+    case Trace.OutgoingContext{context, state}:
+      {==}
+
+# By computation once the outgoing context is split into its fields.
+def Laws.outgoing_remove(outgoing, key):
+  match outgoing:
+    case Trace.OutgoingContext{context, state}:
+      {==}
+
+# By computation once the outgoing context is split into its fields.
+def Laws.emit_traceparent(limits, outgoing):
+  match outgoing:
+    case Trace.OutgoingContext{context, state}:
+      {==}
+
+# By computation once the outgoing context is split into its fields.
+def Laws.emit_tracestate(limits, outgoing):
+  match outgoing:
+    case Trace.OutgoingContext{context, state}:
+      ({==}, {==})
+
+# The emitted value is the truncated state's normalized value, which fits.
+def Laws.emit_fits(limits, outgoing):
+  EmitProof.emit_fits(limits, outgoing)
+
+# The emitted value fits the input budget too, so it parses back.
+def Laws.emit_accepted(limits, outgoing):
+  EmitProof.emit_accepted(limits, outgoing)

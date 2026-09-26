@@ -196,6 +196,68 @@ def tracestate() -> IO(Unit):
     Unit <- discarded("513-octet state", TC.TraceState.parse(small, "rojo=1" ++ String.repeat(" ", 507n)))
     refused_limits(TC.Limits.new(54n, 512n, 512n))
 
+# The state a local operation sends: its own entry goes first, and the
+# emitted value fits the output budget. The edited state goes with a child of
+# the received context, never with the received traceparent unchanged.
+def entry(what: String, result: Result<&2, &2, TC.EntryError, TC.StateKey>) -> IO(TC.StateKey):
+  match result:
+    case Fail{error}:
+      IO.die(TC.StateKey, 1, what ++ ": " ++ TC.EntryError.show(error))
+    case Done{key}:
+      IO.pure(TC.StateKey, key)
+
+def entry_text(result: Result<&2, &2, TC.EntryError, TC.StateValue>) -> IO(TC.StateValue):
+  match result:
+    case Fail{error}:
+      IO.die(TC.StateValue, 1, "state value: " ++ TC.EntryError.show(error))
+    case Done{value}:
+      IO.pure(TC.StateValue, value)
+
+def dropped.rest(keys: List<&2, TC.StateKey>) -> String:
+  match keys:
+    case Nil{}:
+      ""
+    case Con{key, rest}:
+      "," ++ TC.StateKey.to_string(key) ++ dropped.rest(rest)
+
+def dropped(keys: List<&2, TC.StateKey>) -> String:
+  match keys:
+    case Nil{}:
+      "none"
+    case Con{key, rest}:
+      TC.StateKey.to_string(key) ++ dropped.rest(rest)
+
+def local(result: Result<&2, &2, TC.ContextError, TC.LocalContext>) -> IO(TC.LocalContext):
+  match result:
+    case Fail{error}:
+      IO.die(TC.LocalContext, 1, "local context: " ++ TC.ContextError.show(error))
+    case Done{context}:
+      IO.pure(TC.LocalContext, context)
+
+def outgoing.show(+limits: TC.Limits, +outgoing: TC.OutgoingContext, rojo: TC.StateKey) -> IO(Unit):
+  +emission = TC.OutgoingContext.emit(limits, outgoing)
+  do IO<Unit>:
+    Unit <- IO.print("outgoing: " ++ TC.Emission.traceparent(emission))
+    Unit <- IO.print("outgoing state: " ++ TC.Emission.tracestate(emission))
+    IO.print("without rojo: " ++ TC.Emission.tracestate(TC.OutgoingContext.emit(limits, TC.OutgoingContext.remove(outgoing, rojo))))
+
+def outgoing() -> IO(Unit):
+  +limits = TC.Limits.default()
+  do IO<Unit>:
+    parent : TC.RemoteContext <- received("00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01")
+    span : TC.SpanId <- span_id("53995c3f42cd8ad8")
+    +child : TC.LocalContext <- local(TC.Context.child_from_id(TC.RemoteParent{parent}, span, TC.InheritSampled{}))
+    fixture : TC.TraceState <- state("outgoing fixture",
+      TC.TraceState.parse(limits, "rojo=00f067aa0ba902b7,congo=t61rcWkgMzE"))
+    +own : TC.StateKey <- entry("own key", TC.StateKey.parse("fw529a3039"))
+    +value : TC.StateValue <- entry_text(TC.StateValue.parse("cHJpbWFyeQ"))
+    rojo : TC.StateKey <- entry("rojo key", TC.StateKey.parse("rojo"))
+    Unit <- outgoing.show(limits, TC.OutgoingContext.set(TC.OutgoingContext.with_state(child, fixture), own, value), rojo)
+    large : TC.TraceState <- state("large fixture", TC.TraceState.parse(limits,
+      "a=" ++ String.repeat("x", 256n) ++ ",b=" ++ String.repeat("x", 256n) ++ ",c=" ++ String.repeat("x", 256n)))
+    IO.print("large state dropped: " ++ dropped(TC.Emission.dropped(TC.OutgoingContext.emit(limits,
+      TC.OutgoingContext.set(TC.OutgoingContext.with_state(child, large), own, value)))))
+
 def main() -> IO(Unit):
   do IO<Unit>:
     Unit <- show(TC.TraceParentV00.parse(
@@ -204,4 +266,5 @@ def main() -> IO(Unit):
       "00-00000000000000000000000000000000-b7ad6b7169203331-01"))
     Unit <- lifecycle()
     Unit <- generation()
-    tracestate()
+    Unit <- tracestate()
+    outgoing()

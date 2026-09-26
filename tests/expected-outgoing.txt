@@ -1,0 +1,4 @@
+OK: updates
+OK: emitted size
+OK: whole-entry truncation to the output budget
+OK: outgoing contexts and their emission

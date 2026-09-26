@@ -21,3 +21,7 @@ absent: absent
 state without a value discarded: InvalidEntry 1 MissingEquals
 513-octet state discarded: StateTooLarge
 limits refused: TraceParentInputTooSmall
+outgoing: 00-0af7651916cd43dd8448eb211c80319c-53995c3f42cd8ad8-01
+outgoing state: fw529a3039=cHJpbWFyeQ,rojo=00f067aa0ba902b7,congo=t61rcWkgMzE
+without rojo: fw529a3039=cHJpbWFyeQ,congo=t61rcWkgMzE
+large state dropped: b,c

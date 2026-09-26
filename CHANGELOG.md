@@ -4,8 +4,9 @@
 
 Development toward the complete 0.1.0 Trace Context propagator. This version
 currently provides the strict v00 codec, contexts created from supplied or
-generated IDs, Level 2 tracestate parsing within validated limits and
-qualified JavaScript/entropy boundaries; it is not a published release.
+generated IDs, Level 2 tracestate parsing within validated limits, tracestate
+updates and emission within the output budget, and qualified
+JavaScript/entropy boundaries; it is not a published release.
 
 - Preserve the pure Bend codec, dependent ID representation, universal
   round-trip and fixed-length proofs, independent protocol corpus and
@@ -62,6 +63,19 @@ qualified JavaScript/entropy boundaries; it is not a published release.
   fields and the budget. Whitespace between members and other inputs that are
   not normalized values are tested by the corpus. A runnable tracestate example
   is added.
+- Update and emit tracestate. `TraceState.set` puts an entry first with its
+  new value and keeps the other entries in order: updating a key evicts
+  nothing, even from a full state, and a new 33rd key removes the last entry.
+  `TraceState.remove` deletes an entry. `TraceState.truncate` fits a state to
+  the output budget by removing whole entries, the rightmost larger than 128
+  octets first and then from the right, stopping as soon as the value fits;
+  `Truncation` reports the keys it dropped. `TraceState.size` counts the
+  emitted octets, commas included. `OutgoingContext` pairs a local context
+  with the state it sends, and `OutgoingContext.emit` gives its traceparent
+  and truncated tracestate values. Laws prove the exact entries of every
+  update, the exact size, and that truncation is spec #1's procedure: it
+  keeps a fitting state whole, keeps entries in order, fits the budget and
+  reports exactly the keys dropped. A runnable outgoing example is added.
 - Document the sources for developers new to Bend. Every law in `LAWS.bend`
   states its claim in words, the W3C or specification requirement it verifies,
   its motivation and how to read it; `PROOF.bend` explains how to read a Bend
@@ -83,8 +97,8 @@ qualified JavaScript/entropy boundaries; it is not a published release.
   no-redirect behavior and the listener's header-size limit. This is a
   development transport fixture, not Trace Context propagation or a tracer.
 
-Tracestate editing and emission, header extraction/injection, browser
-generation, propagation and HTTP/Fetch integration are planned under
+Header extraction/injection, browser generation, propagation and
+HTTP/Fetch integration are planned under
 [specification #1](https://github.com/LucasGois1/bend-trace-context/issues/1).
 
 **Migration within 0.1.0-dev:** `Field` gains `SpanIdField{}`, so

@@ -5,14 +5,16 @@
 # differ, and absurd closes a case whose hypothesis computes to
 # {False{} == True{}}. The others take apart a hypothesis saying a check
 # returned True or False: each half of a true Bool.and, each half of a false
-# Bool.or and the argument of a true Bool.not; or_assoc and or_false regroup
-# a chain of Bool.or. The package's checks are chains of Bool.and
-# (TraceState.is_valid, TC.Entries.unique, the key and value grammars, the
-# rules of Limits) and its lookups are chains of Bool.or, so the proofs of
-# the Limits and tracestate laws use these lemmas throughout:
-# proofs/limits.bend, tracestate.bend, distinct.bend, merge.bend, normal.bend
-# and first.bend. proofs/strings.bend, nats.bend and generation.bend use
-# true_ne_false or absurd.
+# Bool.or and the argument of a true Bool.not; or_assoc, or_false and
+# or_true regroup or settle a chain of Bool.or, and pick_true settles a
+# Bool.pick whose two answers are True. The package's checks are chains of
+# Bool.and (TraceState.is_valid, TC.Entries.unique, the key and value
+# grammars, the rules of Limits) and its lookups are chains of Bool.or, so
+# the proofs of the Limits and tracestate laws use these lemmas throughout:
+# proofs/limits.bend, tracestate.bend, distinct.bend, merge.bend,
+# normal.bend, first.bend, order.bend, update.bend and emit.bend.
+# proofs/strings.bend, nats.bend and generation.bend use true_ne_false or
+# absurd.
 #
 # Bool.and, Bool.or and Bool.not inspect only their first argument, so each
 # law is proved by cases on `a`, and a second argument `b` is erased (`-b`).
@@ -37,8 +39,9 @@ def BoolClash(value: Bool) -> Type:
 # True and False are different: an equation {True{} == False{}} yields
 # Empty, the type without values, so a case that assumes it cannot happen.
 # Used here by absurd and or_right_false, and by StringsProof.distinct
-# (proofs/strings.bend), GenerationProof.ended_stays (proofs/generation.bend)
-# and StateProof.read_over (proofs/tracestate.bend).
+# (proofs/strings.bend), GenerationProof.ended_stays (proofs/generation.bend),
+# StateProof.read_over (proofs/tracestate.bend), OrderProof.trans_step
+# (proofs/order.bend) and EmitProof.empty_fits_step (proofs/emit.bend).
 law true_ne_false:
   for clash: {True{} == False{} : Bool}
   Empty
@@ -51,12 +54,14 @@ def true_ne_false(clash):
 # proves any goal `A`, which the caller passes and which is erased. It closes
 # a case whose hypothesis computes to that clash, such as
 # {Nat.is_le(1n+n, 0n) == True{}}. Used by first.bend, merge.bend,
-# normal.bend and tracestate.bend, and here by not_true and and_right.
+# normal.bend, tracestate.bend, update.bend, order.bend and emit.bend, and
+# here by not_true and and_right.
 def absurd(-A: Type, clash: {False{} == True{} : Bool}) -> A:
   Empty.absurd(A, true_ne_false(Equal.sym(Bool, False{}, True{}, clash)))
 
 # When Bool.not(a) is True, `a` is False. Used by distinct.bend, first.bend,
-# merge.bend and normal.bend to read the first check of TC.Entries.unique,
+# merge.bend, normal.bend, update.bend and order.bend to read the first check
+# of TC.Entries.unique or of Laws.keys_distinct, such as
 # Bool.not(TC.Entries.has_key(seen, key)): the key of the next entry is not
 # among the keys of the entries before it.
 law not_true:
@@ -73,8 +78,8 @@ def not_true(a, holds):
 
 # When Bool.and(a, b) is True, `a` is True: the first check of a chain of
 # Bool.and, such as TraceState.is_valid or TC.Entries.unique. Used by
-# distinct.bend, first.bend, limits.bend, merge.bend, normal.bend and
-# tracestate.bend.
+# distinct.bend, first.bend, limits.bend, merge.bend, normal.bend,
+# tracestate.bend, update.bend and order.bend.
 law and_left:
   for a: Bool
   for -b: Bool
@@ -90,8 +95,7 @@ def and_left(a, b, both):
       {==}
 
 # When Bool.and(a, b) is True, `b` is True: the rest of a chain of Bool.and
-# after its first check. Used by the same modules as and_left: distinct.bend,
-# first.bend, limits.bend, merge.bend, normal.bend and tracestate.bend.
+# after its first check. Used by the same modules as and_left.
 law and_right:
   for a: Bool
   for -b: Bool
@@ -108,7 +112,7 @@ def and_right(a, b, both):
 # When Bool.or(a, b) is False, `a` is False. With or_right_false it splits a
 # lookup that returned False, such as TC.Entries.has_key or key_among, into
 # the comparison with the first entry's key and the lookup in the rest. Used
-# by distinct.bend and first.bend.
+# by distinct.bend, first.bend, update.bend and order.bend.
 law or_left_false:
   for a: Bool
   for -b: Bool
@@ -124,8 +128,8 @@ def or_left_false(a, b, both):
       both
 
 # When Bool.or(a, b) is False, `b` is False: the lookup in the rest of the
-# list returned False too (see or_left_false). Used by distinct.bend and
-# first.bend.
+# list returned False too (see or_left_false). Used by the same modules as
+# or_left_false.
 law or_right_false:
   for a: Bool
   for -b: Bool
@@ -170,3 +174,34 @@ def or_false(a):
       {==}
     case True{}:
       {==}
+
+# True is a right absorbing value of Bool.or: Bool.or(a, True{}) is True, by
+# cases on `a`. proofs/emit.bend uses it when a lookup meets its key in the
+# second part of a list.
+law or_true:
+  for a: Bool
+  {Bool.or(a, True{}) == True{} : Bool}
+
+def or_true(a):
+  match a:
+    case False{}:
+      {==}
+    case True{}:
+      {==}
+
+# Bool.pick is True when both of its answers are, by cases on the choice.
+# proofs/order.bend uses it where either branch of in_order may be taken.
+law pick_true:
+  for c: Bool
+  for -a: Bool
+  for -b: Bool
+  for first: {a == True{} : Bool}
+  for second: {b == True{} : Bool}
+  {Bool.pick(Bool, c, a, b) == True{} : Bool}
+
+def pick_true(c, a, b, first, second):
+  match c:
+    case True{}:
+      first
+    case False{}:
+      second

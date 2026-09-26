@@ -52,6 +52,14 @@ One comma-separated item of a tracestate value: an entry, or nothing but optiona
 One vendor's key and opaque value in tracestate. The key names the vendor.
 _Avoid_: Tracestate header, span attribute
 
+**Outgoing context**:
+A local context together with the tracestate its participant sends with it. Its state may be edited, because its traceparent identifies an operation of this participant.
+_Avoid_: Forwarded context
+
+**Output truncation**:
+Removing whole tracestate entries until the emitted value fits the output budget: the rightmost entry larger than 128 octets while there is one, then the rightmost entry. The entries that remain keep their order.
+_Avoid_: Cutting an entry
+
 **Input budget**:
 The most UTF-8 octets of a received traceparent value or combined tracestate value that the package reads. A larger value is refused before it is interpreted.
 

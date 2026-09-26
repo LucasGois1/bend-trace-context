@@ -481,7 +481,8 @@ def ows_around(limits, state, before, after, before_ows, after_ows, fits):
 # Parsing a state's normalized value gives it back when it fits the budget:
 # the law state_roundtrip, as the case of ows_around with no whitespace
 # around the value. StringsProof.append_nil relates the value to the value
-# followed by "", in the goal and in `fits`.
+# followed by "", in the goal and in `fits`. proofs/emit.bend uses it to
+# parse an emitted value back.
 law roundtrip:
   for +limits: TC.Limits
   for +state: TC.TraceState

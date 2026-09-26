@@ -4,7 +4,8 @@
 # Every Limits value obeys the rules of Limits.is_valid, and Limits.new
 # succeeds exactly when they hold, keeping the budgets it was given.
 # PROOF.bend proves the laws limits_bounds, limits_new and limits_fields of
-# LAWS.bend with bounds, new_accepts and new_view.
+# LAWS.bend with bounds, new_accepts and new_view; output_within_input reads
+# the third rule for proofs/emit.bend.
 #
 # bounds splits the evidence stored in every Limits value with the Bool.and
 # lemmas of proofs/bools.bend. Limits.new passes the result of its check to
@@ -17,6 +18,7 @@
 import Base
 import ../trace_context.bend as TC
 import ./bools.bend as BoolsProof
+import ./nats.bend as NatsProof
 # Every Limits value has a traceparent input budget of at least 55, an
 # output budget of at least 512 and an input budget no smaller than its
 # output budget: the three rules that its evidence field proves, one
@@ -118,3 +120,19 @@ law new_view:
 def new_view(traceparent_input, tracestate_input, tracestate_output):
   new_view_step(traceparent_input, tracestate_input, tracestate_output,
     TC.Limits.is_valid(traceparent_input, tracestate_input, tracestate_output), {==})
+
+# The output budget is at most the input budget: the third rule of a
+# validated configuration (bounds), read with NatsProof.ge_le as a <= check.
+# proofs/emit.bend uses it to parse an emitted value with the same limits.
+law output_within_input:
+  for +limits: TC.Limits
+  {Nat.is_le(TC.Limits.tracestate_output(limits), TC.Limits.tracestate_input(limits)) == True{} : Bool}
+
+def output_within_input(limits):
+  %NatsProof.ge_le(TC.Limits.tracestate_input(limits), TC.Limits.tracestate_output(limits)) : {_ == True{} : Bool}
+  Pair.snd({Nat.is_ge(TC.Limits.tracestate_output(limits), 512n) == True{} : Bool},
+    {Nat.is_ge(TC.Limits.tracestate_input(limits), TC.Limits.tracestate_output(limits)) == True{} : Bool},
+    Pair.snd({Nat.is_ge(TC.Limits.traceparent_input(limits), 55n) == True{} : Bool},
+      {Nat.is_ge(TC.Limits.tracestate_output(limits), 512n) == True{} : Bool} &
+        {Nat.is_ge(TC.Limits.tracestate_input(limits), TC.Limits.tracestate_output(limits)) == True{} : Bool},
+      bounds(limits)))
