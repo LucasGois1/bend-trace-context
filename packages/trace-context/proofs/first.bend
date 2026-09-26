@@ -80,7 +80,9 @@ def after_room(a, b, room, fits):
 # A lookup in two lists joined is a lookup in either: TC.Entries.has_key on
 # `before` followed by `after` is the Bool.or of the lookups in each. By
 # induction on `before`. machine_key uses it to split the kept entries into
-# the first state's entries and those kept from the second.
+# the first state's entries and those kept from the second;
+# proofs/update.bend and proofs/emit.bend use it to find an entry's key in a
+# list that holds it.
 law has_key_append:
   for before: List<&2, TC.StateEntry>
   for +after: List<&2, TC.StateEntry>

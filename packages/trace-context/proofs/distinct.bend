@@ -112,8 +112,9 @@ def distinct(entries, seen, unique):
       distinct(rest, List.append(&2, TC.StateEntry, seen, Con{entry, Nil{}}), rest_unique)
 
 # Every state has distinct keys, in the sense of Laws.keys_distinct, and at
-# most 32 entries: the law state_valid, which PROOF.bend proves with it. The
-# proof splits the state's evidence and applies distinct to its first half.
+# most 32 entries: the law state_valid, which PROOF.bend proves with it.
+# proofs/update.bend reads both halves of it for every update. The proof
+# splits the state's evidence and applies distinct to its first half.
 law state_valid:
   for state: TC.TraceState
   {Laws.keys_distinct(TC.TraceState.entries(state)) == True{} : Bool} &
@@ -130,8 +131,9 @@ def state_valid(state):
 # The package's Entries.has_key and LAWS.bend's key_among agree on every
 # list and key. Induction on the entries, with StringsProof.eq_symmetric at
 # each one. PROOF.bend uses it to restate the hypotheses of the laws
-# later_duplicate and later_new_key for proofs/merge.bend, and
-# proofs/first.bend uses it for first_wins.
+# later_duplicate and later_new_key for proofs/merge.bend, proofs/first.bend
+# uses it for first_wins, and proofs/emit.bend for the dropped keys of a
+# truncation.
 law has_key_among:
   for entries: List<&2, TC.StateEntry>
   for +key: String
@@ -156,7 +158,7 @@ def has_key_among(entries, key):
 # When Laws.key_among finds `key` in no entry, Entries.get finds nothing:
 # each entry's key differs from `key` (StringsProof.eq_symmetric turns the
 # comparison around), so the lookup passes it by. Induction on the entries.
-# get_absent uses it.
+# get_absent uses it, and proofs/update.bend's remove_get.
 law get_missing:
   for entries: List<&2, TC.StateEntry>
   for +key: String

@@ -4,11 +4,12 @@
 # This file is the package's public entry for everything that performs no host
 # effect: the strict traceparent v00 codec, validated trace and span IDs, local
 # and remote contexts, the machine that turns source words into IDs, validated
-# limits and the Level 2 tracestate parser. generation.bend adds the host's
-# cryptographic source on top of it. The claims this code must satisfy are
-# stated in LAWS.bend and proved in PROOF.bend, beside this file. The tests in
-# tests/*.bend here and the repository's consumer in tests/consumer exercise
-# it through the same public names.
+# limits, the Level 2 tracestate parser, tracestate updates and emission, and
+# outgoing contexts. generation.bend adds the host's cryptographic source on
+# top of it. The claims this code must satisfy are stated in LAWS.bend and
+# proved in PROOF.bend, beside this file. The tests in tests/*.bend here and
+# the repository's consumer in tests/consumer exercise it through the same
+# public names.
 #
 # The normative reference is W3C Trace Context Level 2, Candidate
 # Recommendation Draft of 2024-03-28 ("W3C" below, with section numbers). The
@@ -29,6 +30,10 @@
 #   Tracestate                       keys and values, states and lookups,
 #                                    budgets, and the reading machine behind
 #                                    TraceState.parse
+#   Tracestate updates and emission  TraceState.set, remove, size and
+#                                    truncate
+#   Outgoing contexts                OutgoingContext, a local context with the
+#                                    state it sends, and its Emission
 #
 # The public names are documented in packages/trace-context/README.md. Names in
 # the Parse, Draw, Step, Tape, Scan, Member, Value, Budget, Utf8, Entries and
@@ -1342,8 +1347,10 @@ def Utf8.width(char: Char) -> Nat:
         Bool.pick(Nat, U32.is_lt(code, 2048), 2n,
           Bool.pick(Nat, U32.is_lt(code, 65536), 3n, 4n)))
 
-# The UTF-8 octets of a text, in which the laws state every budget. Parsing
-# measures with Utf8.left instead, which stops counting past the budget.
+# The UTF-8 octets of a text, in which the laws state every budget. Emission
+# measures keys and values with it, at most 256 characters each; parsing
+# measures received text with Utf8.left instead, which stops counting past
+# the budget.
 def Utf8.length(text: String) -> Nat:
   match text:
     case SNil{}:
@@ -1651,3 +1658,281 @@ def StateError.show(error: StateError) -> String:
       "TooManyMembers"
     case InvalidEntry{member, reason}:
       "InvalidEntry " ++ Nat.show(member) ++ " " ++ EntryError.show(reason)
+
+# Tracestate: updates
+# ===================
+#
+# W3C 3.5 lets a participant add, update and delete entries of the state it
+# sends. A changed entry moves to the front and the other entries keep their
+# order. Spec #1: updating a key of a full state evicts nothing, and adding a
+# 33rd key removes the last entry.
+
+# `item` followed by `rest`, unless `skip` is True: one step of a filter.
+# Removing a key and listing the dropped keys both use it.
+def Entries.unless(-A: Data, skip: Bool, item: A, rest: List<&2, A>) -> List<&2, A>:
+  match skip:
+    case True{}:
+      rest
+    case False{}:
+      Con{item, rest}
+
+# The entries without the one whose key is `key`, in order.
+def Entries.without(entries: List<&2, StateEntry>, +key: String) -> List<&2, StateEntry>:
+  match entries:
+    case Nil{}:
+      Nil{}
+    case Con{+entry, rest}:
+      Entries.unless(StateEntry, String.eq(StateEntry.key_text(entry), key), entry, Entries.without(rest, key))
+
+# The state of these entries when the check finds them valid, `fallback`
+# otherwise. Updates build their entries so that the check passes, which the
+# laws prove; `fallback` keeps the function total without an unchecked
+# conversion.
+def TraceState.from_entries.checked(entries: List<&2, StateEntry>, fallback: TraceState, valid: Bool,
+  evidence: {TraceState.is_valid(entries) == valid : Bool}) -> TraceState:
+  match valid:
+    case True{}:
+      TraceState{entries, evidence}
+    case False{}:
+      fallback
+
+# The state of `entries`, checked, or `fallback` if the check fails.
+def TraceState.from_entries(+entries: List<&2, StateEntry>, fallback: TraceState) -> TraceState:
+  TraceState.from_entries.checked(entries, fallback, TraceState.is_valid(entries), {==})
+
+# Add or update the entry of `key` (W3C 3.5): it goes to the front with
+# `value`, and the other entries follow in their order. At most 31 of them
+# stay, so a new key in a full state removes the last entry, while updating a
+# key that is present evicts nothing (laws set_entries, update_keeps_all,
+# insert_entries and set_get).
+def TraceState.set(+state: TraceState, +key: StateKey, value: StateValue) -> TraceState:
+  TraceState.from_entries(Con{StateEntry{key, value},
+    List.take(&2, StateEntry, Entries.without(TraceState.entries(state), StateKey.to_string(key)), 31n)}, state)
+
+# Delete the entry of `key`, if there is one; the other entries keep their
+# order (W3C 3.5; laws remove_entries and remove_get). W3C asks participants
+# not to delete keys other vendors generated: that breaks correlation in
+# their systems.
+def TraceState.remove(+state: TraceState, key: StateKey) -> TraceState:
+  TraceState.from_entries(Entries.without(TraceState.entries(state), StateKey.to_string(key)), state)
+
+# Tracestate: emission
+# ====================
+#
+# The emitted value is the normalized one of TraceState.format. Its size in
+# UTF-8 octets counts each entry's key, equals sign and value and the commas
+# between entries (spec #1). Keys and values are ASCII, so an octet is also a
+# character, the unit of W3C 3.3.3.1.
+
+# The octets of `key=value` (law entry_size).
+def StateEntry.size(entry: StateEntry) -> Nat:
+  match entry:
+    case StateEntry{key, value}:
+      Nat.add(Utf8.length(StateKey.to_string(key)), 1n+Utf8.length(StateValue.to_string(value)))
+
+# The octets of each entry after the first, with its comma.
+def Entries.size.rest(entries: List<&2, StateEntry>) -> Nat:
+  match entries:
+    case Nil{}:
+      0n
+    case Con{entry, rest}:
+      1n+Nat.add(StateEntry.size(entry), Entries.size.rest(rest))
+
+# The octets of the entries joined by commas, as Entries.format writes them.
+def Entries.size(entries: List<&2, StateEntry>) -> Nat:
+  match entries:
+    case Nil{}:
+      0n
+    case Con{entry, rest}:
+      Nat.add(StateEntry.size(entry), Entries.size.rest(rest))
+
+# The octets of TraceState.format(state) (law state_size).
+def TraceState.size(state: TraceState) -> Nat:
+  Entries.size(TraceState.entries(state))
+
+# What truncation to the output budget kept, and the keys of the entries it
+# dropped, in their original order. Reporting the keys, not the values, tells
+# which vendors lost their state without repeating opaque data.
+type Truncation is Data:
+  Truncation{kept: TraceState, dropped: List<&2, StateKey>}
+
+# The state that fits the output budget.
+def Truncation.kept(truncation: Truncation) -> TraceState:
+  match truncation:
+    case Truncation{kept, dropped}:
+      kept
+
+# The keys of the entries removed, in their original order; none when the
+# state already fitted.
+def Truncation.dropped(truncation: Truncation) -> List<&2, StateKey>:
+  match truncation:
+    case Truncation{kept, dropped}:
+      dropped
+
+# Whether the entry is larger than 128 octets. W3C 3.3.3.1 asks to remove
+# such entries first.
+def StateEntry.is_large(entry: StateEntry) -> Bool:
+  Nat.is_gt(StateEntry.size(entry), 128n)
+
+# Whether one of the entries is larger than 128 octets.
+def Entries.has_large(entries: List<&2, StateEntry>) -> Bool:
+  match entries:
+    case Nil{}:
+      False{}
+    case Con{entry, rest}:
+      Bool.or(StateEntry.is_large(entry), Entries.has_large(rest))
+
+# The entries without the rightmost one larger than 128 octets: an entry
+# stays when a large entry follows it.
+def Entries.drop_last_large(entries: List<&2, StateEntry>) -> List<&2, StateEntry>:
+  match entries:
+    case Nil{}:
+      Nil{}
+    case Con{+entry, +rest}:
+      Bool.pick(List<&2, StateEntry>, Entries.has_large(rest), Con{entry, Entries.drop_last_large(rest)},
+        Bool.pick(List<&2, StateEntry>, StateEntry.is_large(entry), rest, Con{entry, rest}))
+
+# The entries without the rightmost one.
+def Entries.drop_last(entries: List<&2, StateEntry>) -> List<&2, StateEntry>:
+  match entries:
+    case Nil{}:
+      Nil{}
+    case Con{entry, +rest}:
+      Bool.pick(List<&2, StateEntry>, List.is_empty(&2, StateEntry, rest), Nil{},
+        Con{entry, Entries.drop_last(rest)})
+
+# One removal step (spec #1): the rightmost entry larger than 128 octets, or
+# the rightmost entry when none is.
+def Entries.shrink(+entries: List<&2, StateEntry>) -> List<&2, StateEntry>:
+  Bool.pick(List<&2, StateEntry>, Entries.has_large(entries), Entries.drop_last_large(entries),
+    Entries.drop_last(entries))
+
+# Remove entries one step at a time while they take more than `budget`
+# octets, and stop as soon as they fit. `fuel` bounds the steps. One per
+# entry suffices: once every entry is removed, the empty list takes 0 octets,
+# which fits any budget.
+def Entries.truncate(fuel: Nat, +budget: Nat, +entries: List<&2, StateEntry>) -> List<&2, StateEntry>:
+  match fuel:
+    case 0n:
+      entries
+    case 1n+more:
+      Bool.pick(List<&2, StateEntry>, Nat.is_le(Entries.size(entries), budget), entries,
+        Entries.truncate(more, budget, Entries.shrink(entries)))
+
+# The keys of the entries that `kept` lacks, in order.
+def Entries.dropped(entries: List<&2, StateEntry>, +kept: List<&2, StateEntry>) -> List<&2, StateKey>:
+  match entries:
+    case Nil{}:
+      Nil{}
+    case Con{+entry, rest}:
+      Entries.unless(StateKey, Entries.has_key(kept, StateEntry.key_text(entry)), StateEntry.key(entry),
+        Entries.dropped(rest, kept))
+
+# Fit a state to the output budget of `limits` by removing whole entries
+# (W3C 3.3.3.1, spec #1): while the value is over the budget, remove the
+# rightmost entry larger than 128 octets, or the rightmost entry when none is,
+# and stop as soon as it fits. The surviving entries keep their order (laws
+# truncate_steps, truncate_fits, truncate_whole, truncate_order and
+# truncate_dropped).
+def TraceState.truncate(limits: Limits, state: TraceState) -> Truncation:
+  +entries = TraceState.entries(state)
+  +kept = Entries.truncate(List.length(&2, StateEntry, entries), Limits.tracestate_output(limits), entries)
+  Truncation{TraceState.from_entries(kept, TraceState.empty()), Entries.dropped(entries, kept)}
+
+# Outgoing contexts
+# =================
+#
+# An outgoing context is a local context with the tracestate its participant
+# sends with it: the state attached to a local operation (spec #1). Editing
+# that state is allowed because the traceparent of a local context
+# identifies an operation of this participant: a root, a child, a restart or
+# an operation the caller constructed with Context.from_ids. W3C 3.4 and spec
+# #1 forbid sending a received traceparent unchanged with an edited or
+# truncated tracestate. The types rule out passing a RemoteContext here, but
+# not a local context built with the received IDs: Context.from_ids must only
+# be given the IDs of the caller's own operation. A received pair is
+# forwarded as it came (#10).
+
+# A local context and the state sent with it.
+type OutgoingContext is Data:
+  OutgoingContext{context: LocalContext, state: TraceState}
+
+# The two header values an outgoing context emits, and the keys of the
+# entries that truncation to the output budget dropped, in their original
+# order. A context with no state emits the tracestate "", which injection
+# (#10) will handle.
+type Emission is Data:
+  Emission{traceparent: String, tracestate: String, dropped: List<&2, StateKey>}
+
+# An outgoing context with no state yet, as for a new root.
+def OutgoingContext.new(context: LocalContext) -> OutgoingContext:
+  OutgoingContext{context, TraceState.empty()}
+
+# An outgoing context that sends `state`, such as the state received with the
+# parent of a child operation. The caller associates the state with this
+# operation, as with Context.from_ids.
+def OutgoingContext.with_state(context: LocalContext, state: TraceState) -> OutgoingContext:
+  OutgoingContext{context, state}
+
+# The local operation.
+def OutgoingContext.context(outgoing: OutgoingContext) -> LocalContext:
+  match outgoing:
+    case OutgoingContext{context, state}:
+      context
+
+# The state sent with the operation.
+def OutgoingContext.state(outgoing: OutgoingContext) -> TraceState:
+  match outgoing:
+    case OutgoingContext{context, state}:
+      state
+
+# The value of the entry with this key, if there is one.
+def OutgoingContext.get(outgoing: OutgoingContext, key: StateKey) -> Maybe<&2, StateValue>:
+  TraceState.get(OutgoingContext.state(outgoing), key)
+
+# Add or update an entry (see TraceState.set); the context is unchanged (law
+# outgoing_set).
+def OutgoingContext.set(outgoing: OutgoingContext, key: StateKey, value: StateValue) -> OutgoingContext:
+  match outgoing:
+    case OutgoingContext{context, state}:
+      OutgoingContext{context, TraceState.set(state, key, value)}
+
+# Delete an entry (see TraceState.remove); the context is unchanged (law
+# outgoing_remove).
+def OutgoingContext.remove(outgoing: OutgoingContext, key: StateKey) -> OutgoingContext:
+  match outgoing:
+    case OutgoingContext{context, state}:
+      OutgoingContext{context, TraceState.remove(state, key)}
+
+# The emission of a context and a truncated state.
+def Emission.of(context: LocalContext, truncation: Truncation) -> Emission:
+  match truncation:
+    case Truncation{kept, dropped}:
+      Emission{TraceParentV00.format(LocalContext.to_traceparent(context)), TraceState.format(kept), dropped}
+
+# The traceparent and tracestate values to send: the participating
+# traceparent of the context, and the normalized value of the state
+# truncated to the output budget of `limits` (laws emit_traceparent,
+# emit_tracestate, emit_fits and emit_accepted).
+def OutgoingContext.emit(limits: Limits, outgoing: OutgoingContext) -> Emission:
+  match outgoing:
+    case OutgoingContext{context, state}:
+      Emission.of(context, TraceState.truncate(limits, state))
+
+# The traceparent value: always 55 characters.
+def Emission.traceparent(emission: Emission) -> String:
+  match emission:
+    case Emission{traceparent, tracestate, dropped}:
+      traceparent
+
+# The tracestate value: at most the output budget in octets, "" for no state.
+def Emission.tracestate(emission: Emission) -> String:
+  match emission:
+    case Emission{traceparent, tracestate, dropped}:
+      tracestate
+
+# The keys of the entries truncation dropped, in their original order.
+def Emission.dropped(emission: Emission) -> List<&2, StateKey>:
+  match emission:
+    case Emission{traceparent, tracestate, dropped}:
+      dropped

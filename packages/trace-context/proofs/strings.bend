@@ -98,8 +98,9 @@ def compare_rest(first, second, rest):
 
 # Every string is equal to itself by String.eq. Induction on the text. Used
 # by distinct and eq_symmetric_step below, by proofs/lifecycle.bend
-# (child_reuse, restart_reuse, where a reused ID is found equal) and by
-# proofs/distinct.bend (get_first).
+# (child_reuse, restart_reuse, where a reused ID is found equal), by
+# proofs/distinct.bend (get_first), and by proofs/update.bend, order.bend
+# and emit.bend, where an entry is compared with itself.
 law eq_refl:
   for +text: String
   {String.eq(text, text) == True{} : Bool}
@@ -227,7 +228,8 @@ def eq_view(a, b):
 
 # When String.eq(a, b) is True, a and b are the same string: String.eq is
 # sound. Used by eq_symmetric_false and eq_symmetric_step below, which show
-# that String.eq is symmetric.
+# that String.eq is symmetric, and by proofs/order.bend to turn equal
+# comparisons of entries into equal keys and values.
 law eq_sound:
   for +a: String
   for +b: String
@@ -317,7 +319,8 @@ def eq_symmetric_step(a, b, same, evidence):
 # String comparison is symmetric. The package's lookups compare an entry's
 # key with the key sought, and Laws.key_among compares them the other way
 # around; DistinctProof.has_key_among and get_missing (proofs/distinct.bend)
-# use this law to make them agree.
+# and UpdateProof.without_law (proofs/update.bend) use this law to make them
+# agree.
 law eq_symmetric:
   for +a: String
   for +b: String

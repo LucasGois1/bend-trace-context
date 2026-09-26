@@ -81,6 +81,8 @@
 #    8. Tracestate keys and values     key_parse ... value_separators
 #    9. Tracestate states and lookups  state_valid, get_entry, get_absent
 #   10. Tracestate parsing             state_roundtrip ... first_wins
+#   11. Tracestate updates and         set_entries ... emit_accepted
+#       emission
 
 import Base
 import ./trace_context.bend as Trace
@@ -1005,8 +1007,9 @@ def keys_distinct(entries: List<&2, Trace.StateEntry>) -> Bool:
 #   Requirement: W3C Level 2, sections 3.3.2 and 3.3.3. Spec #1, "State
 #     operations preserve grammar, uniqueness, count bounds and unrelated-entry
 #     order".
-#   Why: every operation on states, parsing now and editing and emitting later
-#     (#8, #10), can rely on these invariants without checking them again.
+#   Why: every operation on states, parsing, editing and emitting (section
+#     11) and injection (#10), can rely on these invariants without checking
+#     them again.
 #   Reading: keys_distinct is this file's own definition. The package checks
 #     distinct keys differently, each key against the entries before it, and
 #     the proof shows the two agree.
@@ -1272,3 +1275,416 @@ law first_wins:
     Done{List.append(&2, Trace.StateEntry, Trace.TraceState.entries(first),
       missing(Trace.TraceState.entries(first), Trace.TraceState.entries(second)))} :
     Result<&2, &2, Trace.StateError, List<&2, Trace.StateEntry>>}
+
+# 11. Tracestate updates and emission
+# ===================================
+#
+# A participant may edit the state it sends with an operation of its own
+# (W3C Level 2, section 3.5): a changed entry moves to the front and the
+# other entries keep their order. The value it emits must fit the output
+# budget of its limits; when it does not, whole entries are removed (section
+# 3.3.3.1) in the order that spec #1 approves. An outgoing context pairs a
+# local context with the state it sends, so an edited state travels with the
+# traceparent of an operation of this participant, provided that
+# Context.from_ids is only given the IDs of the caller's own operation
+# (section 3.4 forbids editing the state of an unchanged traceparent).
+
+# The entries whose key is not `key`, in order.
+def without(+key: String, entries: List<&2, Trace.StateEntry>) -> List<&2, Trace.StateEntry>:
+  match entries:
+    case Nil{}:
+      Nil{}
+    case Con{+entry, +rest}:
+      Bool.pick(List<&2, Trace.StateEntry>, String.eq(key, Trace.StateEntry.key_text(entry)),
+        without(key, rest), Con{entry, without(key, rest)})
+
+# LAW set_entries
+#   Claim: setting a key puts its entry, with the new value, first, and the
+#     other entries follow in their order, at most 31 of them.
+#   Requirement: W3C Level 2, section 3.5: "Modified keys MUST be moved to
+#     the beginning (left) of the list" and "the order of unmodified
+#     key/value pairs MUST be preserved". Spec #1: "Insert/update moves the
+#     affected key to the front and preserves the order of other entries".
+#   Why: this one statement covers adding and updating. The key's previous
+#     entry, if any, disappears, so the key stays unique, and the cap of 31
+#     other entries keeps the state within 32.
+#   Reading: `without` is defined just above. List.take(&2, T, list, 31n) is
+#     the first 31 entries of `list`, or all of them when there are fewer.
+#   Proof: Laws.set_entries, via proofs/update.bend.
+law set_entries:
+  for +state: Trace.TraceState
+  for +key: Trace.StateKey
+  for value: Trace.StateValue
+  {Trace.TraceState.entries(Trace.TraceState.set(state, key, value)) ==
+    Con{Trace.StateEntry{key, value}, List.take(&2, Trace.StateEntry,
+      without(Trace.StateKey.to_string(key), Trace.TraceState.entries(state)), 31n)} :
+    List<&2, Trace.StateEntry>}
+
+# LAW update_keeps_all
+#   Claim: updating a key that the state has keeps every other entry, in its
+#     order: no entry is evicted, even from a full state.
+#   Requirement: spec #1, "Updating an existing key in a full state does not
+#     evict another entry".
+#   Why: a participant refreshing its own entry must not destroy another
+#     vendor's state.
+#   Reading: `present` says that the key is among the state's keys.
+#   Proof: Laws.update_keeps_all, via proofs/update.bend.
+law update_keeps_all:
+  for +state: Trace.TraceState
+  for +key: Trace.StateKey
+  for value: Trace.StateValue
+  for present: {key_among(Trace.StateKey.to_string(key), Trace.TraceState.entries(state)) == True{} : Bool}
+  {Trace.TraceState.entries(Trace.TraceState.set(state, key, value)) ==
+    Con{Trace.StateEntry{key, value}, without(Trace.StateKey.to_string(key), Trace.TraceState.entries(state))} :
+    List<&2, Trace.StateEntry>}
+
+# LAW insert_entries
+#   Claim: adding a key that the state lacks puts its entry first, followed
+#     by the state's first 31 entries: in a full state the last entry is
+#     removed, and in any other state nothing is.
+#   Requirement: spec #1, "inserting a new 33rd key removes the last entry".
+#     W3C Level 2, section 3.3.2: "There can be a maximum of 32 list-members
+#     in a list".
+#   Why: the state stays within 32 entries, and the entry removed is the one
+#     farthest from the front, the least recently changed.
+#   Reading: `absent` says that no entry has the key. List.take keeps the
+#     first 31 entries, which are all of them when there are at most 31.
+#   Proof: Laws.insert_entries, via proofs/update.bend.
+law insert_entries:
+  for +state: Trace.TraceState
+  for +key: Trace.StateKey
+  for value: Trace.StateValue
+  for absent: {key_among(Trace.StateKey.to_string(key), Trace.TraceState.entries(state)) == False{} : Bool}
+  {Trace.TraceState.entries(Trace.TraceState.set(state, key, value)) ==
+    Con{Trace.StateEntry{key, value}, List.take(&2, Trace.StateEntry, Trace.TraceState.entries(state), 31n)} :
+    List<&2, Trace.StateEntry>}
+
+# LAW set_get
+#   Claim: after setting a key, looking it up gives the value just set.
+#   Requirement: spec #1, "Query, insert, update and remove entries through
+#     validated operations".
+#   Why: a participant reads back what it wrote, whatever the state held
+#     before.
+#   Proof: Laws.set_get, via proofs/update.bend.
+law set_get:
+  for state: Trace.TraceState
+  for +key: Trace.StateKey
+  for +value: Trace.StateValue
+  {Trace.TraceState.get(Trace.TraceState.set(state, key, value), key) == Some{value} :
+    Maybe<&2, Trace.StateValue>}
+
+# LAW remove_entries
+#   Claim: removing a key leaves every other entry, in its order.
+#   Requirement: W3C Level 2, section 3.5: "Delete a key/value pair" and "the
+#     order of unmodified key/value pairs MUST be preserved". Spec #1 (user
+#     story 21): remove "state it chooses not to propagate".
+#   Why: removal must be exact: the other vendors' entries neither move nor
+#     disappear.
+#   Scope: W3C asks vendors not to delete keys other vendors generated; the
+#     package cannot know which vendor generated a key, so that choice stays
+#     with the caller.
+#   Proof: Laws.remove_entries, via proofs/update.bend.
+law remove_entries:
+  for +state: Trace.TraceState
+  for +key: Trace.StateKey
+  {Trace.TraceState.entries(Trace.TraceState.remove(state, key)) ==
+    without(Trace.StateKey.to_string(key), Trace.TraceState.entries(state)) : List<&2, Trace.StateEntry>}
+
+# LAW remove_get
+#   Claim: after removing a key, looking it up gives None{}.
+#   Why: a removed entry is not sent.
+#   Proof: Laws.remove_get, via proofs/update.bend.
+law remove_get:
+  for state: Trace.TraceState
+  for +key: Trace.StateKey
+  {Trace.TraceState.get(Trace.TraceState.remove(state, key), key) == None{} : Maybe<&2, Trace.StateValue>}
+
+# LAW entry_size
+#   Claim: StateEntry.size is the number of UTF-8 octets of the entry's
+#     text, key=value.
+#   Requirement: spec #1, "Count commas in emitted size and key, equals sign
+#     and value in an entry's size".
+#   Why: truncation decides which entries are larger than 128 octets with this
+#     size, so it must be the exact size of what is sent.
+#   Proof: Laws.entry_size, via proofs/emit.bend.
+law entry_size:
+  for +entry: Trace.StateEntry
+  {Trace.StateEntry.size(entry) == Trace.Utf8.length(Trace.StateEntry.format(entry)) : Nat}
+
+# LAW state_size
+#   Claim: TraceState.size is the number of UTF-8 octets of the state's
+#     normalized value, the commas between entries included.
+#   Requirement: spec #1, "Count commas in emitted size". W3C Level 2,
+#     section 3.3.3.1: the length "includes commas required to separate list
+#     items".
+#   Why: the output budget is compared with this size, so it must count every
+#     octet that is sent and nothing else.
+#   Proof: Laws.state_size, via proofs/emit.bend.
+law state_size:
+  for +state: Trace.TraceState
+  {Trace.TraceState.size(state) == Trace.Utf8.length(Trace.TraceState.format(state)) : Nat}
+
+# LAW truncate_fits
+#   Claim: the state that truncation keeps fits the output budget of the
+#     limits.
+#   Requirement: spec #1, "Default emitted tracestate budget is 512 bytes. A
+#     configured output budget must be at least 512". W3C Level 2, section
+#     3.3.3.1 on truncating an oversized tracestate.
+#   Why: an emitted value never exceeds what the configuration promises to
+#     its peers, whatever the state held.
+#   Proof: Laws.truncate_fits, via proofs/emit.bend.
+law truncate_fits:
+  for +limits: Trace.Limits
+  for state: Trace.TraceState
+  {Nat.is_le(Trace.TraceState.size(Trace.Truncation.kept(Trace.TraceState.truncate(limits, state))),
+    Trace.Limits.tracestate_output(limits)) == True{} : Bool}
+
+# LAW truncate_whole
+#   Claim: a state that fits the output budget is kept whole, and no key is
+#     reported dropped.
+#   Requirement: spec #1, "stop as soon as the budget is met".
+#   Why: truncation never removes an entry that did not have to go.
+#   Reading: truncate_steps below states the whole procedure; this law and
+#     the next ones state its consequences plainly.
+#   Proof: Laws.truncate_whole, via proofs/emit.bend.
+law truncate_whole:
+  for +limits: Trace.Limits
+  for +state: Trace.TraceState
+  for fits: {Nat.is_le(Trace.TraceState.size(state), Trace.Limits.tracestate_output(limits)) == True{} : Bool}
+  {Trace.TraceState.truncate(limits, state) == Trace.Truncation{state, Nil{}} : Trace.Truncation}
+
+# Whether two entries have the same key and the same value.
+def same_entry(+a: Trace.StateEntry, +b: Trace.StateEntry) -> Bool:
+  Bool.and(String.eq(Trace.StateEntry.key_text(a), Trace.StateEntry.key_text(b)),
+    String.eq(Trace.StateValue.to_string(Trace.StateEntry.value(a)),
+      Trace.StateValue.to_string(Trace.StateEntry.value(b))))
+
+# Whether `kept` is `original` with some entries removed: the entries of
+# `kept` appear in `original`, in the same order.
+def in_order(original: List<&2, Trace.StateEntry>, kept: List<&2, Trace.StateEntry>) -> Bool:
+  match original kept:
+    case Nil{} _:
+      List.is_empty(&2, Trace.StateEntry, kept)
+    case Con{candidate, rest} Nil{}:
+      True{}
+    case Con{+candidate, +rest} Con{+entry, +more}:
+      Bool.pick(Bool, same_entry(candidate, entry), in_order(rest, more), in_order(rest, Con{entry, more}))
+
+# LAW truncate_order
+#   Claim: truncation only removes entries: the entries it keeps appear in
+#     the state, in their order.
+#   Requirement: W3C Level 2, section 3.3.3.1: "the vendor MUST truncate
+#     whole entries". Spec #1: "Remove only whole entries ... preserve
+#     survivor order".
+#   Why: an entry is never cut or altered, and the survivors keep the order
+#     that tells vendors which one changed most recently.
+#   Reading: in_order is defined just above.
+#   Proof: Laws.truncate_order, via proofs/emit.bend.
+law truncate_order:
+  for +limits: Trace.Limits
+  for +state: Trace.TraceState
+  {in_order(Trace.TraceState.entries(state),
+    Trace.TraceState.entries(Trace.Truncation.kept(Trace.TraceState.truncate(limits, state)))) == True{} : Bool}
+
+# The keys of the entries, in order.
+def keys(entries: List<&2, Trace.StateEntry>) -> List<&2, Trace.StateKey>:
+  match entries:
+    case Nil{}:
+      Nil{}
+    case Con{entry, rest}:
+      Con{Trace.StateEntry.key(entry), keys(rest)}
+
+# LAW truncate_dropped
+#   Claim: the keys that truncation reports dropped are exactly the keys of
+#     the state's entries it did not keep, in their order.
+#   Requirement: spec #1, "report truncation" and "Diagnostics distinguish
+#     absence, rejection, state discard, truncation".
+#   Why: the diagnostic tells exactly which vendors' entries were not sent,
+#     without repeating their opaque values.
+#   Reading: missing, defined in section 10, gives the state's entries whose
+#     keys no kept entry has; `keys` just above lists their keys.
+#   Proof: Laws.truncate_dropped, via proofs/emit.bend.
+law truncate_dropped:
+  for +limits: Trace.Limits
+  for +state: Trace.TraceState
+  {Trace.Truncation.dropped(Trace.TraceState.truncate(limits, state)) ==
+    keys(missing(Trace.TraceState.entries(Trace.Truncation.kept(Trace.TraceState.truncate(limits, state))),
+      Trace.TraceState.entries(state))) : List<&2, Trace.StateKey>}
+
+# The entries as `key=value`, each after the first preceded by a comma.
+def joined.rest(entries: List<&2, Trace.StateEntry>) -> String:
+  match entries:
+    case Nil{}:
+      ""
+    case Con{entry, rest}:
+      "," ++ Trace.StateEntry.format(entry) ++ joined.rest(rest)
+
+# The entries as `key=value`, joined by commas: the value a state with these
+# entries emits.
+def joined(entries: List<&2, Trace.StateEntry>) -> String:
+  match entries:
+    case Nil{}:
+      ""
+    case Con{entry, rest}:
+      Trace.StateEntry.format(entry) ++ joined.rest(rest)
+
+# Whether the entry takes more than 128 octets, which W3C Level 2, section
+# 3.3.3.1, asks to remove first.
+def large(+entry: Trace.StateEntry) -> Bool:
+  Nat.is_gt(Trace.Utf8.length(Trace.StateEntry.format(entry)), 128n)
+
+# Whether one of the entries takes more than 128 octets.
+def any_large(entries: List<&2, Trace.StateEntry>) -> Bool:
+  match entries:
+    case Nil{}:
+      False{}
+    case Con{entry, rest}:
+      Bool.or(large(entry), any_large(rest))
+
+# The entries without the rightmost one that takes more than 128 octets: an
+# entry stays when a large entry follows it.
+def without_last_large(entries: List<&2, Trace.StateEntry>) -> List<&2, Trace.StateEntry>:
+  match entries:
+    case Nil{}:
+      Nil{}
+    case Con{+entry, +rest}:
+      Bool.pick(List<&2, Trace.StateEntry>, any_large(rest), Con{entry, without_last_large(rest)},
+        Bool.pick(List<&2, Trace.StateEntry>, large(entry), rest, Con{entry, rest}))
+
+# The entries without the rightmost one.
+def without_last(entries: List<&2, Trace.StateEntry>) -> List<&2, Trace.StateEntry>:
+  match entries:
+    case Nil{}:
+      Nil{}
+    case Con{entry, +rest}:
+      Bool.pick(List<&2, Trace.StateEntry>, List.is_empty(&2, Trace.StateEntry, rest), Nil{},
+        Con{entry, without_last(rest)})
+
+# Spec #1's truncation, one removal at a time: while the value of the entries
+# takes more than `budget` octets, remove the rightmost entry larger than 128
+# octets, or the rightmost entry when none is, and stop as soon as the value
+# fits. `steps` bounds the removals.
+def truncated(steps: Nat, +budget: Nat, +entries: List<&2, Trace.StateEntry>) -> List<&2, Trace.StateEntry>:
+  match steps:
+    case 0n:
+      entries
+    case 1n+more:
+      Bool.pick(List<&2, Trace.StateEntry>, Nat.is_le(Trace.Utf8.length(joined(entries)), budget), entries,
+        truncated(more, budget, Bool.pick(List<&2, Trace.StateEntry>, any_large(entries), without_last_large(entries),
+          without_last(entries))))
+
+# LAW truncate_steps
+#   Claim: truncation keeps exactly the entries that spec #1's procedure
+#     keeps: while the value is over the output budget, it removes the
+#     rightmost entry larger than 128 octets, or the rightmost entry when
+#     none is, and it stops as soon as the value fits.
+#   Requirement: spec #1, "While over budget, remove the rightmost entry
+#     larger than 128 characters; when none remain, remove from the right.
+#     Remove only whole entries, stop as soon as the budget is met". W3C
+#     Level 2, section 3.3.3.1: "Entries larger than 128 characters long
+#     SHOULD be removed first. Then entries SHOULD be removed starting from
+#     the end of tracestate".
+#   Why: this pins down which entries go, not only that the rest fits: a
+#     vendor's entry is never removed while a larger one to its right could
+#     go instead, and no entry goes once the value fits.
+#   Reading: `truncated` and the definitions above it restate the procedure
+#     independently of the package, measuring with Utf8.length of the
+#     entries' value. One step per entry is enough: after removing them all,
+#     the empty value fits. Keys and values are ASCII, so the octets are also
+#     the characters that W3C counts.
+#   Proof: Laws.truncate_steps, via proofs/emit.bend.
+law truncate_steps:
+  for +limits: Trace.Limits
+  for +state: Trace.TraceState
+  {Trace.TraceState.entries(Trace.Truncation.kept(Trace.TraceState.truncate(limits, state))) ==
+    truncated(List.length(&2, Trace.StateEntry, Trace.TraceState.entries(state)), Trace.Limits.tracestate_output(limits),
+      Trace.TraceState.entries(state)) : List<&2, Trace.StateEntry>}
+
+# LAW outgoing_set
+#   Claim: setting an entry of an outgoing context changes its state as
+#     TraceState.set does and keeps its local context.
+#   Requirement: spec #1, "Apply associated-state changes only through the
+#     allowed context transitions".
+#   Why: editing the state never changes which operation the traceparent
+#     identifies.
+#   Proof: Laws.outgoing_set, by computation.
+law outgoing_set:
+  for +outgoing: Trace.OutgoingContext
+  for key: Trace.StateKey
+  for value: Trace.StateValue
+  {Trace.OutgoingContext.set(outgoing, key, value) == Trace.OutgoingContext.with_state(Trace.OutgoingContext.context(outgoing),
+    Trace.TraceState.set(Trace.OutgoingContext.state(outgoing), key, value)) : Trace.OutgoingContext}
+
+# LAW outgoing_remove
+#   Claim: removing an entry of an outgoing context changes its state as
+#     TraceState.remove does and keeps its local context.
+#   Requirement: as outgoing_set.
+#   Proof: Laws.outgoing_remove, by computation.
+law outgoing_remove:
+  for +outgoing: Trace.OutgoingContext
+  for key: Trace.StateKey
+  {Trace.OutgoingContext.remove(outgoing, key) == Trace.OutgoingContext.with_state(Trace.OutgoingContext.context(outgoing),
+    Trace.TraceState.remove(Trace.OutgoingContext.state(outgoing), key)) : Trace.OutgoingContext}
+
+# LAW emit_traceparent
+#   Claim: an outgoing context emits the participating traceparent of its
+#     local context.
+#   Requirement: spec #1, "Participating emission uses `00` and known flag
+#     mask `03`" (see emitted_traceparent).
+#   Why: the traceparent sent is the one of the local operation, never a
+#     received value.
+#   Proof: Laws.emit_traceparent, by computation.
+law emit_traceparent:
+  for limits: Trace.Limits
+  for +outgoing: Trace.OutgoingContext
+  {Trace.Emission.traceparent(Trace.OutgoingContext.emit(limits, outgoing)) ==
+    Trace.TraceParentV00.format(Trace.LocalContext.to_traceparent(Trace.OutgoingContext.context(outgoing))) : String}
+
+# LAW emit_tracestate
+#   Claim: an outgoing context emits the normalized value of its state
+#     truncated to the output budget, and reports the keys truncation
+#     dropped.
+#   Requirement: spec #1, "Default emitted tracestate budget is 512 bytes"
+#     and "report truncation".
+#   Why: with truncate_fits, truncate_order and truncate_dropped, this ties
+#     what is sent to the laws of truncation.
+#   Proof: Laws.emit_tracestate, by computation.
+law emit_tracestate:
+  for +limits: Trace.Limits
+  for +outgoing: Trace.OutgoingContext
+  {Trace.Emission.tracestate(Trace.OutgoingContext.emit(limits, outgoing)) == Trace.TraceState.format(
+    Trace.Truncation.kept(Trace.TraceState.truncate(limits, Trace.OutgoingContext.state(outgoing)))) : String} &
+  {Trace.Emission.dropped(Trace.OutgoingContext.emit(limits, outgoing)) ==
+    Trace.Truncation.dropped(Trace.TraceState.truncate(limits, Trace.OutgoingContext.state(outgoing))) :
+    List<&2, Trace.StateKey>}
+
+# LAW emit_fits
+#   Claim: the emitted tracestate value takes at most the output budget, in
+#     UTF-8 octets.
+#   Requirement: spec #1, "Default emitted tracestate budget is 512 bytes".
+#   Why: this is the promise the output budget makes, stated on the text that
+#     is sent.
+#   Proof: Laws.emit_fits, from truncate_fits and state_size.
+law emit_fits:
+  for +limits: Trace.Limits
+  for outgoing: Trace.OutgoingContext
+  {Nat.is_le(Trace.Utf8.length(Trace.Emission.tracestate(Trace.OutgoingContext.emit(limits, outgoing))),
+    Trace.Limits.tracestate_output(limits)) == True{} : Bool}
+
+# LAW emit_accepted
+#   Claim: the same limits parse the emitted tracestate value back into the
+#     state that was emitted.
+#   Requirement: spec #1, "a tracestate input budget no smaller than its
+#     output budget, so a configuration accepts its own normalized emitted
+#     representation".
+#   Why: two participants with the same configuration always accept each
+#     other's state; this is why Limits requires the input budget to be at
+#     least the output budget.
+#   Proof: Laws.emit_accepted, via proofs/emit.bend, from emit_fits,
+#     limits_bounds and state_roundtrip.
+law emit_accepted:
+  for +limits: Trace.Limits
+  for +outgoing: Trace.OutgoingContext
+  {Trace.TraceState.parse(limits, Trace.Emission.tracestate(Trace.OutgoingContext.emit(limits, outgoing))) ==
+    Done{Trace.Truncation.kept(Trace.TraceState.truncate(limits, Trace.OutgoingContext.state(outgoing)))} :
+    Result<&2, &2, Trace.StateError, Trace.TraceState>}

@@ -11,7 +11,8 @@ cd "$repo_dir"
 build_dir="$repo_dir/build/validation-$mode"
 mkdir -p "$build_dir"
 cp tests/expected-codec.txt tests/expected-demo.txt tests/expected-generation.txt tests/expected-smoke.txt \
-  tests/expected-tracestate.txt tests/expected-tracestate-example.txt "$build_dir/"
+  tests/expected-tracestate.txt tests/expected-tracestate-example.txt tests/expected-outgoing.txt \
+  tests/expected-outgoing-example.txt "$build_dir/"
 {
 echo "Package commit: $(git rev-parse HEAD)"
 echo "Platform: $(uname -s) $(uname -m)"
@@ -100,6 +101,9 @@ echo "PASS: direct deterministic generation"
 run_logged direct-tracestate ./bend packages/trace-context/tests/TRACESTATE.bend
 compare_output tests/expected-tracestate.txt "$build_dir/direct-tracestate.txt"
 echo "PASS: direct tracestate corpus"
+run_logged direct-outgoing ./bend packages/trace-context/tests/OUTGOING.bend
+compare_output tests/expected-outgoing.txt "$build_dir/direct-outgoing.txt"
+echo "PASS: direct outgoing tracestate corpus"
 
 if [ "$mode" = node ]; then
   run_logged codec-compile ./bend packages/trace-context/tests/TEST.bend -o "$build_dir/codec.js"
@@ -117,6 +121,11 @@ if [ "$mode" = node ]; then
   run_logged tracestate-example-compile ./bend packages/trace-context/examples/tracestate.bend \
     -o "$build_dir/tracestate-example.js"
   run_logged tracestate-example node "$build_dir/tracestate-example.js"
+  run_logged outgoing-compile ./bend packages/trace-context/tests/OUTGOING.bend -o "$build_dir/outgoing.js"
+  run_logged outgoing node "$build_dir/outgoing.js"
+  run_logged outgoing-example-compile ./bend packages/trace-context/examples/outgoing.bend \
+    -o "$build_dir/outgoing-example.js"
+  run_logged outgoing-example node "$build_dir/outgoing-example.js"
 else
   run_logged codec-compile ./bend packages/trace-context/tests/TEST.bend -o "$build_dir/codec"
   run_logged codec "$build_dir/codec"
@@ -133,6 +142,11 @@ else
   run_logged tracestate-example-compile ./bend packages/trace-context/examples/tracestate.bend \
     -o "$build_dir/tracestate-example"
   run_logged tracestate-example "$build_dir/tracestate-example"
+  run_logged outgoing-compile ./bend packages/trace-context/tests/OUTGOING.bend -o "$build_dir/outgoing"
+  run_logged outgoing "$build_dir/outgoing"
+  run_logged outgoing-example-compile ./bend packages/trace-context/examples/outgoing.bend \
+    -o "$build_dir/outgoing-example"
+  run_logged outgoing-example "$build_dir/outgoing-example"
 fi
 compare_output tests/expected-codec.txt "$build_dir/codec.txt"
 compare_output tests/expected-demo.txt "$build_dir/demo.txt"
@@ -140,5 +154,7 @@ compare_output tests/expected-generation.txt "$build_dir/generation.txt"
 compare_output tests/expected-smoke.txt "$build_dir/smoke.txt"
 compare_output tests/expected-tracestate.txt "$build_dir/tracestate.txt"
 compare_output tests/expected-tracestate-example.txt "$build_dir/tracestate-example.txt"
+compare_output tests/expected-outgoing.txt "$build_dir/outgoing.txt"
+compare_output tests/expected-outgoing-example.txt "$build_dir/outgoing-example.txt"
 check_generated_example "$build_dir/generate.txt"
-echo "PASS: proofs, protocol and tracestate corpora, generation, construction rejections and examples ($mode)"
+echo "PASS: proofs, protocol, tracestate and outgoing corpora, generation, construction rejections and examples ($mode)"
