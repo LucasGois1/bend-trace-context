@@ -1,5 +1,6 @@
 import Base
 import ./deps/bend-trace-context/packages/trace-context/trace_context.bend as TC
+import ./deps/bend-trace-context/packages/trace-context/generation.bend as Generate
 
 # Independent W3C example; this file belongs to the application, not the package.
 def show(result: Result<&2, &2, TC.Error, TC.TraceParentV00>) -> IO(Unit):
@@ -92,10 +93,52 @@ def lifecycle() -> IO(Unit):
     Unit <- emit("existing sampled operation", TC.Context.from_ids(existing_trace, existing_span, True{}))
     refused_span(TC.SpanId.parse("0000000000000000"))
 
+# Generated identifiers come from the host's cryptographic source, so only
+# their properties are printed; a replayed tape shows exact values.
+def generated(label: String, result: Result<&2, &2, TC.GenerationError, TC.LocalContext>) -> IO(TC.LocalContext):
+  match result:
+    case Fail{error}:
+      IO.die(TC.LocalContext, 1, label ++ ": " ++ TC.GenerationError.show(error))
+    case Done{context}:
+      IO.pure(TC.LocalContext, context)
+
+def emitted_flags(context: TC.LocalContext) -> String:
+  String.drop(TC.TraceParentV00.format(TC.LocalContext.to_traceparent(context)), 53n)
+
+def replayed.show(result: Result<&2, &2, TC.GenerationError, TC.LocalContext>) -> IO(Unit):
+  match result:
+    case Fail{error}:
+      IO.die(Unit, 1, "replayed root: " ++ TC.GenerationError.show(error))
+    case Done{context}:
+      emit("replayed root", context)
+
+def replayed(outcome: List<&1, Result<&1, &1, U32 & String, U32>> & Result<&2, &2, TC.GenerationError, TC.LocalContext>) ->
+  IO(Unit):
+  (rest, result) = outcome
+  replayed.show(result)
+
+def generation() -> IO(Unit):
+  do IO<Unit>:
+    root_result : Result<&2, &2, TC.GenerationError, TC.LocalContext> <- Generate.Context.root()
+    +root : TC.LocalContext <- generated("generated root", root_result)
+    Unit <- IO.print("generated root flags: " ++ emitted_flags(root))
+    child_result : Result<&2, &2, TC.GenerationError, TC.LocalContext> <-
+      Generate.Context.child(TC.LocalParent{root}, TC.InheritSampled{})
+    +child : TC.LocalContext <- generated("generated child", child_result)
+    Unit <- IO.print("generated child keeps the trace: " ++
+      Bool.show(TC.TraceId.is_eq(TC.LocalContext.trace_id(child), TC.LocalContext.trace_id(root))))
+    Unit <- IO.print("generated child has its own span: " ++
+      Bool.show(Bool.not(TC.SpanId.is_eq(TC.LocalContext.span_id(child), TC.LocalContext.span_id(root)))))
+    outcome : List<&1, Result<&1, &1, U32 & String, U32>> & Result<&2, &2, TC.GenerationError, TC.LocalContext> <-
+      TC.Context.root_with(~List<&1, Result<&1, &1, U32 & String, U32>>, ~TC.Source.tape,
+        [Done{183985433}, Done{382551005}, Done{2219371297}, Done{478163356}, Done{3081595761}, Done{1763717937}])
+    replayed(outcome)
+
 def main() -> IO(Unit):
   do IO<Unit>:
     Unit <- show(TC.TraceParentV00.parse(
       "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"))
     Unit <- reject(TC.TraceParentV00.parse(
       "00-00000000000000000000000000000000-b7ad6b7169203331-01"))
-    lifecycle()
+    Unit <- lifecycle()
+    generation()

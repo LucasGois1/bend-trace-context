@@ -10,6 +10,9 @@ import ./proofs/context.bend as ContextProof
 import ./proofs/inverse.bend as InverseProof
 import ./proofs/ids.bend as IdsProof
 import ./proofs/lifecycle.bend as LifecycleProof
+import ./proofs/words.bend as WordsProof
+import ./proofs/conversion.bend as ConversionProof
+import ./proofs/generation.bend as GenerationProof
 
 def Laws.formatted_length(context):
   match context:
@@ -111,3 +114,62 @@ def Laws.restart_reuse(previous, trace_id, span_id, reused):
 
 def Laws.restart_accepts(previous, trace_id, span_id, distinct):
   LifecycleProof.restart_accepts(previous, trace_id, span_id, distinct)
+
+def Laws.trace_words(first, second, third, fourth, id, made):
+  %made : ConversionProof.TraceWordsView(first, second, third, fourth, _)
+  ConversionProof.trace_words_view(first, second, third, fourth)
+
+def Laws.span_words(first, second, id, made):
+  %made : ConversionProof.SpanWordsView(first, second, _)
+  ConversionProof.span_words_view(first, second)
+
+def Laws.hex_injective(left, right, same):
+  ConversionProof.hex_injective(left, right, same)
+
+def Laws.word_hex(word):
+  WordsProof.word_value(word)
+
+def Laws.words_unasserted(first, second, third, fourth, id, made):
+  %made : ConversionProof.UnassertedCandidate(_)
+  ConversionProof.words_unasserted(first, second, third, fourth)
+
+def Laws.feed_failure(code, message, draw):
+  {==}
+
+def Laws.root_tape(tape):
+  GenerationProof.root_tape(tape)
+
+def Laws.child_tape(tape, parent, sampling):
+  GenerationProof.child_tape(tape, parent, sampling)
+
+def Laws.restart_tape(tape, previous):
+  GenerationProof.restart_tape(tape, previous)
+
+def Laws.root_ends(tape):
+  GenerationProof.run_ends(48n, Trace.Draw.root(), tape, GenerationProof.root_within())
+
+def Laws.child_ends(tape, parent, sampling):
+  GenerationProof.run_ends(16n, Trace.Draw.child(parent, sampling), tape,
+    GenerationProof.child_within(parent, sampling))
+
+def Laws.restart_ends(tape, previous):
+  GenerationProof.run_ends(48n, Trace.Draw.restart(previous), tape, GenerationProof.restart_within(previous))
+
+def Laws.root_exhaustion(rest):
+  {==}
+
+def Laws.child_exhaustion(parent, sampling, rest):
+  {==}
+
+def Laws.generated_root(tape, rest, created, generated):
+  %generated : GenerationProof.RootRun(_)
+  GenerationProof.root_run(48n, Trace.Draw.root(), tape, {==})
+
+def Laws.generated_child(tape, parent, sampling, rest, created, generated):
+  %generated : GenerationProof.ChildRun(parent, sampling, _)
+  GenerationProof.child_run(parent, sampling, 16n, Trace.Draw.child(parent, sampling), tape,
+    ({==}, ({==}, {==})))
+
+def Laws.generated_restart(tape, previous, rest, created, generated):
+  %generated : GenerationProof.RestartRun(previous, _)
+  GenerationProof.restart_run(previous, 48n, Trace.Draw.restart(previous), tape, {==})

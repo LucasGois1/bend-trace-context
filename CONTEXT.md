@@ -53,6 +53,13 @@ _Avoid_: Proof of collection, exporter activation
 The trace-flags bit stating that a trace ID was generated randomly. It is made by whoever produced the trace ID and travels with it; it is not evidence of how the ID was generated.
 _Avoid_: Proof of entropy, uniqueness guarantee
 
+**Identifier source**:
+Where generation reads the words that become new trace and span IDs: the host's cryptographic generator, or a caller-provided source such as a replayed tape.
+_Avoid_: Random number guarantee
+
+**Candidate identifier**:
+An ID built from source words before validation. A candidate that is all zero or reuses an excluded ID is rejected; an identifier whose allowed candidates are all rejected is exhausted.
+
 **Traceparent codec**:
 The ability to convert between the textual representation of traceparent and its structured values according to a declared format.
 _Avoid_: Complete propagator, telemetry SDK

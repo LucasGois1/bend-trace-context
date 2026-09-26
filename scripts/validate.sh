@@ -1,5 +1,5 @@
 #!/bin/sh
-# Run the established codec evidence gates on one explicitly selected backend.
+# Run the codec and generation evidence gates on one explicitly selected backend.
 set -eu
 
 repo_dir=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
@@ -9,7 +9,7 @@ case "$mode" in native|node) ;; *) echo "Usage: $0 [native|node]" >&2; exit 2 ;;
 cd "$repo_dir"
 build_dir="$repo_dir/build/validation-$mode"
 mkdir -p "$build_dir"
-cp tests/expected-codec.txt tests/expected-demo.txt "$build_dir/"
+cp tests/expected-codec.txt tests/expected-demo.txt tests/expected-generation.txt tests/expected-smoke.txt "$build_dir/"
 {
 echo "Package commit: $(git rev-parse HEAD)"
 echo "Platform: $(uname -s) $(uname -m)"
@@ -45,6 +45,19 @@ compare_output() {
   fi
 }
 
+# The generation example prints new IDs on every run: check a root and its
+# child by shape, a shared trace ID and distinct span IDs.
+check_generated_example() {
+  lines=$(wc -l < "$1" | tr -d ' ')
+  if [ "$lines" -ne 2 ] ||
+    grep -Ev '^00-[0-9a-f]{32}-[0-9a-f]{16}-02$' "$1" >/dev/null ||
+    ! awk -F- 'NR == 1 { trace = $2; span = $3 } NR == 2 { exit !($2 == trace && $3 != span) }' "$1"; then
+    echo "Unexpected generation example output:" >&2
+    cat "$1" >&2
+    return 1
+  fi
+}
+
 ./bend packages/trace-context/PROOF.bend --check-only > "$build_dir/proofs.txt" 2>&1 || {
   cat "$build_dir/proofs.txt"; exit 1;
 }
@@ -76,18 +89,36 @@ done
 run_logged direct-codec ./bend packages/trace-context/tests/TEST.bend
 compare_output tests/expected-codec.txt "$build_dir/direct-codec.txt"
 echo "PASS: direct Bend protocol corpus"
+run_logged direct-generation ./bend packages/trace-context/tests/GENERATION.bend
+compare_output tests/expected-generation.txt "$build_dir/direct-generation.txt"
+echo "PASS: direct deterministic generation"
 
 if [ "$mode" = node ]; then
   run_logged codec-compile ./bend packages/trace-context/tests/TEST.bend -o "$build_dir/codec.js"
   run_logged codec node "$build_dir/codec.js"
   run_logged demo-compile ./bend packages/trace-context/examples/demo.bend -o "$build_dir/demo.js"
   run_logged demo node "$build_dir/demo.js"
+  run_logged generation-compile ./bend packages/trace-context/tests/GENERATION.bend -o "$build_dir/generation.js"
+  run_logged generation node "$build_dir/generation.js"
+  run_logged smoke-compile ./bend packages/trace-context/tests/SMOKE.bend -o "$build_dir/smoke.js"
+  run_logged smoke node "$build_dir/smoke.js"
+  run_logged generate-compile ./bend packages/trace-context/examples/generate.bend -o "$build_dir/generate.js"
+  run_logged generate node "$build_dir/generate.js"
 else
   run_logged codec-compile ./bend packages/trace-context/tests/TEST.bend -o "$build_dir/codec"
   run_logged codec "$build_dir/codec"
   run_logged demo-compile ./bend packages/trace-context/examples/demo.bend -o "$build_dir/demo"
   run_logged demo "$build_dir/demo"
+  run_logged generation-compile ./bend packages/trace-context/tests/GENERATION.bend -o "$build_dir/generation"
+  run_logged generation "$build_dir/generation"
+  run_logged smoke-compile ./bend packages/trace-context/tests/SMOKE.bend -o "$build_dir/smoke"
+  run_logged smoke "$build_dir/smoke"
+  run_logged generate-compile ./bend packages/trace-context/examples/generate.bend -o "$build_dir/generate"
+  run_logged generate "$build_dir/generate"
 fi
 compare_output tests/expected-codec.txt "$build_dir/codec.txt"
 compare_output tests/expected-demo.txt "$build_dir/demo.txt"
-echo "PASS: proofs, protocol corpus, construction rejections and example ($mode)"
+compare_output tests/expected-generation.txt "$build_dir/generation.txt"
+compare_output tests/expected-smoke.txt "$build_dir/smoke.txt"
+check_generated_example "$build_dir/generate.txt"
+echo "PASS: proofs, protocol corpus, generation, construction rejections and examples ($mode)"

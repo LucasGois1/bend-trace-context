@@ -58,6 +58,29 @@ test('a compiled Bend consumer receives the real entropy Result', () => {
   }
 });
 
+test('generated roots read the WebCrypto boundary and report structured failures', () => {
+  const output = compileFixture('generation-consumer');
+  const real = runFixture(output);
+  assert.equal(real.status, 0, real.stderr);
+  assert.match(real.stdout.trim(), /^created:00-[0-9a-f]{32}-[0-9a-f]{16}-02$/);
+  for (const [mode, expected, reads] of [
+    ['fixed', 'created:00-ffffffffffffffffffffffffffffffff-ffffffffffffffff-02', 6],
+    ['zero', 'fail:ExhaustedTraceId', 32],
+    ['third-fails', 'fail:SourceFailure 2 source-failure', 3],
+    ['unavailable', 'fail:SourceFailure 1 unavailable', 0],
+    ['quota', 'fail:SourceFailure 2 source-failure', 1],
+    ['type', 'fail:SourceFailure 2 source-failure', 1],
+    ['controlled', 'fail:SourceFailure 2 source-failure', 1],
+    ['getter', 'fail:SourceFailure 2 source-failure', 0],
+    ['invalid', 'fail:SourceFailure 2 source-failure', 1],
+  ]) {
+    const result = runFixture(output, mode);
+    assert.equal(result.status, 0, `${mode}: ${result.stderr}`);
+    assert.equal(result.stdout.trim(), expected, mode);
+    assert.match(result.stderr, new RegExp(`entropy-reads=${reads}\\n`), mode);
+  }
+});
+
 test('the pinned Base effect reproducibly exposes uncaught JS source failures', () => {
   const output = compileFixture('base-entropy');
   for (const [mode, error] of [
