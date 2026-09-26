@@ -45,6 +45,19 @@ A standardized field carrying the version, trace ID, parent ID, and flags. The p
 **Tracestate**:
 A standardized field carrying an ordered list of information specific to tracing vendors, associated with traceparent.
 
+**Tracestate member**:
+One comma-separated item of a tracestate value: an entry, or nothing but optional whitespace.
+
+**Tracestate entry**:
+One vendor's key and opaque value in tracestate. The key names the vendor.
+_Avoid_: Tracestate header, span attribute
+
+**Input budget**:
+The most UTF-8 octets of a received traceparent value or combined tracestate value that the package reads. A larger value is refused before it is interpreted.
+
+**Output budget**:
+The most UTF-8 octets of tracestate the package emits. It is a capacity policy of the package, not a limit set by the standard.
+
 **Sampling indication (sampled)**:
 The trace-flags bit used to communicate the sampling indication between participants. Its value does not guarantee that operations have been or will be recorded.
 _Avoid_: Proof of collection, exporter activation

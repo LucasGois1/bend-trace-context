@@ -177,3 +177,29 @@ law eq_sound:
 def eq_sound(a, b, same):
   %same : EqView(a, b, _)
   eq_view(a, b)
+
+law reverse_twice:
+  for text: String
+  for acc: String
+  {String.reverse.go(String.reverse.go(text, acc), "") == String.reverse.go(acc, text) : String}
+
+def reverse_twice(text, acc):
+  match text:
+    case SNil{}:
+      {==}
+    case SCon{char, tail}:
+      reverse_twice(tail, SCon{char, acc})
+
+law string_assoc:
+  for a: String
+  for b: String
+  for c: String
+  {(a ++ b) ++ c == a ++ b ++ c : String}
+
+def string_assoc(a, b, c):
+  match a:
+    case SNil{}:
+      {==}
+    case SCon{head, tail}:
+      %string_assoc(tail, b, c) : {SCon{head, (tail ++ b) ++ c} == SCon{head, _} : String}
+      {==}

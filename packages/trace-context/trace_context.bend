@@ -695,3 +695,584 @@ def GenerationError.show(error: GenerationError) -> String:
       "ExhaustedTraceId"
     case ExhaustedSpanId{}:
       "ExhaustedSpanId"
+
+# Why a limit configuration was refused. The first failing rule is reported.
+type LimitsError is Data:
+  TraceParentInputTooSmall{}
+  TraceStateOutputTooSmall{}
+  TraceStateInputTooSmall{}
+
+# A configuration must accept its own emitted representation: a traceparent
+# input budget of at least 55 octets, and a tracestate input budget no smaller
+# than an output budget of at least 512 octets.
+def Limits.is_valid(traceparent_input: Nat, tracestate_input: Nat, +tracestate_output: Nat) -> Bool:
+  Bool.and(Nat.is_ge(traceparent_input, 55n),
+    Bool.and(Nat.is_ge(tracestate_output, 512n), Nat.is_ge(tracestate_input, tracestate_output)))
+
+# Budgets in UTF-8 octets. The input budgets bound a received traceparent value
+# and a combined tracestate value; the output budget is the most an emitted
+# tracestate may take.
+type Limits is Data:
+  Limits{
+    traceparent_input: Nat,
+    tracestate_input: Nat,
+    tracestate_output: Nat,
+    evidence: {Limits.is_valid(traceparent_input, tracestate_input, tracestate_output) == True{} : Bool}
+  }
+
+def Limits.error(traceparent_input: Nat, tracestate_output: Nat) -> LimitsError:
+  Bool.pick(LimitsError, Nat.is_lt(traceparent_input, 55n), TraceParentInputTooSmall{},
+    Bool.pick(LimitsError, Nat.is_lt(tracestate_output, 512n), TraceStateOutputTooSmall{},
+      TraceStateInputTooSmall{}))
+
+def Limits.new.checked(traceparent_input: Nat, tracestate_input: Nat, tracestate_output: Nat, valid: Bool,
+  evidence: {Limits.is_valid(traceparent_input, tracestate_input, tracestate_output) == valid : Bool}) ->
+  Result<&2, &2, LimitsError, Limits>:
+  match valid:
+    case True{}:
+      Done{Limits{traceparent_input, tracestate_input, tracestate_output, evidence}}
+    case False{}:
+      Fail{Limits.error(traceparent_input, tracestate_output)}
+
+# Validate a configuration. Budgets count UTF-8 octets.
+def Limits.new(+traceparent_input: Nat, +tracestate_input: Nat, +tracestate_output: Nat) ->
+  Result<&2, &2, LimitsError, Limits>:
+  Limits.new.checked(traceparent_input, tracestate_input, tracestate_output,
+    Limits.is_valid(traceparent_input, tracestate_input, tracestate_output), {==})
+
+# 32 KiB for each received value and 512 octets for an emitted tracestate. The
+# 512-octet output budget is this package's capacity policy, not a W3C maximum.
+def Limits.default() -> Limits:
+  Limits{32768n, 32768n, 512n, {==}}
+
+def Limits.traceparent_input(limits: Limits) -> Nat:
+  match limits:
+    case Limits{traceparent_input, tracestate_input, tracestate_output, evidence}:
+      traceparent_input
+
+def Limits.tracestate_input(limits: Limits) -> Nat:
+  match limits:
+    case Limits{traceparent_input, tracestate_input, tracestate_output, evidence}:
+      tracestate_input
+
+def Limits.tracestate_output(limits: Limits) -> Nat:
+  match limits:
+    case Limits{traceparent_input, tracestate_input, tracestate_output, evidence}:
+      tracestate_output
+
+def LimitsError.show(error: LimitsError) -> String:
+  match error:
+    case TraceParentInputTooSmall{}:
+      "TraceParentInputTooSmall"
+    case TraceStateOutputTooSmall{}:
+      "TraceStateOutputTooSmall"
+    case TraceStateInputTooSmall{}:
+      "TraceStateInputTooSmall"
+
+# Why a tracestate key, value or received member was refused.
+type EntryError is Data:
+  MissingEquals{}
+  InvalidKey{}
+  InvalidValue{}
+
+def StateChar.in_range(+code: U32, low: U32, high: U32) -> Bool:
+  Bool.and(U32.is_ge(code, low), U32.is_le(code, high))
+
+# lcalpha / DIGIT: a lowercase ASCII letter (%x61-7A) or a digit (%x30-39).
+def StateChar.is_key_start(char: Char) -> Bool:
+  match char:
+    case Chr{+code}:
+      Bool.or(StateChar.in_range(code, 97, 122), StateChar.in_range(code, 48, 57))
+
+# keychar: lcalpha / DIGIT / "_" / "-" / "*" / "/" / "@".
+def StateChar.is_key(+char: Char) -> Bool:
+  Bool.or(StateChar.is_key_start(char), Bool.or(Char.is_eq(char, '_'), Bool.or(Char.is_eq(char, '-'),
+    Bool.or(Char.is_eq(char, '*'), Bool.or(Char.is_eq(char, '/'), Char.is_eq(char, '@'))))))
+
+# nblk-chr: %x21-2B / %x2D-3C / %x3E-7E, printable ASCII other than space, ","
+# and "=".
+def StateChar.is_value_end(char: Char) -> Bool:
+  match char:
+    case Chr{+code}:
+      Bool.or(StateChar.in_range(code, 33, 43), Bool.or(StateChar.in_range(code, 45, 60),
+        StateChar.in_range(code, 62, 126)))
+
+# chr: %x20 / nblk-chr.
+def StateChar.is_value(+char: Char) -> Bool:
+  Bool.or(Char.is_eq(char, ' '), StateChar.is_value_end(char))
+
+# OWS: a space or a horizontal tab.
+def StateChar.is_ows(+char: Char) -> Bool:
+  Bool.or(Char.is_eq(char, ' '), Char.is_eq(char, '\t'))
+
+# Every remaining character is a key character, and at most `room` remain.
+def StateKey.valid.rest(text: String, room: Nat) -> Bool:
+  match text:
+    case SNil{}:
+      True{}
+    case SCon{char, tail}:
+      match room:
+        case 0n:
+          False{}
+        case 1n+left:
+          Bool.and(StateChar.is_key(char), StateKey.valid.rest(tail, left))
+
+# key = ( lcalpha / DIGIT ) 0*255( keychar ): 1 to 256 characters.
+def StateKey.is_valid(text: String) -> Bool:
+  match text:
+    case SNil{}:
+      False{}
+    case SCon{char, tail}:
+      Bool.and(StateChar.is_key_start(char), StateKey.valid.rest(tail, 255n))
+
+# `char` is a value character followed by `tail`, of which at most `room`
+# characters are allowed; the last character is not a space.
+def StateValue.valid.go(tail: String, char: Char, room: Nat) -> Bool:
+  match tail:
+    case SNil{}:
+      StateChar.is_value_end(char)
+    case SCon{next, rest}:
+      match room:
+        case 0n:
+          False{}
+        case 1n+left:
+          Bool.and(StateChar.is_value(char), StateValue.valid.go(rest, next, left))
+
+# value = 0*255( chr ) nblk-chr: 1 to 256 printable ASCII characters other
+# than "," and "=", the last of which is not a space.
+def StateValue.is_valid(text: String) -> Bool:
+  match text:
+    case SNil{}:
+      False{}
+    case SCon{char, tail}:
+      StateValue.valid.go(tail, char, 255n)
+
+# A tracestate key, naming the vendor that owns an entry. The text carries a
+# checked proof of the Level 2 key grammar.
+type StateKey is Data:
+  StateKey{text: String, evidence: {StateKey.is_valid(text) == True{} : Bool}}
+
+# A tracestate value, opaque to every other vendor. Leading spaces are part of
+# the value.
+type StateValue is Data:
+  StateValue{text: String, evidence: {StateValue.is_valid(text) == True{} : Bool}}
+
+def StateKey.parse.checked(text: String, valid: Bool, evidence: {StateKey.is_valid(text) == valid : Bool}) ->
+  Result<&2, &2, EntryError, StateKey>:
+  match valid:
+    case True{}:
+      Done{StateKey{text, evidence}}
+    case False{}:
+      Fail{InvalidKey{}}
+
+# Accept exactly a Level 2 key.
+def StateKey.parse(+text: String) -> Result<&2, &2, EntryError, StateKey>:
+  StateKey.parse.checked(text, StateKey.is_valid(text), {==})
+
+def StateKey.to_string(key: StateKey) -> String:
+  match key:
+    case StateKey{text, evidence}:
+      text
+
+def StateValue.parse.checked(text: String, valid: Bool, evidence: {StateValue.is_valid(text) == valid : Bool}) ->
+  Result<&2, &2, EntryError, StateValue>:
+  match valid:
+    case True{}:
+      Done{StateValue{text, evidence}}
+    case False{}:
+      Fail{InvalidValue{}}
+
+# Accept exactly a Level 2 value, leading spaces included. No whitespace is
+# trimmed here: a trailing space is refused.
+def StateValue.parse(+text: String) -> Result<&2, &2, EntryError, StateValue>:
+  StateValue.parse.checked(text, StateValue.is_valid(text), {==})
+
+def StateValue.to_string(value: StateValue) -> String:
+  match value:
+    case StateValue{text, evidence}:
+      text
+
+def EntryError.show(error: EntryError) -> String:
+  match error:
+    case MissingEquals{}:
+      "MissingEquals"
+    case InvalidKey{}:
+      "InvalidKey"
+    case InvalidValue{}:
+      "InvalidValue"
+
+# Why a received tracestate value was discarded: the combined value exceeds
+# its input budget, it has more than 32 nonempty members, or one of its
+# members is invalid. `member` numbers the comma-separated members of the
+# combined value from zero, empty members included.
+type StateError is Data:
+  StateTooLarge{}
+  TooManyMembers{}
+  InvalidEntry{member: Nat, error: EntryError}
+
+# One vendor's entry: a key and its value.
+type StateEntry is Data:
+  StateEntry{key: StateKey, value: StateValue}
+
+def StateEntry.key(entry: StateEntry) -> StateKey:
+  match entry:
+    case StateEntry{key, value}:
+      key
+
+def StateEntry.value(entry: StateEntry) -> StateValue:
+  match entry:
+    case StateEntry{key, value}:
+      value
+
+def StateEntry.key_text(entry: StateEntry) -> String:
+  StateKey.to_string(StateEntry.key(entry))
+
+# `key=value`, as the entry is sent.
+def StateEntry.format(entry: StateEntry) -> String:
+  match entry:
+    case StateEntry{key, value}:
+      StateKey.to_string(key) ++ "=" ++ StateValue.to_string(value)
+
+# Whether one of the entries has this key.
+def Entries.has_key(entries: List<&2, StateEntry>, +key: String) -> Bool:
+  match entries:
+    case Nil{}:
+      False{}
+    case Con{entry, rest}:
+      Bool.or(String.eq(StateEntry.key_text(entry), key), Entries.has_key(rest, key))
+
+# No entry repeats the key of an entry before it; `seen` holds the entries
+# already passed.
+def Entries.unique(entries: List<&2, StateEntry>, +seen: List<&2, StateEntry>) -> Bool:
+  match entries:
+    case Nil{}:
+      True{}
+    case Con{+entry, rest}:
+      Bool.and(Bool.not(Entries.has_key(seen, StateEntry.key_text(entry))),
+        Entries.unique(rest, List.append(&2, StateEntry, seen, Con{entry, Nil{}})))
+
+# Distinct keys and at most 32 entries.
+def TraceState.is_valid(+entries: List<&2, StateEntry>) -> Bool:
+  Bool.and(Entries.unique(entries, Nil{}), Nat.is_le(List.length(&2, StateEntry, entries), 32n))
+
+# Ordered vendor state: at most 32 entries with distinct keys, leftmost first.
+# The list carries a checked proof of both properties.
+type TraceState is Data:
+  TraceState{entries: List<&2, StateEntry>, evidence: {TraceState.is_valid(entries) == True{} : Bool}}
+
+def TraceState.empty() -> TraceState:
+  TraceState{Nil{}, {==}}
+
+def TraceState.entries(state: TraceState) -> List<&2, StateEntry>:
+  match state:
+    case TraceState{entries, evidence}:
+      entries
+
+def TraceState.is_empty(state: TraceState) -> Bool:
+  List.is_empty(&2, StateEntry, TraceState.entries(state))
+
+def Entries.get.put(entry: StateEntry, rest: Maybe<&2, StateValue>, hit: Bool) -> Maybe<&2, StateValue>:
+  match hit:
+    case True{}:
+      Some{StateEntry.value(entry)}
+    case False{}:
+      rest
+
+def Entries.get(entries: List<&2, StateEntry>, +key: String) -> Maybe<&2, StateValue>:
+  match entries:
+    case Nil{}:
+      None{}
+    case Con{+entry, rest}:
+      Entries.get.put(entry, Entries.get(rest, key), String.eq(StateEntry.key_text(entry), key))
+
+# The value of the entry with this key, if there is one.
+def TraceState.get(state: TraceState, key: StateKey) -> Maybe<&2, StateValue>:
+  Entries.get(TraceState.entries(state), StateKey.to_string(key))
+
+def Entries.format.rest(entries: List<&2, StateEntry>) -> String:
+  match entries:
+    case Nil{}:
+      ""
+    case Con{entry, rest}:
+      "," ++ StateEntry.format(entry) ++ Entries.format.rest(rest)
+
+def Entries.format(entries: List<&2, StateEntry>) -> String:
+  match entries:
+    case Nil{}:
+      ""
+    case Con{entry, rest}:
+      StateEntry.format(entry) ++ Entries.format.rest(rest)
+
+# The normalized value: the entries in order, joined by commas, with no
+# optional whitespace. The empty state formats as "".
+def TraceState.format(state: TraceState) -> String:
+  Entries.format(TraceState.entries(state))
+
+# The UTF-8 octets of a character. Bend characters are Unicode code points.
+def Utf8.width(char: Char) -> Nat:
+  match char:
+    case Chr{+code}:
+      Bool.pick(Nat, U32.is_lt(code, 128), 1n,
+        Bool.pick(Nat, U32.is_lt(code, 2048), 2n,
+          Bool.pick(Nat, U32.is_lt(code, 65536), 3n, 4n)))
+
+# The UTF-8 octets of a text, in which the laws state every budget. Parsing
+# measures with Utf8.left instead, which stops counting past the budget.
+def Utf8.length(text: String) -> Nat:
+  match text:
+    case SNil{}:
+      0n
+    case SCon{char, tail}:
+      Nat.add(Utf8.width(char), Utf8.length(tail))
+
+# What is left of a budget after taking `need` octets, or None when less remains.
+def Budget.take(need: Nat, budget: Nat) -> Maybe<&2, Nat>:
+  match need budget:
+    case 0n _:
+      Some{budget}
+    case 1n+more 0n:
+      None{}
+    case 1n+more 1n+left:
+      Budget.take(more, left)
+
+# What is left of a budget after a text, or None once the text exceeds it.
+# Measuring stops at the first character beyond the budget.
+def Utf8.left(text: String, budget: Maybe<&2, Nat>) -> Maybe<&2, Nat>:
+  match text budget:
+    case _ None{}:
+      None{}
+    case SNil{} Some{left}:
+      Some{left}
+    case SCon{char, tail} Some{left}:
+      Utf8.left(tail, Budget.take(Utf8.width(char), left))
+
+# Fields after the first are measured with the comma that joins them. Once the
+# budget is exceeded, no further field is visited.
+def Utf8.left_more(fields: List<&2, String>, budget: Maybe<&2, Nat>) -> Maybe<&2, Nat>:
+  match fields budget:
+    case Nil{} _:
+      budget
+    case Con{field, rest} None{}:
+      None{}
+    case Con{field, rest} Some{left}:
+      Utf8.left_more(rest, Utf8.left(field, Utf8.left(",", Some{left})))
+
+def Utf8.left_fields(fields: List<&2, String>, budget: Maybe<&2, Nat>) -> Maybe<&2, Nat>:
+  match fields:
+    case Nil{}:
+      budget
+    case Con{field, rest}:
+      Utf8.left_more(rest, Utf8.left(field, budget))
+
+# Where reading the current member stands: before its key, with only optional
+# whitespace so far; inside its key; or inside its value. Characters read are
+# kept most recent first.
+type Member is Data:
+  Blank{}
+  InKey{text: String}
+  InValue{key: String, text: String}
+
+# A tracestate being read: the members ended so far, empty ones included; how
+# many more nonempty members are allowed; the current member; and the first
+# entry of each key, in reading order. The scan and its helpers are internal.
+type Scan is Data:
+  Scanning{member: Nat, room: Nat, current: Member, entries: List<&2, StateEntry>}
+  Stopped{error: StateError}
+
+# A value's characters arrive most recent first. Restoring them skips optional
+# whitespace until the first other character, then keeps every character, so
+# the value comes back in reading order without its trailing whitespace.
+def Value.restore.step(kept: Bool, ows: Bool, char: Char, value: String) -> Bool & String:
+  match kept:
+    case True{}:
+      (True{}, SCon{char, value})
+    case False{}:
+      match ows:
+        case True{}:
+          (False{}, value)
+        case False{}:
+          (True{}, SCon{char, value})
+
+def Value.restore.go(text: String, state: Bool & String) -> String:
+  match text:
+    case SNil{}:
+      (kept, value) = state
+      value
+    case SCon{+char, tail}:
+      (kept, value) = state
+      Value.restore.go(tail, Value.restore.step(kept, StateChar.is_ows(char), char, value))
+
+def Value.restore(text: String) -> String:
+  Value.restore.go(text, (False{}, ""))
+
+def Member.start(ows: Bool, equals: Bool, char: Char) -> Member:
+  match ows:
+    case True{}:
+      Blank{}
+    case False{}:
+      match equals:
+        case True{}:
+          InValue{"", ""}
+        case False{}:
+          InKey{SCon{char, SNil{}}}
+
+def Member.key(equals: Bool, char: Char, text: String) -> Member:
+  match equals:
+    case True{}:
+      InValue{String.reverse(text), ""}
+    case False{}:
+      InKey{SCon{char, text}}
+
+# A character other than a comma: optional whitespace before the key is
+# skipped, and the first "=" ends the key.
+def Member.push(+char: Char, current: Member) -> Member:
+  match current:
+    case Blank{}:
+      Member.start(StateChar.is_ows(char), Char.is_eq(char, '='), char)
+    case InKey{text}:
+      Member.key(Char.is_eq(char, '='), char, text)
+    case InValue{key, text}:
+      InValue{key, SCon{char, text}}
+
+def Scan.validate(key: String, value: String) -> Result<&2, &2, EntryError, StateEntry>:
+  do Result<&2, &2, EntryError, StateEntry>:
+    parsed_key : StateKey <- StateKey.parse(key)
+    parsed_value : StateValue <- StateValue.parse(value)
+    return StateEntry{parsed_key, parsed_value}
+
+def Entries.add.if(entries: List<&2, StateEntry>, entry: StateEntry, present: Bool) -> List<&2, StateEntry>:
+  match present:
+    case True{}:
+      entries
+    case False{}:
+      List.append(&2, StateEntry, entries, Con{entry, Nil{}})
+
+# Keep only the first entry of each key.
+def Entries.add(+entries: List<&2, StateEntry>, +entry: StateEntry) -> List<&2, StateEntry>:
+  Entries.add.if(entries, entry, Entries.has_key(entries, StateEntry.key_text(entry)))
+
+# A valid member counts toward the 32 allowed before duplicates are dropped.
+def Scan.keep(room: Nat, member: Nat, entry: StateEntry, entries: List<&2, StateEntry>) -> Scan:
+  match room:
+    case 0n:
+      Stopped{TooManyMembers{}}
+    case 1n+left:
+      Scanning{1n+member, left, Blank{}, Entries.add(entries, entry)}
+
+def Scan.entry(parsed: Result<&2, &2, EntryError, StateEntry>, member: Nat, room: Nat,
+  entries: List<&2, StateEntry>) -> Scan:
+  match parsed:
+    case Fail{error}:
+      Stopped{InvalidEntry{member, error}}
+    case Done{entry}:
+      Scan.keep(room, member, entry, entries)
+
+# The current member ends at a comma or with the value. An empty member is
+# ignored; trailing optional whitespace is not part of a value.
+def Scan.close(member: Nat, room: Nat, current: Member, entries: List<&2, StateEntry>) -> Scan:
+  match current:
+    case Blank{}:
+      Scanning{1n+member, room, Blank{}, entries}
+    case InKey{text}:
+      Stopped{InvalidEntry{member, MissingEquals{}}}
+    case InValue{key, text}:
+      Scan.entry(Scan.validate(key, Value.restore(text)), member, room, entries)
+
+def Scan.read(comma: Bool, char: Char, member: Nat, room: Nat, current: Member,
+  entries: List<&2, StateEntry>) -> Scan:
+  match comma:
+    case True{}:
+      Scan.close(member, room, current, entries)
+    case False{}:
+      Scanning{member, room, Member.push(char, current), entries}
+
+def Scan.char(+char: Char, scan: Scan) -> Scan:
+  match scan:
+    case Stopped{error}:
+      Stopped{error}
+    case Scanning{member, room, current, entries}:
+      Scan.read(Char.is_eq(char, ','), char, member, room, current, entries)
+
+# Read a text one character at a time, stopping at the first problem.
+def Scan.text(text: String, scan: Scan) -> Scan:
+  match text scan:
+    case _ Stopped{error}:
+      Stopped{error}
+    case SNil{} Scanning{member, room, current, entries}:
+      Scanning{member, room, current, entries}
+    case SCon{char, tail} Scanning{member, room, current, entries}:
+      Scan.text(tail, Scan.char(char, Scanning{member, room, current, entries}))
+
+# Fields after the first are read after the comma that joins them.
+def Scan.more(fields: List<&2, String>, scan: Scan) -> Scan:
+  match fields:
+    case Nil{}:
+      scan
+    case Con{field, rest}:
+      Scan.more(rest, Scan.text(field, Scan.char(',', scan)))
+
+def Scan.fields(fields: List<&2, String>, scan: Scan) -> Scan:
+  match fields:
+    case Nil{}:
+      scan
+    case Con{field, rest}:
+      Scan.more(rest, Scan.text(field, scan))
+
+def Scan.start() -> Scan:
+  Scanning{0n, 32n, Blank{}, Nil{}}
+
+# The scan keeps only the first entry of each key and stops at a 33rd member,
+# so this check is not expected to fail: the laws prove it passes for
+# normalized values, and the corpus exercises the rest. A failure would be
+# reported as too many members.
+def Scan.state(entries: List<&2, StateEntry>, valid: Bool,
+  evidence: {TraceState.is_valid(entries) == valid : Bool}) -> Result<&2, &2, StateError, TraceState>:
+  match valid:
+    case True{}:
+      Done{TraceState{entries, evidence}}
+    case False{}:
+      Fail{TooManyMembers{}}
+
+def Scan.result(scan: Scan) -> Result<&2, &2, StateError, TraceState>:
+  match scan:
+    case Stopped{error}:
+      Fail{error}
+    case Scanning{member, room, current, +entries}:
+      Scan.state(entries, TraceState.is_valid(entries), {==})
+
+# The last member ends with the value.
+def Scan.finish(scan: Scan) -> Result<&2, &2, StateError, TraceState>:
+  match scan:
+    case Stopped{error}:
+      Fail{error}
+    case Scanning{member, room, current, entries}:
+      Scan.result(Scan.close(member, room, current, entries))
+
+def Scan.within(fits: Maybe<&2, Nat>, fields: List<&2, String>) -> Result<&2, &2, StateError, TraceState>:
+  match fits:
+    case None{}:
+      Fail{StateTooLarge{}}
+    case Some{left}:
+      Scan.finish(Scan.fields(fields, Scan.start()))
+
+# Parse repeated tracestate field values, in arrival order, as their
+# comma-joined combination. The combined value, joining commas included, must
+# fit the tracestate input budget; a larger one is refused before any member
+# is read, without measuring the rest. Empty members are ignored; every
+# nonempty member must be a valid entry and counts toward the 32 allowed; the
+# first entry of each key is kept.
+def TraceState.parse_fields(limits: Limits, +fields: List<&2, String>) -> Result<&2, &2, StateError, TraceState>:
+  Scan.within(Utf8.left_fields(fields, Some{Limits.tracestate_input(limits)}), fields)
+
+# Parse one combined tracestate value.
+def TraceState.parse(limits: Limits, text: String) -> Result<&2, &2, StateError, TraceState>:
+  TraceState.parse_fields(limits, Con{text, Nil{}})
+
+def StateError.show(error: StateError) -> String:
+  match error:
+    case StateTooLarge{}:
+      "StateTooLarge"
+    case TooManyMembers{}:
+      "TooManyMembers"
+    case InvalidEntry{member, reason}:
+      "InvalidEntry " ++ Nat.show(member) ++ " " ++ EntryError.show(reason)

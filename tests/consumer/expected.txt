@@ -13,3 +13,11 @@ generated root flags: 02
 generated child keeps the trace: True
 generated child has its own span: True
 replayed root: 00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-02
+received state: rojo=00f067aa0ba902b7,congo=t61rcWkgMzE,vendor@system= opaque value
+entries: 3
+congo: "t61rcWkgMzE"
+vendor@system: " opaque value"
+absent: absent
+state without a value discarded: InvalidEntry 1 MissingEquals
+513-octet state discarded: StateTooLarge
+limits refused: TraceParentInputTooSmall

@@ -365,3 +365,255 @@ law generated_restart:
     Trace.TraceId.to_string(Trace.RemoteContext.trace_id(previous)) : String} &
   {Trace.TraceId.is_random(Trace.LocalContext.trace_id(created)) == True{} : Bool} &
   {Trace.LocalContext.is_sampled(created) == False{} : Bool}
+
+# Tracestate
+# ----------
+
+# A validated configuration accepts its own emitted representation: at least
+# 55 octets of traceparent input, at least 512 octets of tracestate output,
+# and no less tracestate input than output.
+law limits_bounds:
+  for limits: Trace.Limits
+  {Nat.is_ge(Trace.Limits.traceparent_input(limits), 55n) == True{} : Bool} &
+  {Nat.is_ge(Trace.Limits.tracestate_output(limits), 512n) == True{} : Bool} &
+  {Nat.is_ge(Trace.Limits.tracestate_input(limits), Trace.Limits.tracestate_output(limits)) == True{} : Bool}
+
+# Limits.new accepts exactly the configurations that meet those rules...
+law limits_new:
+  for +traceparent_input: Nat
+  for +tracestate_input: Nat
+  for +tracestate_output: Nat
+  {Result.is_done(&2, &2, Trace.LimitsError, Trace.Limits,
+    Trace.Limits.new(traceparent_input, tracestate_input, tracestate_output)) ==
+    Bool.and(Nat.is_ge(traceparent_input, 55n),
+      Bool.and(Nat.is_ge(tracestate_output, 512n), Nat.is_ge(tracestate_input, tracestate_output))) : Bool}
+
+# ...and keeps the budgets it accepts.
+law limits_fields:
+  for +traceparent_input: Nat
+  for +tracestate_input: Nat
+  for +tracestate_output: Nat
+  for limits: Trace.Limits
+  for accepted: {Trace.Limits.new(traceparent_input, tracestate_input, tracestate_output) == Done{limits} :
+    Result<&2, &2, Trace.LimitsError, Trace.Limits>}
+  {Trace.Limits.traceparent_input(limits) == traceparent_input : Nat} &
+  {Trace.Limits.tracestate_input(limits) == tracestate_input : Nat} &
+  {Trace.Limits.tracestate_output(limits) == tracestate_output : Nat}
+
+# 32 KiB for each received value and 512 octets for an emitted tracestate.
+law default_limits:
+  {Trace.Limits.traceparent_input(Trace.Limits.default()) == 32768n : Nat} &
+  {Trace.Limits.tracestate_input(Trace.Limits.default()) == 32768n : Nat} &
+  {Trace.Limits.tracestate_output(Trace.Limits.default()) == 512n : Nat}
+
+# An accepted key or value is exactly the text accepted, and the text of every
+# key or value is accepted as that key or value.
+law key_parse:
+  for +text: String
+  for key: Trace.StateKey
+  for accepted: {Trace.StateKey.parse(text) == Done{key} : Result<&2, &2, Trace.EntryError, Trace.StateKey>}
+  {Trace.StateKey.to_string(key) == text : String}
+
+law key_roundtrip:
+  for key: Trace.StateKey
+  {Trace.StateKey.parse(Trace.StateKey.to_string(key)) == Done{key} : Result<&2, &2, Trace.EntryError, Trace.StateKey>}
+
+law value_parse:
+  for +text: String
+  for value: Trace.StateValue
+  for accepted: {Trace.StateValue.parse(text) == Done{value} : Result<&2, &2, Trace.EntryError, Trace.StateValue>}
+  {Trace.StateValue.to_string(value) == text : String}
+
+law value_roundtrip:
+  for value: Trace.StateValue
+  {Trace.StateValue.parse(Trace.StateValue.to_string(value)) == Done{value} :
+    Result<&2, &2, Trace.EntryError, Trace.StateValue>}
+
+# Whether an entry of `entries` has the key `key`.
+def key_among(+key: String, entries: List<&2, Trace.StateEntry>) -> Bool:
+  match entries:
+    case Nil{}:
+      False{}
+    case Con{entry, rest}:
+      Bool.or(String.eq(key, Trace.StateEntry.key_text(entry)), key_among(key, rest))
+
+# No two entries have the same key.
+def keys_distinct(entries: List<&2, Trace.StateEntry>) -> Bool:
+  match entries:
+    case Nil{}:
+      True{}
+    case Con{entry, +rest}:
+      Bool.and(Bool.not(key_among(Trace.StateEntry.key_text(entry), rest)), keys_distinct(rest))
+
+# Every state, parsed or not, has distinct keys and at most 32 entries.
+law state_valid:
+  for state: Trace.TraceState
+  {keys_distinct(Trace.TraceState.entries(state)) == True{} : Bool} &
+  {Nat.is_le(List.length(&2, Trace.StateEntry, Trace.TraceState.entries(state)), 32n) == True{} : Bool}
+
+# Every entry of a state is found by its key...
+law get_entry:
+  for state: Trace.TraceState
+  for +before: List<&2, Trace.StateEntry>
+  for +entry: Trace.StateEntry
+  for +after: List<&2, Trace.StateEntry>
+  for +split: {Trace.TraceState.entries(state) == List.append(&2, Trace.StateEntry, before, Con{entry, after}) :
+    List<&2, Trace.StateEntry>}
+  {Trace.TraceState.get(state, Trace.StateEntry.key(entry)) == Some{Trace.StateEntry.value(entry)} :
+    Maybe<&2, Trace.StateValue>}
+
+# ...and a key no entry has is absent.
+law get_absent:
+  for state: Trace.TraceState
+  for +key: Trace.StateKey
+  for absent: {key_among(Trace.StateKey.to_string(key), Trace.TraceState.entries(state)) == False{} : Bool}
+  {Trace.TraceState.get(state, key) == None{} : Maybe<&2, Trace.StateValue>}
+
+# Parsing a state's normalized value gives back that state whenever the value
+# fits the tracestate input budget. Normalization drops optional whitespace,
+# empty members and later duplicates, so received text need not be restored.
+law state_roundtrip:
+  for +limits: Trace.Limits
+  for state: Trace.TraceState
+  for fits: {Nat.is_le(Trace.Utf8.length(Trace.TraceState.format(state)), Trace.Limits.tracestate_input(limits)) ==
+    True{} : Bool}
+  {Trace.TraceState.parse(limits, Trace.TraceState.format(state)) == Done{state} :
+    Result<&2, &2, Trace.StateError, Trace.TraceState>}
+
+# A value whose UTF-8 octets exceed the budget is refused, whatever it holds...
+law over_budget:
+  for +limits: Trace.Limits
+  for +text: String
+  for larger: {Nat.is_le(Trace.Utf8.length(text), Trace.Limits.tracestate_input(limits)) == False{} : Bool}
+  {Trace.TraceState.parse(limits, text) == Fail{Trace.StateTooLarge{}} :
+    Result<&2, &2, Trace.StateError, Trace.TraceState>}
+
+# ...and within the budget its size changes nothing: any budget the value fits
+# gives the same result.
+law within_budgets:
+  for +first: Trace.Limits
+  for +second: Trace.Limits
+  for +text: String
+  for first_fits: {Nat.is_le(Trace.Utf8.length(text), Trace.Limits.tracestate_input(first)) == True{} : Bool}
+  for second_fits: {Nat.is_le(Trace.Utf8.length(text), Trace.Limits.tracestate_input(second)) == True{} : Bool}
+  {Trace.TraceState.parse(first, text) == Trace.TraceState.parse(second, text) :
+    Result<&2, &2, Trace.StateError, Trace.TraceState>}
+
+# Repeated fields are parsed as their comma-joined combination, so the
+# joining commas count toward the budget and member numbers run across fields.
+law fields_join:
+  for +limits: Trace.Limits
+  for +fields: List<&2, String>
+  {Trace.TraceState.parse_fields(limits, fields) == Trace.TraceState.parse(limits, String.join(fields, ",")) :
+    Result<&2, &2, Trace.StateError, Trace.TraceState>}
+
+# The first entry of a key is kept: a later entry repeating a key of the state
+# is dropped, although it counts toward the 32 members...
+law later_duplicate:
+  for +limits: Trace.Limits
+  for +state: Trace.TraceState
+  for +entry: Trace.StateEntry
+  for present: {key_among(Trace.StateEntry.key_text(entry), Trace.TraceState.entries(state)) == True{} : Bool}
+  for room: {Nat.is_lt(List.length(&2, Trace.StateEntry, Trace.TraceState.entries(state)), 32n) == True{} : Bool}
+  for fits: {Nat.is_le(Trace.Utf8.length(Trace.TraceState.format(state) ++ "," ++ Trace.StateEntry.format(entry)),
+    Trace.Limits.tracestate_input(limits)) == True{} : Bool}
+  {Trace.TraceState.parse(limits, Trace.TraceState.format(state) ++ "," ++ Trace.StateEntry.format(entry)) ==
+    Done{state} : Result<&2, &2, Trace.StateError, Trace.TraceState>}
+
+# ...a later entry with a new key follows every earlier entry, in order...
+law later_new_key:
+  for +limits: Trace.Limits
+  for +state: Trace.TraceState
+  for +entry: Trace.StateEntry
+  for +absent: {key_among(Trace.StateEntry.key_text(entry), Trace.TraceState.entries(state)) == False{} : Bool}
+  for +room: {Nat.is_lt(List.length(&2, Trace.StateEntry, Trace.TraceState.entries(state)), 32n) == True{} : Bool}
+  for fits: {Nat.is_le(Trace.Utf8.length(Trace.TraceState.format(state) ++ "," ++ Trace.StateEntry.format(entry)),
+    Trace.Limits.tracestate_input(limits)) == True{} : Bool}
+  {Result.map(&2, &2, Trace.StateError, Trace.TraceState, List<&2, Trace.StateEntry>,
+    parsed => Trace.TraceState.entries(parsed),
+    Trace.TraceState.parse(limits, Trace.TraceState.format(state) ++ "," ++ Trace.StateEntry.format(entry))) ==
+    Done{List.append(&2, Trace.StateEntry, Trace.TraceState.entries(state), Con{entry, Nil{}})} :
+    Result<&2, &2, Trace.StateError, List<&2, Trace.StateEntry>>}
+
+# ...and members are counted before duplicates are dropped: after 32 entries,
+# any further entry is refused, even one repeating a key.
+law full_state:
+  for +limits: Trace.Limits
+  for state: Trace.TraceState
+  for entry: Trace.StateEntry
+  for full: {List.length(&2, Trace.StateEntry, Trace.TraceState.entries(state)) == 32n : Nat}
+  for fits: {Nat.is_le(Trace.Utf8.length(Trace.TraceState.format(state) ++ "," ++ Trace.StateEntry.format(entry)),
+    Trace.Limits.tracestate_input(limits)) == True{} : Bool}
+  {Trace.TraceState.parse(limits, Trace.TraceState.format(state) ++ "," ++ Trace.StateEntry.format(entry)) ==
+    Fail{Trace.TooManyMembers{}} : Result<&2, &2, Trace.StateError, Trace.TraceState>}
+
+# Whether no character of `text` is `char`.
+def lacks(+char: Char, text: String) -> Bool:
+  match text:
+    case SNil{}:
+      True{}
+    case SCon{first, rest}:
+      Bool.and(Bool.not(Char.is_eq(first, char)), lacks(char, rest))
+
+# No key or value contains the comma that separates members or the equals sign
+# that ends a key, so a formatted state has one reading.
+law key_separators:
+  for key: Trace.StateKey
+  {lacks(',', Trace.StateKey.to_string(key)) == True{} : Bool} &
+  {lacks('=', Trace.StateKey.to_string(key)) == True{} : Bool}
+
+law value_separators:
+  for value: Trace.StateValue
+  {lacks(',', Trace.StateValue.to_string(value)) == True{} : Bool} &
+  {lacks('=', Trace.StateValue.to_string(value)) == True{} : Bool}
+
+# Whether every character of `text` is optional whitespace: a space or a
+# horizontal tab.
+def all_ows(text: String) -> Bool:
+  match text:
+    case SNil{}:
+      True{}
+    case SCon{+first, rest}:
+      Bool.and(Bool.or(Char.is_eq(first, ' '), Char.is_eq(first, '\t')), all_ows(rest))
+
+# Optional whitespace before and after a normalized value changes nothing:
+# before the first key it is skipped, and after the last value it is not part
+# of that value.
+law ows_around:
+  for +limits: Trace.Limits
+  for state: Trace.TraceState
+  for +before: String
+  for +after: String
+  for before_ows: {all_ows(before) == True{} : Bool}
+  for after_ows: {all_ows(after) == True{} : Bool}
+  for fits: {Nat.is_le(Trace.Utf8.length(before ++ Trace.TraceState.format(state) ++ after),
+    Trace.Limits.tracestate_input(limits)) == True{} : Bool}
+  {Trace.TraceState.parse(limits, before ++ Trace.TraceState.format(state) ++ after) == Done{state} :
+    Result<&2, &2, Trace.StateError, Trace.TraceState>}
+
+# The entries of `later` whose keys no entry of `earlier` has, in order.
+def missing(+earlier: List<&2, Trace.StateEntry>, later: List<&2, Trace.StateEntry>) -> List<&2, Trace.StateEntry>:
+  match later:
+    case Nil{}:
+      Nil{}
+    case Con{+entry, +rest}:
+      Bool.pick(List<&2, Trace.StateEntry>, key_among(Trace.StateEntry.key_text(entry), earlier),
+        missing(earlier, rest), Con{entry, missing(earlier, rest)})
+
+# Two states' values joined by a comma parse as the first state's entries
+# followed, in order, by the second's entries whose keys the first lacks,
+# whenever the value fits and their entries number at most 32 together.
+law first_wins:
+  for +limits: Trace.Limits
+  for first: Trace.TraceState
+  for second: Trace.TraceState
+  for +count: {Nat.is_le(Nat.add(List.length(&2, Trace.StateEntry, Trace.TraceState.entries(first)),
+    List.length(&2, Trace.StateEntry, Trace.TraceState.entries(second))), 32n) == True{} : Bool}
+  for fits: {Nat.is_le(Trace.Utf8.length(Trace.TraceState.format(first) ++ "," ++ Trace.TraceState.format(second)),
+    Trace.Limits.tracestate_input(limits)) == True{} : Bool}
+  {Result.map(&2, &2, Trace.StateError, Trace.TraceState, List<&2, Trace.StateEntry>,
+    parsed => Trace.TraceState.entries(parsed),
+    Trace.TraceState.parse(limits, Trace.TraceState.format(first) ++ "," ++ Trace.TraceState.format(second))) ==
+    Done{List.append(&2, Trace.StateEntry, Trace.TraceState.entries(first),
+      missing(Trace.TraceState.entries(first), Trace.TraceState.entries(second)))} :
+    Result<&2, &2, Trace.StateError, List<&2, Trace.StateEntry>>}

@@ -1,5 +1,6 @@
 #!/bin/sh
-# Run the codec and generation evidence gates on one explicitly selected backend.
+# Run the codec, generation and tracestate evidence gates on one explicitly
+# selected backend.
 set -eu
 
 repo_dir=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
@@ -9,7 +10,8 @@ case "$mode" in native|node) ;; *) echo "Usage: $0 [native|node]" >&2; exit 2 ;;
 cd "$repo_dir"
 build_dir="$repo_dir/build/validation-$mode"
 mkdir -p "$build_dir"
-cp tests/expected-codec.txt tests/expected-demo.txt tests/expected-generation.txt tests/expected-smoke.txt "$build_dir/"
+cp tests/expected-codec.txt tests/expected-demo.txt tests/expected-generation.txt tests/expected-smoke.txt \
+  tests/expected-tracestate.txt tests/expected-tracestate-example.txt "$build_dir/"
 {
 echo "Package commit: $(git rev-parse HEAD)"
 echo "Platform: $(uname -s) $(uname -m)"
@@ -68,7 +70,7 @@ if grep -F '@unsafe' "$build_dir/proofs.txt" >/dev/null; then
   exit 1
 fi
 
-for fixture in zero_id wrong_length remote_as_local; do
+for fixture in zero_id wrong_length remote_as_local invalid_state_key; do
   status=0
   ./bend "packages/trace-context/tests/reject/$fixture.bend" --check-only > "$build_dir/$fixture.txt" 2>&1 || status=$?
   [ "$status" -eq 1 ] || { cat "$build_dir/$fixture.txt"; echo "Expected checker rejection (exit 1): $fixture" >&2; exit 1; }
@@ -76,6 +78,9 @@ for fixture in zero_id wrong_length remote_as_local; do
   if [ "$fixture" = zero_id ]; then
     grep -F 'expected : True{}' "$build_dir/$fixture.txt" >/dev/null
     grep -F 'observed : False{}' "$build_dir/$fixture.txt" >/dev/null
+  elif [ "$fixture" = invalid_state_key ]; then
+    grep -F 'expected : False{}' "$build_dir/$fixture.txt" >/dev/null
+    grep -F 'observed : True{}' "$build_dir/$fixture.txt" >/dev/null
   elif [ "$fixture" = wrong_length ]; then
     grep -E 'expected : .*Digits.Con<0n>' "$build_dir/$fixture.txt" >/dev/null
     grep -E 'observed : .*Digits.Nil' "$build_dir/$fixture.txt" >/dev/null
@@ -92,6 +97,9 @@ echo "PASS: direct Bend protocol corpus"
 run_logged direct-generation ./bend packages/trace-context/tests/GENERATION.bend
 compare_output tests/expected-generation.txt "$build_dir/direct-generation.txt"
 echo "PASS: direct deterministic generation"
+run_logged direct-tracestate ./bend packages/trace-context/tests/TRACESTATE.bend
+compare_output tests/expected-tracestate.txt "$build_dir/direct-tracestate.txt"
+echo "PASS: direct tracestate corpus"
 
 if [ "$mode" = node ]; then
   run_logged codec-compile ./bend packages/trace-context/tests/TEST.bend -o "$build_dir/codec.js"
@@ -104,6 +112,11 @@ if [ "$mode" = node ]; then
   run_logged smoke node "$build_dir/smoke.js"
   run_logged generate-compile ./bend packages/trace-context/examples/generate.bend -o "$build_dir/generate.js"
   run_logged generate node "$build_dir/generate.js"
+  run_logged tracestate-compile ./bend packages/trace-context/tests/TRACESTATE.bend -o "$build_dir/tracestate.js"
+  run_logged tracestate node "$build_dir/tracestate.js"
+  run_logged tracestate-example-compile ./bend packages/trace-context/examples/tracestate.bend \
+    -o "$build_dir/tracestate-example.js"
+  run_logged tracestate-example node "$build_dir/tracestate-example.js"
 else
   run_logged codec-compile ./bend packages/trace-context/tests/TEST.bend -o "$build_dir/codec"
   run_logged codec "$build_dir/codec"
@@ -115,10 +128,17 @@ else
   run_logged smoke "$build_dir/smoke"
   run_logged generate-compile ./bend packages/trace-context/examples/generate.bend -o "$build_dir/generate"
   run_logged generate "$build_dir/generate"
+  run_logged tracestate-compile ./bend packages/trace-context/tests/TRACESTATE.bend -o "$build_dir/tracestate"
+  run_logged tracestate "$build_dir/tracestate"
+  run_logged tracestate-example-compile ./bend packages/trace-context/examples/tracestate.bend \
+    -o "$build_dir/tracestate-example"
+  run_logged tracestate-example "$build_dir/tracestate-example"
 fi
 compare_output tests/expected-codec.txt "$build_dir/codec.txt"
 compare_output tests/expected-demo.txt "$build_dir/demo.txt"
 compare_output tests/expected-generation.txt "$build_dir/generation.txt"
 compare_output tests/expected-smoke.txt "$build_dir/smoke.txt"
+compare_output tests/expected-tracestate.txt "$build_dir/tracestate.txt"
+compare_output tests/expected-tracestate-example.txt "$build_dir/tracestate-example.txt"
 check_generated_example "$build_dir/generate.txt"
-echo "PASS: proofs, protocol corpus, generation, construction rejections and examples ($mode)"
+echo "PASS: proofs, protocol and tracestate corpora, generation, construction rejections and examples ($mode)"

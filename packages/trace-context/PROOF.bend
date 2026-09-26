@@ -13,6 +13,12 @@ import ./proofs/lifecycle.bend as LifecycleProof
 import ./proofs/words.bend as WordsProof
 import ./proofs/conversion.bend as ConversionProof
 import ./proofs/generation.bend as GenerationProof
+import ./proofs/limits.bend as LimitsProof
+import ./proofs/tracestate.bend as StateProof
+import ./proofs/distinct.bend as DistinctProof
+import ./proofs/merge.bend as MergeProof
+import ./proofs/normal.bend as NormalProof
+import ./proofs/first.bend as FirstProof
 
 def Laws.formatted_length(context):
   match context:
@@ -173,3 +179,82 @@ def Laws.generated_child(tape, parent, sampling, rest, created, generated):
 def Laws.generated_restart(tape, previous, rest, created, generated):
   %generated : GenerationProof.RestartRun(previous, _)
   GenerationProof.restart_run(previous, 48n, Trace.Draw.restart(previous), tape, {==})
+
+def Laws.limits_bounds(limits):
+  LimitsProof.bounds(limits)
+
+def Laws.limits_new(traceparent_input, tracestate_input, tracestate_output):
+  LimitsProof.new_accepts(traceparent_input, tracestate_input, tracestate_output)
+
+def Laws.limits_fields(traceparent_input, tracestate_input, tracestate_output, limits, accepted):
+  %accepted : LimitsProof.NewView(traceparent_input, tracestate_input, tracestate_output, _)
+  LimitsProof.new_view(traceparent_input, tracestate_input, tracestate_output)
+
+def Laws.default_limits():
+  ({==}, ({==}, {==}))
+
+def Laws.key_parse(text, key, accepted):
+  %accepted : StateProof.KeyView(text, _)
+  StateProof.key_view(text)
+
+def Laws.key_roundtrip(key):
+  StateProof.key_roundtrip(key)
+
+def Laws.value_parse(text, value, accepted):
+  %accepted : StateProof.ValueView(text, _)
+  StateProof.value_view(text)
+
+def Laws.value_roundtrip(value):
+  StateProof.value_roundtrip(value)
+
+def Laws.state_valid(state):
+  DistinctProof.state_valid(state)
+
+def Laws.state_roundtrip(limits, state, fits):
+  NormalProof.roundtrip(limits, state, fits)
+
+def Laws.over_budget(limits, text, larger):
+  StateProof.over_budget(limits, text, larger)
+
+def Laws.within_budgets(first, second, text, first_fits, second_fits):
+  StateProof.within_budgets(first, second, text, first_fits, second_fits)
+
+def Laws.fields_join(limits, fields):
+  StateProof.fields_join(limits, fields)
+
+def Laws.later_duplicate(limits, state, entry, present, room, fits):
+  MergeProof.later_duplicate(limits, state, entry,
+    %Equal.sym(Bool, Trace.Entries.has_key(Trace.TraceState.entries(state), Trace.StateEntry.key_text(entry)),
+      Laws.key_among(Trace.StateEntry.key_text(entry), Trace.TraceState.entries(state)),
+      DistinctProof.has_key_among(Trace.TraceState.entries(state), Trace.StateEntry.key_text(entry))) :
+      {_ == True{} : Bool}
+    present, room, fits)
+
+def Laws.later_new_key(limits, state, entry, absent, room, fits):
+  MergeProof.later_new_key(limits, state, entry,
+    %Equal.sym(Bool, Trace.Entries.has_key(Trace.TraceState.entries(state), Trace.StateEntry.key_text(entry)),
+      Laws.key_among(Trace.StateEntry.key_text(entry), Trace.TraceState.entries(state)),
+      DistinctProof.has_key_among(Trace.TraceState.entries(state), Trace.StateEntry.key_text(entry))) :
+      {_ == False{} : Bool}
+    absent, room, fits)
+
+def Laws.full_state(limits, state, entry, full, fits):
+  MergeProof.full_state(limits, state, entry, full, fits)
+
+def Laws.key_separators(key):
+  NormalProof.key_separators(key)
+
+def Laws.value_separators(value):
+  NormalProof.value_separators(value)
+
+def Laws.ows_around(limits, state, before, after, before_ows, after_ows, fits):
+  NormalProof.ows_around(limits, state, before, after, before_ows, after_ows, fits)
+
+def Laws.get_entry(state, before, entry, after, split):
+  DistinctProof.get_entry(state, before, entry, after, split)
+
+def Laws.get_absent(state, key, absent):
+  DistinctProof.get_absent(state, key, absent)
+
+def Laws.first_wins(limits, first, second, count, fits):
+  FirstProof.first_wins(limits, first, second, count, fits)
