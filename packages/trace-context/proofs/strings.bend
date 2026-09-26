@@ -5,27 +5,29 @@
 # (append_length, joined_length), the empty string and the grouping of `++`
 # (append_nil, string_assoc), double reversal (reverse_twice), and the
 # soundness of String.eq: every string equals itself (eq_refl), a True
-# comparison proves equality (eq_view, eq_sound) and a False one proves
-# difference (distinct). Many proof modules build on it.
+# comparison proves equality (eq_view, eq_sound), a False one proves
+# difference (distinct), and the comparison is symmetric (eq_symmetric). Many
+# proof modules build on it.
 # Laws.formatted_length (PROOF.bend) uses joined_length. The ID reuse checks
 # of the child and restart laws rely on eq_refl, eq_view and distinct, in
 # proofs/lifecycle.bend and, for generated IDs, proofs/generation.bend.
 # proofs/distinct.bend uses the equality lemmas for tracestate lookups;
 # proofs/ids.bend, merge.bend and normal.bend use append_nil and
-# string_assoc; proofs/tracestate.bend uses reverse_twice; and true_ne_false
-# closes impossible cases in proofs/bools.bend, generation.bend and
-# tracestate.bend.
+# string_assoc; and proofs/tracestate.bend uses reverse_twice.
 #
 # Strategy: the facts about `++` and reversal are inductions on the first
 # string. The equality lemmas follow proofs/chars.bend: EqView is Unit for a
 # False comparison and the equality for a True one, and eq_view proves it by
 # induction on both strings, with eq_char_step and eq_tail_step as the step
 # and compare_rest to pass from two strings to their rests. distinct derives
-# True == False from eq_refl and refutes it with true_ne_false, which
-# rewrites the clash through the motive BoolClash.
+# True == False from eq_refl and refutes it with BoolsProof.true_ne_false.
+# eq_symmetric_step matches on the result of String.eq(a, b): when it is True
+# the strings are equal and eq_refl gives the other comparison, and when it is
+# False eq_symmetric_false refutes a True result the other way around.
 
 import Base
 import ./chars.bend as CharsProof
+import ./bools.bend as BoolsProof
 
 # The length of a concatenation is the sum of the lengths. Induction on a,
 # the string that `++` recurses on. Used by joined_length.
@@ -95,9 +97,9 @@ def compare_rest(first, second, rest):
       {==}
 
 # Every string is equal to itself by String.eq. Induction on the text. Used
-# by distinct below, by proofs/lifecycle.bend (child_reuse, restart_reuse,
-# where a reused ID is found equal) and by proofs/distinct.bend
-# (eq_symmetric_step, get_first).
+# by distinct and eq_symmetric_step below, by proofs/lifecycle.bend
+# (child_reuse, restart_reuse, where a reused ID is found equal) and by
+# proofs/distinct.bend (get_first).
 law eq_refl:
   for +text: String
   {String.eq(text, text) == True{} : Bool}
@@ -115,35 +117,11 @@ def eq_refl(text):
         String.eq.fin(String.cmp(tail, tail)), True{},
         compare_rest(Chr{U32{code}}, Chr{U32{code}}, String.cmp(tail, tail)), eq_refl(tail))
 
-# The motive that refutes {True{} == False{}}: Empty for False and Unit for
-# True. Rewriting with the clash turns the goal Empty, which is
-# BoolClash(False{}), into BoolClash(True{}), which is Unit. Used by
-# true_ne_false.
-def BoolClash(value: Bool) -> Type:
-  match value:
-    case False{}:
-      Empty
-    case True{}:
-      Unit
-
-# True and False are different: an equation {True{} == False{}} yields
-# Empty, the type without values, so a case that assumes it cannot happen.
-# Used by distinct below, by proofs/bools.bend (absurd, or_right_false),
-# GenerationProof.ended_stays (proofs/generation.bend) and
-# StateProof.read_over (proofs/tracestate.bend).
-law true_ne_false:
-  for clash: {True{} == False{} : Bool}
-  Empty
-
-def true_ne_false(clash):
-  %clash : BoolClash(_)
-  Unit{}
-
 # When String.eq(a, b) is False, a and b are different strings.
 # `{a != b : String}` is a function from a proof of {a == b} to Empty, so
 # the proof receives `same` and derives a contradiction. Used by
 # proofs/lifecycle.bend (child_step, restart_step), proofs/generation.bend
-# (span_distinct, trace_distinct) and DistinctProof.eq_symmetric_false.
+# (span_distinct, trace_distinct) and eq_symmetric_false below.
 law distinct:
   for +a: String
   for -b: String
@@ -152,7 +130,7 @@ law distinct:
 
 # From `same`: True == String.eq(a, a) == String.eq(a, b) == False, a clash.
 def distinct(a, b, different):
-  same => true_ne_false(Equal.trans(Bool, True{}, String.eq(a, b), False{},
+  same => BoolsProof.true_ne_false(Equal.trans(Bool, True{}, String.eq(a, b), False{},
     Equal.trans(Bool, True{}, String.eq(a, a), String.eq(a, b),
       Equal.sym(Bool, String.eq(a, a), True{}, eq_refl(a)),
       Equal.cong(String, Bool, x => String.eq(a, x), a, b, same)),
@@ -248,8 +226,8 @@ def eq_view(a, b):
         eq_view(left, right))
 
 # When String.eq(a, b) is True, a and b are the same string: String.eq is
-# sound. Used by proofs/distinct.bend (eq_symmetric_step,
-# eq_symmetric_false), which shows that String.eq is symmetric.
+# sound. Used by eq_symmetric_false and eq_symmetric_step below, which show
+# that String.eq is symmetric.
 law eq_sound:
   for +a: String
   for +b: String
@@ -295,3 +273,55 @@ def string_assoc(a, b, c):
     case SCon{head, tail}:
       %string_assoc(tail, b, c) : {SCon{head, (tail ++ b) ++ c} == SCon{head, _} : String}
       {==}
+
+# When String.eq(a, b) is False{}, so is String.eq(b, a), given as the Bool
+# `same` with the equation `evidence` so that the proof can match on it. The
+# True{} case is refuted: it makes b equal to a (eq_sound), which distinct
+# excludes. eq_symmetric_step uses it.
+law eq_symmetric_false:
+  for +a: String
+  for +b: String
+  for different: {String.eq(a, b) == False{} : Bool}
+  for same: Bool
+  for evidence: {String.eq(b, a) == same : Bool}
+  {False{} == same : Bool}
+
+def eq_symmetric_false(a, b, different, same, evidence):
+  match same:
+    case False{}:
+      {==}
+    case True{}:
+      Empty.absurd({False{} == True{} : Bool}, distinct(a, b, different)(
+        Equal.sym(String, b, a, eq_sound(b, a, evidence))))
+
+# When `evidence` says that `same` is the result of String.eq(a, b), `same`
+# is also the result of String.eq(b, a). By cases on `same`: for True{}, a
+# and b are equal (eq_sound) and String.eq(a, a) is True{} (eq_refl); for
+# False{}, eq_symmetric_false applies. eq_symmetric passes String.eq(a, b)
+# itself.
+law eq_symmetric_step:
+  for +a: String
+  for +b: String
+  for same: Bool
+  for evidence: {String.eq(a, b) == same : Bool}
+  {same == String.eq(b, a) : Bool}
+
+def eq_symmetric_step(a, b, same, evidence):
+  match same:
+    case True{}:
+      %eq_sound(a, b, evidence) : {True{} == String.eq(_, a) : Bool}
+      Equal.sym(Bool, String.eq(a, a), True{}, eq_refl(a))
+    case False{}:
+      eq_symmetric_false(a, b, evidence, String.eq(b, a), {==})
+
+# String comparison is symmetric. The package's lookups compare an entry's
+# key with the key sought, and Laws.key_among compares them the other way
+# around; DistinctProof.has_key_among and get_missing (proofs/distinct.bend)
+# use this law to make them agree.
+law eq_symmetric:
+  for +a: String
+  for +b: String
+  {String.eq(a, b) == String.eq(b, a) : Bool}
+
+def eq_symmetric(a, b):
+  eq_symmetric_step(a, b, String.eq(a, b), {==})

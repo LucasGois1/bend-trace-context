@@ -34,64 +34,14 @@
 #   root_tape, child_tape and restart_tape apply it to the continuation of
 #   Draw.finished.
 #
-# Tape, TapeStep, TapeOutcome, Observe and zeros copy the definitions of the
-# same names in LAWS.bend. Both unfold to the same terms, so each statement
-# here is the statement of the law it proves.
+# The statements use Tape, TapeStep, TapeOutcome and Observe of LAWS.bend,
+# so each statement here is the statement of the law it proves.
 
 import Base
 import ../trace_context.bend as TC
 import ./strings.bend as StringsProof
-import ../src/digits.bend as Digits
-
-# Tapes and the two drivers
-# =========================
-#
-# Tape, TapeStep and Observe, as in LAWS.bend, and read_tape: over a tape,
-# the IO driver Draw.read computes what the pure driver Draw.run computes.
-
-# A tape: the word results a replayed source returns, in order, each
-# Done{word} or Fail{(code, message)}. A copy of Tape in LAWS.bend.
-def Tape() -> Type:
-  List<&1, Result<&1, &1, U32 & String, U32>>
-
-# The unread rest of a tape with the machine's state after reading, as
-# Draw.run returns them. A copy of TapeStep in LAWS.bend.
-def TapeStep() -> Type:
-  Tape() & TC.Step
-
-# The value an IO action produces when every effect in it is pure. Base
-# defines IO(A) as a function of a result type and a continuation; Observe
-# runs the action with the continuation that only emits its final value, so
-# Emit{v} says the action produced v. A copy of Observe in LAWS.bend.
-def Observe(-A: Type, action: IO(A)) -> IO.OP<A>:
-  action(A, value => Emit{value})
-
-# Driving a generation as an IO action over a tape source (Draw.read with
-# Source.tape) computes exactly what the pure driver Draw.run computes: the
-# same words are read, in the same order, and the same tape and step result.
-# No other proof uses it: root_tape, child_tape and restart_tape rest on
-# read_tape_then, the same statement for any continuation.
-law read_tape:
-  for +fuel: Nat
-  for current: TapeStep()
-  {Observe(TapeStep(), TC.Draw.read(~Tape(), ~TC.Source.tape, fuel, current)) ==
-    Emit{TC.Draw.run(fuel, current)} : IO.OP<TapeStep()>}
-
-# Splits on the fuel for every step: the drivers compute only once it is known.
-def read_tape(fuel, current):
-  match fuel current:
-    case 0n Tuple{tape, TC.Created{context}}:
-      {==}
-    case 0n Tuple{tape, TC.Failed{error}}:
-      {==}
-    case 0n Tuple{tape, TC.NeedWord{draw}}:
-      {==}
-    case 1n+p Tuple{tape, TC.Created{context}}:
-      {==}
-    case 1n+p Tuple{tape, TC.Failed{error}}:
-      {==}
-    case 1n+p Tuple{tape, TC.NeedWord{draw}}:
-      read_tape(p, TC.Draw.fed_by(Tape(), TC.Tape.next(tape), draw))
+import ./bools.bend as BoolsProof
+import ../LAWS.bend as Laws
 
 # Word bounds
 # ===========
@@ -525,7 +475,7 @@ def child_within(parent, sampling):
 # uses it after a source error, the end of the tape included.
 law ended_stays:
   for +fuel: Nat
-  for tape: Tape()
+  for tape: Laws.Tape()
   for +step: TC.Step
   for ended: {TC.Step.is_finished(step) == True{} : Bool}
   {TC.Draw.ended(TC.Draw.run(fuel, (tape, step))) == True{} : Bool}
@@ -539,14 +489,14 @@ def ended_stays(fuel, tape, step, ended):
       {==}
     case 0n TC.NeedWord{draw}:
       Empty.absurd({TC.Draw.ended(TC.Draw.run(0n, (tape, TC.NeedWord{draw}))) == True{} : Bool},
-        StringsProof.true_ne_false(Equal.sym(Bool, False{}, True{}, ended)))
+        BoolsProof.true_ne_false(Equal.sym(Bool, False{}, True{}, ended)))
     case 1n+p TC.Created{context}:
       {==}
     case 1n+p TC.Failed{error}:
       {==}
     case 1n+p TC.NeedWord{draw}:
       Empty.absurd({TC.Draw.ended(TC.Draw.run(1n+p, (tape, TC.NeedWord{draw}))) == True{} : Bool},
-        StringsProof.true_ne_false(Equal.sym(Bool, False{}, True{}, ended)))
+        BoolsProof.true_ne_false(Equal.sym(Bool, False{}, True{}, ended)))
 
 # Driving a generation with enough fuel ends it, whatever the tape holds:
 # when the step ends within `fuel` words (Within), Draw.run with that fuel
@@ -557,7 +507,7 @@ def ended_stays(fuel, tape, step, ended):
 law run_ends:
   for +fuel: Nat
   for +step: TC.Step
-  for tape: Tape()
+  for tape: Laws.Tape()
   for bound: Within(step, fuel)
   {TC.Draw.ended(TC.Draw.run(fuel, (tape, step))) == True{} : Bool}
 
@@ -591,9 +541,9 @@ def run_ends(fuel, step, tape, bound):
 # restart_run use it for the rest of a drive after a source error.
 law run_failed:
   for fuel: Nat
-  for tape: Tape()
+  for tape: Laws.Tape()
   for error: TC.GenerationError
-  {TC.Draw.run(fuel, (tape, TC.Failed{error})) == (tape, TC.Failed{error}) : TapeStep()}
+  {TC.Draw.run(fuel, (tape, TC.Failed{error})) == (tape, TC.Failed{error}) : Laws.TapeStep()}
 
 # Splits on the fuel only because Draw.run does not compute on an unknown one.
 def run_failed(fuel, tape, error):
@@ -832,7 +782,7 @@ def root_feed(word, draw, valid):
 # unread tape ignored. Laws.generated_root rewrites its hypothesis
 # {Draw.run(...) == (rest, Created{created})} through RootRun(_), which turns
 # the law's conclusion into RootRun of the drive, proved by root_run.
-def RootRun(result: TapeStep()) -> Type:
+def RootRun(result: Laws.TapeStep()) -> Type:
   match result:
     case Tuple{tape, step}:
       RootInv(step)
@@ -843,7 +793,7 @@ def RootRun(result: TapeStep()) -> Type:
 law root_run:
   for +fuel: Nat
   for +step: TC.Step
-  for tape: Tape()
+  for tape: Laws.Tape()
   for valid: RootInv(step)
   RootRun(TC.Draw.run(fuel, (tape, step)))
 
@@ -867,12 +817,12 @@ def root_run(fuel, step, tape, valid):
         case TC.NeedWord{+draw}:
           match tape:
             case Nil{}:
-              %Equal.sym(TapeStep(), TC.Draw.run(p, (Nil{}, TC.Failed{TC.SourceFailure{1, "tape-exhausted"}})),
+              %Equal.sym(Laws.TapeStep(), TC.Draw.run(p, (Nil{}, TC.Failed{TC.SourceFailure{1, "tape-exhausted"}})),
                 (Nil{}, TC.Failed{TC.SourceFailure{1, "tape-exhausted"}}),
                 run_failed(p, Nil{}, TC.SourceFailure{1, "tape-exhausted"})) : RootRun(_)
               Unit{}
             case Con{Fail{(code, message)}, rest}:
-              %Equal.sym(TapeStep(), TC.Draw.run(p, (rest, TC.Failed{TC.SourceFailure{code, message}})),
+              %Equal.sym(Laws.TapeStep(), TC.Draw.run(p, (rest, TC.Failed{TC.SourceFailure{code, message}})),
                 (rest, TC.Failed{TC.SourceFailure{code, message}}),
                 run_failed(p, rest, TC.SourceFailure{code, message})) : RootRun(_)
               Unit{}
@@ -1053,7 +1003,7 @@ def child_feed(parent, sampling, word, draw, valid):
 # The view of Draw.run's result for a child: ChildInv of its final step, the
 # unread tape ignored. Laws.generated_child rewrites its hypothesis through
 # ChildRun(parent, sampling, _), as for RootRun.
-def ChildRun(+parent: TC.Parent, sampling: TC.Sampling, result: TapeStep()) -> Type:
+def ChildRun(+parent: TC.Parent, sampling: TC.Sampling, result: Laws.TapeStep()) -> Type:
   match result:
     case Tuple{tape, step}:
       ChildInv(parent, sampling, step)
@@ -1067,7 +1017,7 @@ law child_run:
   for -sampling: TC.Sampling
   for +fuel: Nat
   for +step: TC.Step
-  for tape: Tape()
+  for tape: Laws.Tape()
   for valid: ChildInv(parent, sampling, step)
   ChildRun(parent, sampling, TC.Draw.run(fuel, (tape, step)))
 
@@ -1091,12 +1041,12 @@ def child_run(parent, sampling, fuel, step, tape, valid):
         case TC.NeedWord{+draw}:
           match tape:
             case Nil{}:
-              %Equal.sym(TapeStep(), TC.Draw.run(p, (Nil{}, TC.Failed{TC.SourceFailure{1, "tape-exhausted"}})),
+              %Equal.sym(Laws.TapeStep(), TC.Draw.run(p, (Nil{}, TC.Failed{TC.SourceFailure{1, "tape-exhausted"}})),
                 (Nil{}, TC.Failed{TC.SourceFailure{1, "tape-exhausted"}}),
                 run_failed(p, Nil{}, TC.SourceFailure{1, "tape-exhausted"})) : ChildRun(parent, sampling, _)
               Unit{}
             case Con{Fail{(code, message)}, rest}:
-              %Equal.sym(TapeStep(), TC.Draw.run(p, (rest, TC.Failed{TC.SourceFailure{code, message}})),
+              %Equal.sym(Laws.TapeStep(), TC.Draw.run(p, (rest, TC.Failed{TC.SourceFailure{code, message}})),
                 (rest, TC.Failed{TC.SourceFailure{code, message}}),
                 run_failed(p, rest, TC.SourceFailure{code, message})) : ChildRun(parent, sampling, _)
               Unit{}
@@ -1325,7 +1275,7 @@ def restart_feed(previous, word, draw, valid):
 # The view of Draw.run's result for a restart: RestartInv of its final step,
 # the unread tape ignored. Laws.generated_restart rewrites its hypothesis
 # through RestartRun(previous, _), as for RootRun.
-def RestartRun(+previous: TC.RemoteContext, result: TapeStep()) -> Type:
+def RestartRun(+previous: TC.RemoteContext, result: Laws.TapeStep()) -> Type:
   match result:
     case Tuple{tape, step}:
       RestartInv(previous, step)
@@ -1337,7 +1287,7 @@ law restart_run:
   for +previous: TC.RemoteContext
   for +fuel: Nat
   for +step: TC.Step
-  for tape: Tape()
+  for tape: Laws.Tape()
   for valid: RestartInv(previous, step)
   RestartRun(previous, TC.Draw.run(fuel, (tape, step)))
 
@@ -1361,12 +1311,12 @@ def restart_run(previous, fuel, step, tape, valid):
         case TC.NeedWord{+draw}:
           match tape:
             case Nil{}:
-              %Equal.sym(TapeStep(), TC.Draw.run(p, (Nil{}, TC.Failed{TC.SourceFailure{1, "tape-exhausted"}})),
+              %Equal.sym(Laws.TapeStep(), TC.Draw.run(p, (Nil{}, TC.Failed{TC.SourceFailure{1, "tape-exhausted"}})),
                 (Nil{}, TC.Failed{TC.SourceFailure{1, "tape-exhausted"}}),
                 run_failed(p, Nil{}, TC.SourceFailure{1, "tape-exhausted"})) : RestartRun(previous, _)
               Unit{}
             case Con{Fail{(code, message)}, rest}:
-              %Equal.sym(TapeStep(), TC.Draw.run(p, (rest, TC.Failed{TC.SourceFailure{code, message}})),
+              %Equal.sym(Laws.TapeStep(), TC.Draw.run(p, (rest, TC.Failed{TC.SourceFailure{code, message}})),
                 (rest, TC.Failed{TC.SourceFailure{code, message}}),
                 run_failed(p, rest, TC.SourceFailure{code, message})) : RestartRun(previous, _)
               Unit{}
@@ -1380,20 +1330,20 @@ def restart_run(previous, fuel, step, tape, valid):
 # Laws root_tape, child_tape and restart_tape: Context.root_with, child_with
 # and restart_with over Source.tape produce the outcome of Draw.run.
 
-# read_tape for any continuation: running the IO driver over a tape source
-# with a continuation `next`, to any result type R, gives `next` the pure
-# driver's result. Since an IO action is a function of R and a continuation
-# (IO in Base), this says how Draw.read behaves inside a larger action, such
-# as the one Draw.finished builds. root_tape, child_tape and restart_tape
-# rest on it.
+# Over a tape, the IO driver computes what the pure driver computes: running
+# Draw.read over Source.tape with a continuation `next`, to any result type
+# R, gives `next` the result of Draw.run, the same words read in the same
+# order. Since an IO action is a function of R and a continuation (IO in
+# Base), this says how Draw.read behaves inside a larger action, such as the
+# one Draw.finished builds. root_tape, child_tape and restart_tape rest on it.
 law read_tape_then:
   for -R: Type
-  for next: TapeStep() -> IO.OP<R>
+  for next: Laws.TapeStep() -> IO.OP<R>
   for +fuel: Nat
-  for current: TapeStep()
-  {TC.Draw.read(~Tape(), ~TC.Source.tape, fuel, current)(R, next) == next(TC.Draw.run(fuel, current)) : IO.OP<R>}
+  for current: Laws.TapeStep()
+  {TC.Draw.read(~Laws.Tape(), ~TC.Source.tape, fuel, current)(R, next) == next(TC.Draw.run(fuel, current)) : IO.OP<R>}
 
-# As read_tape: splits on the fuel for every step.
+# Splits on the fuel for every step: the drivers compute only once it is known.
 def read_tape_then(R, next, fuel, current):
   match fuel current:
     case 0n Tuple{tape, TC.Created{context}}:
@@ -1407,89 +1357,42 @@ def read_tape_then(R, next, fuel, current):
     case 1n+p Tuple{tape, TC.Failed{error}}:
       {==}
     case 1n+p Tuple{tape, TC.NeedWord{draw}}:
-      read_tape_then(R, next, p, TC.Draw.fed_by(Tape(), TC.Tape.next(tape), draw))
-
-# The unread rest of a tape with the generation's result, as Draw.outcome
-# returns them. A copy of TapeOutcome in LAWS.bend.
-def TapeOutcome() -> Type:
-  Tape() & Result<&2, &2, TC.GenerationError, TC.LocalContext>
+      read_tape_then(R, next, p, TC.Draw.fed_by(Laws.Tape(), TC.Tape.next(tape), draw))
 
 # Law root_tape: generating a root as an IO action over a tape source
 # (Context.root_with with Source.tape) produces Draw.outcome of the pure
 # driver Draw.run with the same budget of 48 words. Laws.root_tape returns
 # this proof.
 law root_tape:
-  for tape: Tape()
-  {Observe(TapeOutcome(), TC.Context.root_with(~Tape(), ~TC.Source.tape, tape)) ==
-    Emit{TC.Draw.outcome(Tape(), TC.Draw.run(48n, (tape, TC.Draw.root())))} : IO.OP<TapeOutcome()>}
+  for tape: Laws.Tape()
+  {Laws.Observe(Laws.TapeOutcome(), TC.Context.root_with(~Laws.Tape(), ~TC.Source.tape, tape)) ==
+    Emit{TC.Draw.outcome(Laws.Tape(), TC.Draw.run(48n, (tape, TC.Draw.root())))} : IO.OP<Laws.TapeOutcome()>}
 
 # read_tape_then, with the continuation that Draw.finished and Observe supply.
 def root_tape(tape):
-  read_tape_then(TapeOutcome(), done => Emit{TC.Draw.outcome(Tape(), done)}, 48n, (tape, TC.Draw.root()))
+  read_tape_then(Laws.TapeOutcome(), done => Emit{TC.Draw.outcome(Laws.Tape(), done)}, 48n, (tape, TC.Draw.root()))
 
 # Law child_tape: as root_tape, for a child with a budget of 16 words.
 # Laws.child_tape returns this proof.
 law child_tape:
-  for tape: Tape()
+  for tape: Laws.Tape()
   for parent: TC.Parent
   for sampling: TC.Sampling
-  {Observe(TapeOutcome(), TC.Context.child_with(~Tape(), ~TC.Source.tape, tape, parent, sampling)) ==
-    Emit{TC.Draw.outcome(Tape(), TC.Draw.run(16n, (tape, TC.Draw.child(parent, sampling))))} : IO.OP<TapeOutcome()>}
+  {Laws.Observe(Laws.TapeOutcome(), TC.Context.child_with(~Laws.Tape(), ~TC.Source.tape, tape, parent, sampling)) ==
+    Emit{TC.Draw.outcome(Laws.Tape(), TC.Draw.run(16n, (tape, TC.Draw.child(parent, sampling))))} : IO.OP<Laws.TapeOutcome()>}
 
 def child_tape(tape, parent, sampling):
-  read_tape_then(TapeOutcome(), done => Emit{TC.Draw.outcome(Tape(), done)}, 16n,
+  read_tape_then(Laws.TapeOutcome(), done => Emit{TC.Draw.outcome(Laws.Tape(), done)}, 16n,
     (tape, TC.Draw.child(parent, sampling)))
 
 # Law restart_tape: as root_tape, for a restart with a budget of 48 words.
 # Laws.restart_tape returns this proof.
 law restart_tape:
-  for tape: Tape()
+  for tape: Laws.Tape()
   for previous: TC.RemoteContext
-  {Observe(TapeOutcome(), TC.Context.restart_with(~Tape(), ~TC.Source.tape, tape, previous)) ==
-    Emit{TC.Draw.outcome(Tape(), TC.Draw.run(48n, (tape, TC.Draw.restart(previous))))} : IO.OP<TapeOutcome()>}
+  {Laws.Observe(Laws.TapeOutcome(), TC.Context.restart_with(~Laws.Tape(), ~TC.Source.tape, tape, previous)) ==
+    Emit{TC.Draw.outcome(Laws.Tape(), TC.Draw.run(48n, (tape, TC.Draw.restart(previous))))} : IO.OP<Laws.TapeOutcome()>}
 
 def restart_tape(tape, previous):
-  read_tape_then(TapeOutcome(), done => Emit{TC.Draw.outcome(Tape(), done)}, 48n,
+  read_tape_then(Laws.TapeOutcome(), done => Emit{TC.Draw.outcome(Laws.Tape(), done)}, 48n,
     (tape, TC.Draw.restart(previous)))
-
-# Exhaustion
-# ==========
-#
-# Restatements of the laws root_exhaustion and child_exhaustion. PROOF.bend
-# proves those laws by computation itself and does not use these.
-
-# `count` zero words. Four make an all-zero trace ID candidate and two an
-# all-zero span ID candidate, which generation rejects. A copy of zeros in
-# LAWS.bend.
-def zeros(count: Nat) -> Tape():
-  match count:
-    case 0n:
-      Nil{}
-    case 1n+p:
-      Con{Done{0}, zeros(p)}
-
-# Eight all-zero trace ID candidates (32 zero words) make a root fail with
-# ExhaustedTraceId, and the words after them are not read, as law
-# root_exhaustion states. Proved by computation. Not used outside this
-# module.
-law root_exhaustion:
-  for rest: Tape()
-  {TC.Draw.run(48n, (List.append(&1, Result<&1, &1, U32 & String, U32>, zeros(32n), rest), TC.Draw.root())) ==
-    (rest, TC.Failed{TC.ExhaustedTraceId{}}) : TapeStep()}
-
-def root_exhaustion(rest):
-  {==}
-
-# Eight all-zero span ID candidates (16 zero words) make a child fail with
-# ExhaustedSpanId, and the words after them are not read, as law
-# child_exhaustion states. Proved by computation. Not used outside this
-# module.
-law child_exhaustion:
-  for parent: TC.Parent
-  for sampling: TC.Sampling
-  for rest: Tape()
-  {TC.Draw.run(16n, (List.append(&1, Result<&1, &1, U32 & String, U32>, zeros(16n), rest),
-    TC.Draw.child(parent, sampling))) == (rest, TC.Failed{TC.ExhaustedSpanId{}}) : TapeStep()}
-
-def child_exhaustion(parent, sampling, rest):
-  {==}

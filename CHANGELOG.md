@@ -66,7 +66,9 @@ qualified JavaScript/entropy boundaries; it is not a published release.
   states its claim in words, the W3C or specification requirement it verifies,
   its motivation and how to read it; `PROOF.bend` explains how to read a Bend
   proof; every definition of the package and every helper law under `proofs/`
-  has a comment. Law statements, proofs and code are unchanged.
+  has a comment. The proof modules drop unused imports and lemmas and keep
+  general lemmas in the shared libraries; law statements and code are
+  unchanged.
 - Establish reproducible Bend 2.0.27 setup, Git-pinned consumption, MIT licensing
   and baseline validation on native and Node targets.
 - Standardize documentation and package paths in English, including the public

@@ -1,25 +1,51 @@
 # Proofs: general lemmas on Bool
 # ==============================
 #
-# General lemmas on Base's Bool that take apart a hypothesis saying a check
+# General lemmas on Base's Bool. true_ne_false shows that True and False
+# differ, and absurd closes a case whose hypothesis computes to
+# {False{} == True{}}. The others take apart a hypothesis saying a check
 # returned True or False: each half of a true Bool.and, each half of a false
-# Bool.or, the argument of a true Bool.not, and absurd, which closes a case
-# whose hypothesis computes to {False{} == True{}}. The package's checks are
-# chains of Bool.and (TraceState.is_valid, TC.Entries.unique, the key and
-# value grammars, the rules of Limits) and its lookups are chains of Bool.or,
-# so the proofs of the Limits and tracestate laws use these lemmas
-# throughout: proofs/limits.bend, tracestate.bend, distinct.bend,
-# merge.bend, normal.bend and first.bend.
+# Bool.or and the argument of a true Bool.not; or_assoc and or_false regroup
+# a chain of Bool.or. The package's checks are chains of Bool.and
+# (TraceState.is_valid, TC.Entries.unique, the key and value grammars, the
+# rules of Limits) and its lookups are chains of Bool.or, so the proofs of
+# the Limits and tracestate laws use these lemmas throughout:
+# proofs/limits.bend, tracestate.bend, distinct.bend, merge.bend, normal.bend
+# and first.bend. proofs/strings.bend, nats.bend and generation.bend use
+# true_ne_false or absurd.
 #
 # Bool.and, Bool.or and Bool.not inspect only their first argument, so each
 # law is proved by cases on `a`, and a second argument `b` is erased (`-b`).
 # In each case the conclusion holds by computation ({==}), is the hypothesis
 # itself once it computes, or follows from a hypothesis that computes to a
-# clash. absurd refutes such a clash with StringsProof.true_ne_false, which
-# rewrites it through a motive that sends False to Empty and True to Unit.
+# clash. true_ne_false refutes such a clash by rewriting it through the
+# motive BoolClash, which sends False to Empty and True to Unit.
 
 import Base
-import ./strings.bend as StringsProof
+
+# The motive that refutes {True{} == False{}}: Empty for False and Unit for
+# True. Rewriting with the clash turns the goal Empty, which is
+# BoolClash(False{}), into BoolClash(True{}), which is Unit. Used by
+# true_ne_false.
+def BoolClash(value: Bool) -> Type:
+  match value:
+    case False{}:
+      Empty
+    case True{}:
+      Unit
+
+# True and False are different: an equation {True{} == False{}} yields
+# Empty, the type without values, so a case that assumes it cannot happen.
+# Used here by absurd and or_right_false, and by StringsProof.distinct
+# (proofs/strings.bend), GenerationProof.ended_stays (proofs/generation.bend)
+# and StateProof.read_over (proofs/tracestate.bend).
+law true_ne_false:
+  for clash: {True{} == False{} : Bool}
+  Empty
+
+def true_ne_false(clash):
+  %clash : BoolClash(_)
+  Unit{}
 
 # From the impossible equation {False{} == True{}}, anything follows: absurd
 # proves any goal `A`, which the caller passes and which is erased. It closes
@@ -27,7 +53,7 @@ import ./strings.bend as StringsProof
 # {Nat.is_le(1n+n, 0n) == True{}}. Used by first.bend, merge.bend,
 # normal.bend and tracestate.bend, and here by not_true and and_right.
 def absurd(-A: Type, clash: {False{} == True{} : Bool}) -> A:
-  Empty.absurd(A, StringsProof.true_ne_false(Equal.sym(Bool, False{}, True{}, clash)))
+  Empty.absurd(A, true_ne_false(Equal.sym(Bool, False{}, True{}, clash)))
 
 # When Bool.not(a) is True, `a` is False. Used by distinct.bend, first.bend,
 # merge.bend and normal.bend to read the first check of TC.Entries.unique,
@@ -112,4 +138,35 @@ def or_right_false(a, b, both):
     case False{}:
       both
     case True{}:
-      Empty.absurd({b == False{} : Bool}, StringsProof.true_ne_false(both))
+      Empty.absurd({b == False{} : Bool}, true_ne_false(both))
+
+# Bool.or is associative. Bool.or inspects only its first argument, so the
+# proof matches on `a` alone, and `b` and `c` are erased.
+# FirstProof.has_key_append (proofs/first.bend) uses it to regroup the
+# lookups in the two parts of a list.
+law or_assoc:
+  for a: Bool
+  for -b: Bool
+  for -c: Bool
+  {Bool.or(a, Bool.or(b, c)) == Bool.or(Bool.or(a, b), c) : Bool}
+
+def or_assoc(a, b, c):
+  match a:
+    case False{}:
+      {==}
+    case True{}:
+      {==}
+
+# False is a right identity of Bool.or: Bool.or(a, False{}) is `a`, by cases
+# on `a`. FirstProof.machine_key (proofs/first.bend) uses it once the lookup
+# in the entries kept from the second state is known to be False.
+law or_false:
+  for a: Bool
+  {Bool.or(a, False{}) == a : Bool}
+
+def or_false(a):
+  match a:
+    case False{}:
+      {==}
+    case True{}:
+      {==}

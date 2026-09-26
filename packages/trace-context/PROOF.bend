@@ -60,10 +60,8 @@ import Base
 import ./LAWS.bend as Laws
 import ./trace_context.bend as Trace
 import ./src/digits.bend as Digits
-import ./proofs/hex.bend as HexProof
 import ./proofs/digits.bend as DigitsProof
 import ./proofs/strings.bend as StringsProof
-import ./proofs/parser.bend as ParserProof
 import ./proofs/context.bend as ContextProof
 import ./proofs/inverse.bend as InverseProof
 import ./proofs/ids.bend as IdsProof

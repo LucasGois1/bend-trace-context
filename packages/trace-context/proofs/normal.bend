@@ -12,7 +12,7 @@
 #
 # The separator proofs follow the grammar checks of trace_context.bend: an
 # induction on the text, with the room of the check, in which
-# StateProof.differs shows that a character a class accepts differs from
+# CharsProof.differs shows that a character a class accepts differs from
 # one it refuses. The whitespace proofs follow the reading machine:
 # MergeProof.parse_scan removes the budget check, blank_ows skips the
 # whitespace before the value, and ows_after reads the value. Its induction,
@@ -24,6 +24,7 @@
 import Base
 import ../LAWS.bend as Laws
 import ../trace_context.bend as TC
+import ./chars.bend as CharsProof
 import ./strings.bend as StringsProof
 import ./bools.bend as BoolsProof
 import ./lists.bend as ListsProof
@@ -35,7 +36,7 @@ import ./merge.bend as MergeProof
 
 # When StateKey.valid.rest accepts `text`, every character of it is a key
 # character, so `text` lacks any `char` that StateChar.is_key refuses.
-# Induction on `text` with the room of the check; StateProof.differs shows
+# Induction on `text` with the room of the check; CharsProof.differs shows
 # that each character differs from `char`. key_lacks uses it for the
 # characters after a key's first.
 law key_rest_lacks:
@@ -56,7 +57,7 @@ def key_rest_lacks(text, room, valid, char, fails):
           BoolsProof.absurd({Laws.lacks(char, SCon{first, rest}) == True{} : Bool}, valid)
         case 1n+left:
           %Equal.sym(Bool, Char.is_eq(first, char), False{},
-            StateProof.differs(x => TC.StateChar.is_key(x), first, char,
+            CharsProof.differs(x => TC.StateChar.is_key(x), first, char,
               BoolsProof.and_left(TC.StateChar.is_key(first), TC.StateKey.valid.rest(rest, left), valid), fails)) :
             {Bool.and(Bool.not(_), Laws.lacks(char, rest)) == True{} : Bool}
           key_rest_lacks(rest, left,
@@ -80,7 +81,7 @@ def key_lacks(text, valid, char, start_fails, fails):
       {==}
     case SCon{+first, +rest}:
       %Equal.sym(Bool, Char.is_eq(first, char), False{},
-        StateProof.differs(x => TC.StateChar.is_key_start(x), first, char,
+        CharsProof.differs(x => TC.StateChar.is_key_start(x), first, char,
           BoolsProof.and_left(TC.StateChar.is_key_start(first), TC.StateKey.valid.rest(rest, 255n), valid),
           start_fails)) :
         {Bool.and(Bool.not(_), Laws.lacks(char, rest)) == True{} : Bool}
@@ -119,7 +120,7 @@ def value_go_lacks(tail, first, room, valid, char, value_fails, end_fails):
   match tail:
     case SNil{}:
       %Equal.sym(Bool, Char.is_eq(first, char), False{},
-        StateProof.differs(x => TC.StateChar.is_value_end(x), first, char, valid, end_fails)) :
+        CharsProof.differs(x => TC.StateChar.is_value_end(x), first, char, valid, end_fails)) :
         {Bool.and(Bool.not(_), Laws.lacks(char, SNil{})) == True{} : Bool}
       {==}
     case SCon{+next, +rest}:
@@ -128,7 +129,7 @@ def value_go_lacks(tail, first, room, valid, char, value_fails, end_fails):
           BoolsProof.absurd({Laws.lacks(char, SCon{first, SCon{next, rest}}) == True{} : Bool}, valid)
         case 1n+left:
           %Equal.sym(Bool, Char.is_eq(first, char), False{},
-            StateProof.differs(x => TC.StateChar.is_value(x), first, char,
+            CharsProof.differs(x => TC.StateChar.is_value(x), first, char,
               BoolsProof.and_left(TC.StateChar.is_value(first), TC.StateValue.valid.go(rest, next, left), valid),
               value_fails)) :
             {Bool.and(Bool.not(_), Laws.lacks(char, SCon{next, rest})) == True{} : Bool}
@@ -203,7 +204,7 @@ def value_ows(text, ows, member, allowed, key, acc, entries):
       {==}
     case SCon{+char, +rest}:
       %Equal.sym(Bool, Char.is_eq(char, ','), False{},
-        StateProof.differs(x => TC.StateChar.is_ows(x), char, ',', ows_is_ows(char, rest, ows), {==})) :
+        CharsProof.differs(x => TC.StateChar.is_ows(x), char, ',', ows_is_ows(char, rest, ows), {==})) :
         {TC.Scan.text(rest, TC.Scan.read(_, char, member, allowed, TC.InValue{key, acc}, entries)) ==
           TC.Scanning{member, allowed, TC.InValue{key, String.reverse.go(rest, SCon{char, acc})}, entries} : TC.Scan}
       value_ows(rest,
@@ -256,7 +257,7 @@ def blank_ows(text, ows, member, allowed, entries):
     case SCon{+char, +rest}:
       +holds = ows_is_ows(char, rest, ows)
       %Equal.sym(Bool, Char.is_eq(char, ','), False{},
-        StateProof.differs(x => TC.StateChar.is_ows(x), char, ',', holds, {==})) :
+        CharsProof.differs(x => TC.StateChar.is_ows(x), char, ',', holds, {==})) :
         {TC.Scan.text(rest, TC.Scan.read(_, char, member, allowed, TC.Blank{}, entries)) ==
           TC.Scanning{member, allowed, TC.Blank{}, entries} : TC.Scan}
       %Equal.sym(Bool, TC.StateChar.is_ows(char), True{}, holds) :

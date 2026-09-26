@@ -51,20 +51,6 @@ def nonzero_encoded_length(n, value):
     case Digits.NonZero{digits, evidence}:
       encoded_length(n, digits)
 
-# The digits of a NonZero value are not all zero: the proof stored in its
-# `evidence` field can be taken out and reused by other proofs. No proof uses
-# it yet: it shows that the evidence stays available to proofs, as the NonZero
-# type in src/digits.bend promises.
-law nonzero_evidence:
-  for n: Nat
-  for value: Digits.NonZero<n>
-  {Digits.Digits.is_zero(n, Digits.NonZero.digits(n, value)) == False{} : Bool}
-
-def nonzero_evidence(n, value):
-  match value:
-    case Digits.NonZero{digits, evidence}:
-      evidence
-
 # When the digits are not all zero, NonZero.new accepts them, and the value
 # it returns carries exactly the given proof `evidence`: the equation
 # compares whole values, stored proof included. Used by new_recovery below

@@ -24,9 +24,9 @@
 # a round trip rewrites the evidence stored in the value with `%q@`. Reading
 # follows the machine one character at a time: scan_append splits a text into
 # parts, and each part is read by induction on the text along the recursion
-# of its grammar check (read_key_rest, read_value), while `differs` rules
-# out, character by character, the separators and whitespace that the machine
-# tests for. The state proofs apply read_entry, then close_keep or
+# of its grammar check (read_key_rest, read_value), while CharsProof.differs
+# rules out, character by character, the separators and whitespace that the
+# machine tests for. The state proofs apply read_entry, then close_keep or
 # close_entry, to each entry and end with checked_valid. Budgets follow by
 # induction on the text (left_take, within), and repeated fields by induction
 # on the fields after the first (left_join, scan_join, fields_join).
@@ -36,55 +36,13 @@ import ../trace_context.bend as TC
 import ./chars.bend as CharsProof
 import ./strings.bend as StringsProof
 import ./bools.bend as BoolsProof
-import ./lists.bend as ListsProof
 
 # Character classes
 # =================
 #
-# `differs` shows that two characters differ when a class of StateChar.*
-# accepts one and refuses the other. Every separator and whitespace lemma of
-# this module is built on it.
-
-# When a class `f` accepts `char` and refuses `other`, any Bool `same` for
-# which CharsProof.CharView(char, other, same) holds is False. The view holds
-# {char == other : Char} when `same` is True; congruence then gives
-# f(char) == f(other), and `holds` and `fails` chain into the goal, which is
-# True == False itself. `differs` applies it to Char.is_eq(char, other), a
-# computed value that `match` cannot inspect directly.
-law differs_step:
-  for -f: Char -> Bool
-  for -char: Char
-  for -other: Char
-  for same: Bool
-  for view: CharsProof.CharView(char, other, same)
-  for holds: {f(char) == True{} : Bool}
-  for fails: {f(other) == False{} : Bool}
-  {same == False{} : Bool}
-
-def differs_step(f, char, other, same, view, holds, fails):
-  match same:
-    case False{}:
-      {==}
-    case True{}:
-      Equal.trans(Bool, True{}, f(char), False{}, Equal.sym(Bool, f(char), True{}, holds),
-        Equal.trans(Bool, f(char), f(other), False{}, Equal.cong(Char, Bool, f, char, other, view), fails))
-
-# A character a class accepts differs from every character the class refuses:
-# when f(char) is True and f(other) is False, Char.is_eq(char, other) is False.
-# Callers pass the class as a lambda, such as `x => TC.StateChar.is_key(x)`,
-# and prove `fails` by {==} when `other` is a concrete character such as ','.
-# The separator and whitespace lemmas below and read_entry_text use it, and so
-# does proofs/normal.bend for key_separators, value_separators and whitespace.
-law differs:
-  for -f: Char -> Bool
-  for +char: Char
-  for +other: Char
-  for holds: {f(char) == True{} : Bool}
-  for fails: {f(other) == False{} : Bool}
-  {Char.is_eq(char, other) == False{} : Bool}
-
-def differs(f, char, other, holds, fails):
-  differs_step(f, char, other, Char.is_eq(char, other), CharsProof.char_view(char, other), holds, fails)
+# CharsProof.differs (proofs/chars.bend) shows that two characters differ
+# when a class of StateChar.* accepts one and refuses the other. Every
+# separator and whitespace lemma of this module is built on it.
 
 # A key's first character is not optional whitespace: when
 # StateChar.is_key_start accepts `char`, StateChar.is_ows refuses it. So
@@ -96,9 +54,9 @@ law key_start_not_ows:
   {TC.StateChar.is_ows(char) == False{} : Bool}
 
 def key_start_not_ows(char, holds):
-  %Equal.sym(Bool, Char.is_eq(char, ' '), False{}, differs(x => TC.StateChar.is_key_start(x), char, ' ', holds, {==})) :
+  %Equal.sym(Bool, Char.is_eq(char, ' '), False{}, CharsProof.differs(x => TC.StateChar.is_key_start(x), char, ' ', holds, {==})) :
     {Bool.or(_, Char.is_eq(char, '\t')) == False{} : Bool}
-  %Equal.sym(Bool, Char.is_eq(char, '\t'), False{}, differs(x => TC.StateChar.is_key_start(x), char, '\t', holds, {==})) :
+  %Equal.sym(Bool, Char.is_eq(char, '\t'), False{}, CharsProof.differs(x => TC.StateChar.is_key_start(x), char, '\t', holds, {==})) :
     {Bool.or(False{}, _) == False{} : Bool}
   {==}
 
@@ -112,9 +70,9 @@ law value_end_not_ows:
   {TC.StateChar.is_ows(char) == False{} : Bool}
 
 def value_end_not_ows(char, holds):
-  %Equal.sym(Bool, Char.is_eq(char, ' '), False{}, differs(x => TC.StateChar.is_value_end(x), char, ' ', holds, {==})) :
+  %Equal.sym(Bool, Char.is_eq(char, ' '), False{}, CharsProof.differs(x => TC.StateChar.is_value_end(x), char, ' ', holds, {==})) :
     {Bool.or(_, Char.is_eq(char, '\t')) == False{} : Bool}
-  %Equal.sym(Bool, Char.is_eq(char, '\t'), False{}, differs(x => TC.StateChar.is_value_end(x), char, '\t', holds, {==})) :
+  %Equal.sym(Bool, Char.is_eq(char, '\t'), False{}, CharsProof.differs(x => TC.StateChar.is_value_end(x), char, '\t', holds, {==})) :
     {Bool.or(False{}, _) == False{} : Bool}
   {==}
 
@@ -348,7 +306,7 @@ law key_not_comma:
   {Char.is_eq(char, ',') == False{} : Bool}
 
 def key_not_comma(char, holds):
-  differs(x => TC.StateChar.is_key(x), char, ',', holds, {==})
+  CharsProof.differs(x => TC.StateChar.is_key(x), char, ',', holds, {==})
 
 # A key character is not "=": when StateChar.is_key accepts `char`,
 # Char.is_eq(char, '=') is False. So Member.key does not end the key early
@@ -359,7 +317,7 @@ law key_not_equals:
   {Char.is_eq(char, '=') == False{} : Bool}
 
 def key_not_equals(char, holds):
-  differs(x => TC.StateChar.is_key(x), char, '=', holds, {==})
+  CharsProof.differs(x => TC.StateChar.is_key(x), char, '=', holds, {==})
 
 # The characters after a key's first are key characters: each one extends it.
 # When `text` passes StateKey.valid.rest with `room`, reading it inside a key
@@ -408,7 +366,7 @@ law value_not_comma:
   {Char.is_eq(char, ',') == False{} : Bool}
 
 def value_not_comma(char, holds):
-  differs(x => TC.StateChar.is_value(x), char, ',', holds, {==})
+  CharsProof.differs(x => TC.StateChar.is_value(x), char, ',', holds, {==})
 
 # A value's last character is not a comma: when StateChar.is_value_end
 # accepts `char`, Char.is_eq(char, ',') is False. read_value uses it for the
@@ -419,7 +377,7 @@ law value_end_not_comma:
   {Char.is_eq(char, ',') == False{} : Bool}
 
 def value_end_not_comma(char, holds):
-  differs(x => TC.StateChar.is_value_end(x), char, ',', holds, {==})
+  CharsProof.differs(x => TC.StateChar.is_value_end(x), char, ',', holds, {==})
 
 # A value's characters are never commas: each one extends the value. When
 # `char` followed by `tail` passes StateValue.valid.go with `room`, reading
@@ -496,7 +454,7 @@ def read_entry_text(key, key_valid, value, value_valid, member, allowed, entries
         case SCon{+value_first, +value_rest}:
           +start = BoolsProof.and_left(TC.StateChar.is_key_start(first), TC.StateKey.valid.rest(rest, 255n), key_valid)
           %Equal.sym(Bool, Char.is_eq(first, ','), False{},
-            differs(x => TC.StateChar.is_key_start(x), first, ',', start, {==})) :
+            CharsProof.differs(x => TC.StateChar.is_key_start(x), first, ',', start, {==})) :
             {TC.Scan.text(rest ++ "=" ++ SCon{value_first, value_rest},
               TC.Scan.read(_, first, member, allowed, TC.Blank{}, entries)) ==
               TC.Scanning{member, allowed, TC.InValue{SCon{first, rest},
@@ -507,7 +465,7 @@ def read_entry_text(key, key_valid, value, value_valid, member, allowed, entries
               TC.Scanning{member, allowed, TC.InValue{SCon{first, rest},
                 String.reverse(SCon{value_first, value_rest})}, entries} : TC.Scan}
           %Equal.sym(Bool, Char.is_eq(first, '='), False{},
-            differs(x => TC.StateChar.is_key_start(x), first, '=', start, {==})) :
+            CharsProof.differs(x => TC.StateChar.is_key_start(x), first, '=', start, {==})) :
             {TC.Scan.text(rest ++ "=" ++ SCon{value_first, value_rest},
               TC.Scanning{member, allowed, TC.Member.start(False{}, _, first), entries}) ==
               TC.Scanning{member, allowed, TC.InValue{SCon{first, rest},
@@ -837,7 +795,7 @@ def read_over(m, fields, larger):
       {==}
     case Some{left}:
       Empty.absurd({TC.Scan.within(Some{left}, fields) == Fail{TC.StateTooLarge{}} :
-        Result<&2, &2, TC.StateError, TC.TraceState>}, StringsProof.true_ne_false(larger))
+        Result<&2, &2, TC.StateError, TC.TraceState>}, BoolsProof.true_ne_false(larger))
 
 # Parsing
 # =======

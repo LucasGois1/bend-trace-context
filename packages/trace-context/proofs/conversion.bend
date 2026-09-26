@@ -24,7 +24,6 @@ import Base
 import ../trace_context.bend as TC
 import ../src/digits.bend as Digits
 import ./parser.bend as ParserProof
-import ./strings.bend as StringsProof
 import ./words.bend as WordsProof
 import ../src/hex.bend as Hex
 

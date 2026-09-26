@@ -28,7 +28,9 @@
 #   count   the kept entries, `current` and `rest` are at most 32 in all
 #   fits    `current` and `rest` fit the members the scan still allows
 #
-# In reading order: Nat and key lemmas; `missing` one entry at a time
+# In reading order: after_room and has_key_append, which bound the room left
+# and look keys up in two joined lists, with the general Nat and Bool lemmas
+# of proofs/nats.bend and proofs/bools.bend; `missing` one entry at a time
 # (missing_snoc, missing_subset); machine_key, where the scan's duplicate
 # check meets the law's check on the first state's keys; split_step,
 # valid_step and count_step, which carry split, valid and count to the next
@@ -41,79 +43,13 @@ import ../LAWS.bend as Laws
 import ../trace_context.bend as TC
 import ./bools.bend as BoolsProof
 import ./lists.bend as ListsProof
+import ./nats.bend as NatsProof
 import ./tracestate.bend as StateProof
 import ./distinct.bend as DistinctProof
 import ./merge.bend as MergeProof
 
-# Naturals
-# ========
-
-# Adding a successor on the right: a + (1 + b) is 1 + (a + b). Nat.add
-# recurses on its first argument, so the proof is an induction on `a`, and
-# `b` is erased because the proof never inspects it. count_step uses it to
-# move the 1 that counts the entry being read out of the sum.
-law add_succ:
-  for a: Nat
-  for -b: Nat
-  {Nat.add(a, 1n+b) == 1n+Nat.add(a, b) : Nat}
-
-def add_succ(a, b):
-  match a:
-    case 0n:
-      {==}
-    case 1n+less:
-      %add_succ(less, b) : {1n+Nat.add(less, 1n+b) == 1n+_ : Nat}
-      {==}
-
-# Adding zero on the right: a + 0 is a, by induction on `a`. merge_rest uses
-# it at the last entry of the second state, where count_step bounds the kept
-# entries plus 0 entries left: the kept entries are then at most 32, as
-# TraceState.is_valid requires.
-law add_zero:
-  for a: Nat
-  {Nat.add(a, 0n) == a : Nat}
-
-def add_zero(a):
-  match a:
-    case 0n:
-      {==}
-    case 1n+less:
-      %add_zero(less) : {1n+Nat.add(less, 0n) == 1n+_ : Nat}
-      {==}
-
-# When a <= b, also a <= 1 + b. By induction on `a` and `b` together; b = 0
-# with a > 0 contradicts `holds`. le_drop uses it.
-law le_weaken:
-  for a: Nat
-  for b: Nat
-  for holds: {Nat.is_le(a, b) == True{} : Bool}
-  {Nat.is_le(a, 1n+b) == True{} : Bool}
-
-def le_weaken(a, b, holds):
-  match a:
-    case 0n:
-      {==}
-    case 1n+less:
-      match b:
-        case 0n:
-          BoolsProof.absurd({Nat.is_le(1n+less, 1n) == True{} : Bool}, holds)
-        case 1n+more:
-          le_weaken(less, more, holds)
-
-# When 1 + a <= b, also a <= b. count_step uses it for a duplicate entry:
-# the kept entries do not grow, and one fewer entry is left to count.
-law le_drop:
-  for a: Nat
-  for b: Nat
-  for holds: {Nat.is_le(1n+a, b) == True{} : Bool}
-  {Nat.is_le(a, b) == True{} : Bool}
-
-def le_drop(a, b, holds):
-  match b:
-    case 0n:
-      BoolsProof.absurd({Nat.is_le(a, 0n) == True{} : Bool}, holds)
-    case 1n+more:
-      le_weaken(a, more, holds)
+# Room left
+# =========
 
 # When a + b <= room, then b <= MergeProof.after(a, room), the members still
 # allowed once `a` more are counted. By induction on `a` and `room`; a room
@@ -141,36 +77,6 @@ def after_room(a, b, room, fits):
 # Keys
 # ====
 
-# Bool.or is associative. Bool.or inspects only its first argument, so the
-# proof matches on `a` alone, and `b` and `c` are erased. has_key_append uses
-# it to regroup the lookups in the two parts of a list.
-law or_assoc:
-  for a: Bool
-  for -b: Bool
-  for -c: Bool
-  {Bool.or(a, Bool.or(b, c)) == Bool.or(Bool.or(a, b), c) : Bool}
-
-def or_assoc(a, b, c):
-  match a:
-    case False{}:
-      {==}
-    case True{}:
-      {==}
-
-# False is a right identity of Bool.or: Bool.or(a, False{}) is `a`, by cases
-# on `a`. machine_key uses it once the lookup in the entries kept from the
-# second state is known to be False.
-law or_false:
-  for a: Bool
-  {Bool.or(a, False{}) == a : Bool}
-
-def or_false(a):
-  match a:
-    case False{}:
-      {==}
-    case True{}:
-      {==}
-
 # A lookup in two lists joined is a lookup in either: TC.Entries.has_key on
 # `before` followed by `after` is the Bool.or of the lookups in each. By
 # induction on `before`. machine_key uses it to split the kept entries into
@@ -192,7 +98,7 @@ def has_key_append(before, after, key):
         {Bool.or(String.eq(TC.StateEntry.key_text(entry), key), _) ==
           Bool.or(Bool.or(String.eq(TC.StateEntry.key_text(entry), key), TC.Entries.has_key(rest, key)),
             TC.Entries.has_key(after, key)) : Bool}
-      or_assoc(String.eq(TC.StateEntry.key_text(entry), key), TC.Entries.has_key(rest, key),
+      BoolsProof.or_assoc(String.eq(TC.StateEntry.key_text(entry), key), TC.Entries.has_key(rest, key),
         TC.Entries.has_key(after, key))
 
 # One more entry of the second state
@@ -311,7 +217,8 @@ law machine_key:
   for +fresh: {TC.Entries.has_key(seen, key) == False{} : Bool}
   {TC.Entries.has_key(entries, key) == Laws.key_among(key, earlier) : Bool}
 
-# Rewrites with split, has_key_append, missing_subset and or_false in turn.
+# Rewrites with split, has_key_append, missing_subset and BoolsProof.or_false
+# in turn.
 def machine_key(earlier, seen, entries, split, key, fresh):
   %Equal.sym(List<&2, TC.StateEntry>, entries, List.append(&2, TC.StateEntry, earlier, Laws.missing(earlier, seen)),
     split) : {TC.Entries.has_key(_, key) == Laws.key_among(key, earlier) : Bool}
@@ -323,7 +230,7 @@ def machine_key(earlier, seen, entries, split, key, fresh):
     missing_subset(earlier, seen, key, fresh)) :
     {Bool.or(TC.Entries.has_key(earlier, key), _) == Laws.key_among(key, earlier) : Bool}
   %Equal.sym(Bool, Bool.or(TC.Entries.has_key(earlier, key), False{}), TC.Entries.has_key(earlier, key),
-    or_false(TC.Entries.has_key(earlier, key))) :
+    BoolsProof.or_false(TC.Entries.has_key(earlier, key))) :
     {_ == Laws.key_among(key, earlier) : Bool}
   DistinctProof.has_key_among(earlier, key)
 
@@ -452,8 +359,8 @@ def valid_step(entries, entry, present, machine, valid):
 # One more entry keeps the invariant `count`: when the kept entries and the
 # 1 + rest entries still to count are at most 32, so are the kept entries
 # after TC.Entries.add and the `rest` after `entry`. A duplicate keeps the
-# list (le_drop); a new key adds one entry (ListsProof.length_snoc,
-# add_succ). merge_rest uses it at every entry.
+# list (NatsProof.le_drop); a new key adds one entry (ListsProof.length_snoc,
+# NatsProof.add_succ). merge_rest uses it at every entry.
 law count_step:
   for +entries: List<&2, TC.StateEntry>
   for +entry: TC.StateEntry
@@ -469,8 +376,8 @@ def count_step(entries, entry, rest, present, machine, count):
       %Equal.sym(Bool, TC.Entries.has_key(entries, TC.StateEntry.key_text(entry)), True{}, machine) :
         {Nat.is_le(Nat.add(List.length(&2, TC.StateEntry, TC.Entries.add.if(entries, entry, _)), rest), 32n) == True{} :
           Bool}
-      le_drop(Nat.add(List.length(&2, TC.StateEntry, entries), rest), 32n,
-        %add_succ(List.length(&2, TC.StateEntry, entries), rest) : {Nat.is_le(_, 32n) == True{} : Bool}
+      NatsProof.le_drop(Nat.add(List.length(&2, TC.StateEntry, entries), rest), 32n,
+        %NatsProof.add_succ(List.length(&2, TC.StateEntry, entries), rest) : {Nat.is_le(_, 32n) == True{} : Bool}
         count)
     case False{}:
       %Equal.sym(Bool, TC.Entries.has_key(entries, TC.StateEntry.key_text(entry)), False{}, machine) :
@@ -479,7 +386,7 @@ def count_step(entries, entry, rest, present, machine, count):
       %Equal.sym(Nat, List.length(&2, TC.StateEntry, List.append(&2, TC.StateEntry, entries, Con{entry, Nil{}})),
         1n+List.length(&2, TC.StateEntry, entries), ListsProof.length_snoc(TC.StateEntry, entries, entry)) :
         {Nat.is_le(Nat.add(_, rest), 32n) == True{} : Bool}
-      %add_succ(List.length(&2, TC.StateEntry, entries), rest) : {Nat.is_le(_, 32n) == True{} : Bool}
+      %NatsProof.add_succ(List.length(&2, TC.StateEntry, entries), rest) : {Nat.is_le(_, 32n) == True{} : Bool}
       count
 
 # Reading the rest of the second state
@@ -541,7 +448,7 @@ def merge_rest(rest, current, member, allowed, entries, seen, earlier, split, un
               {Bool.and(_, Nat.is_le(List.length(&2, TC.StateEntry, kept), 32n)) ==
                 Nat.is_le(List.length(&2, TC.StateEntry, kept), 32n) : Bool}
             {==},
-            %add_zero(List.length(&2, TC.StateEntry, kept)) : {Nat.is_le(_, 32n) == True{} : Bool}
+            %NatsProof.add_zero(List.length(&2, TC.StateEntry, kept)) : {Nat.is_le(_, 32n) == True{} : Bool}
             count_step(entries, current, 0n, Laws.key_among(key, earlier), machine, count))
           %Equal.sym(TC.Scan, TC.Scan.close(member, 1n+left, TC.InValue{key,
               String.reverse(TC.StateValue.to_string(TC.StateEntry.value(current)))}, entries),

@@ -15,8 +15,8 @@
 # generalize the `seen` list of Entries.unique: seen_key and fresh follow one
 # seen entry while the later entries are checked against it, and distinct
 # applies fresh at each step. The package compares an entry's key with the
-# key sought, and key_among compares them the other way around, so
-# eq_symmetric proves String.eq symmetric by matching on its result. For
+# key sought, and key_among compares them the other way around, so the
+# lookup lemmas turn comparisons around with StringsProof.eq_symmetric. For
 # lookups, unique_split shows that no entry before a given one has its key,
 # and get_first and get_missing walk Entries.get past such entries.
 
@@ -26,7 +26,6 @@ import ../trace_context.bend as TC
 import ./strings.bend as StringsProof
 import ./bools.bend as BoolsProof
 import ./lists.bend as ListsProof
-import ./tracestate.bend as StateProof
 # When no entry of a list has the key `key`, and `entry` is one of its
 # entries (the list is `before`, then `entry`, then `after`), the key of
 # `entry` differs from `key`. In fresh, the list is the `seen` list of
@@ -128,62 +127,11 @@ def state_valid(state):
         BoolsProof.and_right(TC.Entries.unique(entries, Nil{}),
           Nat.is_le(List.length(&2, TC.StateEntry, entries), 32n), evidence))
 
-# When String.eq(a, b) is False{}, so is String.eq(b, a), given as the Bool
-# `same` with the equation `evidence` so that the proof can match on it. The
-# True{} case is refuted: it makes b equal to a (StringsProof.eq_sound),
-# which StringsProof.distinct excludes. eq_symmetric_step uses it.
-law eq_symmetric_false:
-  for +a: String
-  for +b: String
-  for different: {String.eq(a, b) == False{} : Bool}
-  for same: Bool
-  for evidence: {String.eq(b, a) == same : Bool}
-  {False{} == same : Bool}
-
-def eq_symmetric_false(a, b, different, same, evidence):
-  match same:
-    case False{}:
-      {==}
-    case True{}:
-      Empty.absurd({False{} == True{} : Bool}, StringsProof.distinct(a, b, different)(
-        Equal.sym(String, b, a, StringsProof.eq_sound(b, a, evidence))))
-
-# When `evidence` says that `same` is the result of String.eq(a, b), `same`
-# is also the result of String.eq(b, a). By cases on `same`: for True{}, a
-# and b are equal (StringsProof.eq_sound) and String.eq(a, a) is True{}
-# (StringsProof.eq_refl); for False{}, eq_symmetric_false applies.
-# eq_symmetric passes String.eq(a, b) itself.
-law eq_symmetric_step:
-  for +a: String
-  for +b: String
-  for same: Bool
-  for evidence: {String.eq(a, b) == same : Bool}
-  {same == String.eq(b, a) : Bool}
-
-def eq_symmetric_step(a, b, same, evidence):
-  match same:
-    case True{}:
-      %StringsProof.eq_sound(a, b, evidence) : {True{} == String.eq(_, a) : Bool}
-      Equal.sym(Bool, String.eq(a, a), True{}, StringsProof.eq_refl(a))
-    case False{}:
-      eq_symmetric_false(a, b, evidence, String.eq(b, a), {==})
-
-# String comparison is symmetric. The package's lookups compare an entry's
-# key with the key sought, and Laws.key_among compares them the other way
-# around; has_key_among and get_missing use this law to make them agree.
-law eq_symmetric:
-  for +a: String
-  for +b: String
-  {String.eq(a, b) == String.eq(b, a) : Bool}
-
-def eq_symmetric(a, b):
-  eq_symmetric_step(a, b, String.eq(a, b), {==})
-
 # The package's Entries.has_key and LAWS.bend's key_among agree on every
-# list and key. Induction on the entries, with eq_symmetric at each one.
-# PROOF.bend uses it to restate the hypotheses of the laws later_duplicate
-# and later_new_key for proofs/merge.bend, and proofs/first.bend uses it for
-# first_wins.
+# list and key. Induction on the entries, with StringsProof.eq_symmetric at
+# each one. PROOF.bend uses it to restate the hypotheses of the laws
+# later_duplicate and later_new_key for proofs/merge.bend, and
+# proofs/first.bend uses it for first_wins.
 law has_key_among:
   for entries: List<&2, TC.StateEntry>
   for +key: String
@@ -197,7 +145,7 @@ def has_key_among(entries, key):
       %Equal.sym(Bool, TC.Entries.has_key(rest, key), Laws.key_among(key, rest), has_key_among(rest, key)) :
         {Bool.or(String.eq(TC.StateEntry.key_text(entry), key), _) ==
           Bool.or(String.eq(key, TC.StateEntry.key_text(entry)), Laws.key_among(key, rest)) : Bool}
-      %eq_symmetric(TC.StateEntry.key_text(entry), key) :
+      %StringsProof.eq_symmetric(TC.StateEntry.key_text(entry), key) :
         {Bool.or(String.eq(TC.StateEntry.key_text(entry), key), Laws.key_among(key, rest)) ==
           Bool.or(_, Laws.key_among(key, rest)) : Bool}
       {==}
@@ -206,9 +154,9 @@ def has_key_among(entries, key):
 # ========
 
 # When Laws.key_among finds `key` in no entry, Entries.get finds nothing:
-# each entry's key differs from `key` (eq_symmetric turns the comparison
-# around), so the lookup passes it by. Induction on the entries. get_absent
-# uses it.
+# each entry's key differs from `key` (StringsProof.eq_symmetric turns the
+# comparison around), so the lookup passes it by. Induction on the entries.
+# get_absent uses it.
 law get_missing:
   for entries: List<&2, TC.StateEntry>
   for +key: String
@@ -222,7 +170,7 @@ def get_missing(entries, key, absent):
     case Con{+entry, +rest}:
       %Equal.sym(Bool, String.eq(TC.StateEntry.key_text(entry), key), False{},
         Equal.trans(Bool, String.eq(TC.StateEntry.key_text(entry), key), String.eq(key, TC.StateEntry.key_text(entry)),
-          False{}, eq_symmetric(TC.StateEntry.key_text(entry), key),
+          False{}, StringsProof.eq_symmetric(TC.StateEntry.key_text(entry), key),
           BoolsProof.or_left_false(String.eq(key, TC.StateEntry.key_text(entry)), Laws.key_among(key, rest), absent))) :
         {TC.Entries.get.put(entry, TC.Entries.get(rest, key), _) == None{} : Maybe<&2, TC.StateValue>}
       get_missing(rest, key,

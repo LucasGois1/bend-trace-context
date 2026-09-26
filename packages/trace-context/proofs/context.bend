@@ -12,7 +12,7 @@
 # characters, read by computation. The digits of each field are read back
 # with ParserProof.digits_roundtrip, the rest of the text being the suffix,
 # and the nonzero check of each ID gives back that very ID, its stored proof
-# included, by DigitProof.new_recovery. The `*_result` defs name the rest of
+# included, by DigitsProof.new_recovery. The `*_result` defs name the rest of
 # the parser after one step, as a function of that step's result, so that a
 # rewrite motive (the P of `%e : P`) can mark the result with `_`; unfolded,
 # they are the parser's own steps. A def may only call the defs written above
@@ -22,7 +22,7 @@
 import Base
 import ../trace_context.bend as TC
 import ../src/digits.bend as Digits
-import ./digits.bend as DigitProof
+import ./digits.bend as DigitsProof
 import ./parser.bend as ParserProof
 
 # The last step of Parse.parent, as a function of the read of the two flag
@@ -96,7 +96,7 @@ def flags_roundtrip(trace_id, parent_id, flags):
 # When the parent ID's digits have been read and "-" and the flags' text
 # remain, Parse.parent gives back the value with `parent_id` itself: its
 # nonzero check returns the stored value, evidence included
-# (DigitProof.new_recovery). parent_roundtrip uses it.
+# (DigitsProof.new_recovery). parent_roundtrip uses it.
 law parent_valid:
   for trace_id: Digits.NonZero<32n>
   for +parent_id: Digits.NonZero<16n>
@@ -107,7 +107,7 @@ law parent_valid:
 def parent_valid(trace_id, parent_id, flags):
   %Equal.sym(Maybe<&2, Digits.NonZero<16n>>,
     Digits.NonZero.new(16n, Digits.NonZero.digits(16n, parent_id)), Some{parent_id},
-    DigitProof.new_recovery(16n, parent_id)) : {
+    DigitsProof.new_recovery(16n, parent_id)) : {
       parent_valid_result(trace_id, flags, _) == Done{TC.TraceParentV00{trace_id, parent_id, flags}} :
       Result<&2, &2, TC.Error, TC.TraceParentV00>}
   flags_roundtrip(trace_id, parent_id, flags)
@@ -146,7 +146,7 @@ law trace_valid:
 def trace_valid(trace_id, parent_id, flags):
   %Equal.sym(Maybe<&2, Digits.NonZero<32n>>,
     Digits.NonZero.new(32n, Digits.NonZero.digits(32n, trace_id)), Some{trace_id},
-    DigitProof.new_recovery(32n, trace_id)) : {
+    DigitsProof.new_recovery(32n, trace_id)) : {
       trace_valid_result(parent_id, flags, _) == Done{TC.TraceParentV00{trace_id, parent_id, flags}} :
       Result<&2, &2, TC.Error, TC.TraceParentV00>}
   parent_roundtrip(trace_id, parent_id, flags)
