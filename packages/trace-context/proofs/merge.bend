@@ -1,3 +1,27 @@
+# Proofs: a state's value followed by one entry
+# =============================================
+#
+# What TraceState.parse makes of a state's normalized value followed by a
+# comma and one more entry: a repeated key is dropped (later_duplicate), a
+# new key is added last (later_new_key), and a 33rd member is refused
+# (full_state). PROOF.bend proves those laws of LAWS.bend with the lemmas of
+# the same names. The lemmas about the reading machine are shared:
+# proofs/normal.bend uses parse_scan for ows_around, and proofs/first.bend
+# uses parse_scan, read_state_then, after, opened and unique_snoc for
+# first_wins.
+#
+# The proofs rewrite parsing into the steps of the reading machine of
+# trace_context.bend. parse_scan removes the budget check. read_state_then
+# shows that the state's entries all end before the text after the comma is
+# read; its induction, read_closed, closes the pending entry at each comma
+# and reads the next one, while after and members_after track the room and
+# the member number. scan_state_entry leaves the extra entry pending, and
+# the end of the text closes it: keep_present, keep_new or the exhausted
+# room decides the result. When parsing succeeds, Scan.result checks
+# TraceState.is_valid to build the parsed state, and
+# StateProof.checked_valid shows that it is the expected state with its own
+# evidence; valid_snoc proves the evidence of the longer state.
+
 import Base
 import ../trace_context.bend as TC
 import ./strings.bend as StringsProof
@@ -6,9 +30,10 @@ import ./lists.bend as ListsProof
 import ./nats.bend as NatsProof
 import ./tracestate.bend as StateProof
 
-# A state's value followed by more members: the state's entries all end before
-# the text after the comma is read.
-# How many nonempty members remain allowed after `count` more.
+# How many nonempty members remain allowed after `count` more, from `room`:
+# `room` minus `count`, or 0 when `count` is larger. Scan.keep takes one from
+# the room for each valid member, so after a state's n entries a scan that
+# started with 32 has after(n, 32) left. proofs/first.bend uses it too.
 def after(count: Nat, room: Nat) -> Nat:
   match count:
     case 0n:
@@ -20,7 +45,8 @@ def after(count: Nat, room: Nat) -> Nat:
         case 1n+left:
           after(more, left)
 
-# The member number after `count` more members.
+# The member number after `count` more members: `member` plus `count`, added
+# one at a time, as the recursive call of read_closed passes 1n+member.
 def members_after(count: Nat, member: Nat) -> Nat:
   match count:
     case 0n:
@@ -28,6 +54,13 @@ def members_after(count: Nat, member: Nat) -> Nat:
     case 1n+more:
       members_after(more, 1n+member)
 
+# When the scan is in the value of `current`, its key and reversed value
+# pending, reading the rest of a formatted state (each entry of `rest` after
+# its comma) and then a comma closes `current` and each entry of `rest`,
+# adding them after `entries`: `unique` says each key is new, and `fits`
+# that there is room for all. The scan is left blank before `next`, with the
+# member number advanced and the room reduced by one per entry. Induction
+# on `rest`; read_state_then starts it after a state's first entry.
 law read_closed:
   for rest: List<&2, TC.StateEntry>
   for +current: TC.StateEntry
@@ -121,8 +154,9 @@ def read_closed(rest, current, member, allowed, entries, next, unique, fits):
               TC.Entries.unique(Con{later_first, later}, added), unique),
             fits)
 
-# The member number after a state's members and the comma that follows them:
-# an empty state's value is itself an empty member.
+# The member number after a state's members and the comma that follows
+# them: one per entry, or 1 for the empty state, whose value "" is itself an
+# empty member. proofs/first.bend uses it too.
 def opened(entries: List<&2, TC.StateEntry>) -> Nat:
   match entries:
     case Nil{}:
@@ -130,6 +164,13 @@ def opened(entries: List<&2, TC.StateEntry>) -> Nat:
     case Con{first, rest}:
       members_after(List.length(&2, TC.StateEntry, Con{first, rest}), 0n)
 
+# Reading a valid state's value and a comma from the start of a scan ends
+# all of the state's entries before the text after the comma is read: the
+# scan is then blank, at member number opened(entries), with every entry
+# kept in order and after(n, 32) members still allowed for n entries.
+# `evidence` gives read_closed its distinct keys and room. scan_state_entry
+# uses it, and so does proofs/first.bend for first_wins, where `next` is the
+# second state's value.
 law read_state_then:
   for +entries: List<&2, TC.StateEntry>
   for +evidence: {TC.TraceState.is_valid(entries) == True{} : Bool}
@@ -167,6 +208,9 @@ def read_state_then(entries, evidence, next):
         BoolsProof.and_right(TC.Entries.unique(Con{first, rest}, Nil{}),
           Nat.is_le(List.length(&2, TC.StateEntry, Con{first, rest}), 32n), evidence))
 
+# When `count` is less than `room`, members remain allowed after `count`:
+# after(count, room) is positive. later_duplicate and later_new_key use it to
+# show that the state's entries leave room for one more.
 law after_positive:
   for count: Nat
   for room: Nat
@@ -184,6 +228,9 @@ def after_positive(count, room, less):
         case 1n+left:
           after_positive(more, left, less)
 
+# When there is room and the entries already have the key of `entry`,
+# keeping `entry` changes nothing: Scan.result checks the same entries.
+# later_duplicate uses it for the dropped entry.
 law keep_present:
   for room: Nat
   for member: Nat
@@ -207,6 +254,9 @@ def keep_present(room, member, entry, entries, present, positive):
           Result<&2, &2, TC.StateError, TC.TraceState>}
       {==}
 
+# When there is room and no entry has the key of `entry`, keeping `entry`
+# adds it at the end, and Scan.result checks the longer list. later_new_key
+# uses it.
 law keep_new:
   for room: Nat
   for member: Nat
@@ -234,7 +284,11 @@ def keep_new(room, member, entry, entries, absent, positive):
           Result<&2, &2, TC.StateError, TC.TraceState>}
       {==}
 
-# Adding an entry whose key no entry has keeps the keys distinct.
+# Adding an entry whose key no entry has keeps the keys distinct: when
+# Entries.unique accepts `list` after `seen`, and neither `seen` nor `list`
+# has the key of `entry`, it accepts `list` followed by `entry`. Induction on
+# `list`, which moves into `seen` one entry at a time. valid_snoc uses it,
+# and so does proofs/first.bend when Entries.add keeps a new key.
 law unique_snoc:
   for list: List<&2, TC.StateEntry>
   for +entry: TC.StateEntry
@@ -268,6 +322,11 @@ def unique_snoc(list, entry, seen, unique, absent):
           {TC.Entries.has_key(_, TC.StateEntry.key_text(entry)) == False{} : Bool}
         absent)
 
+# When TraceState.is_valid accepts `entries`, they are fewer than 32 and none
+# has the key of `entry`, it also accepts them with `entry` added at the
+# end: unique_snoc gives the distinct keys, and ListsProof.length_snoc with
+# NatsProof.le_succ the count. later_new_key uses it as the evidence of the
+# parsed state.
 law valid_snoc:
   for +entries: List<&2, TC.StateEntry>
   for +entry: TC.StateEntry
@@ -291,6 +350,11 @@ def valid_snoc(entries, entry, evidence, absent, room):
     Nat.is_lt(List.length(&2, TC.StateEntry, entries), 32n), True{},
     NatsProof.le_succ(List.length(&2, TC.StateEntry, entries), 32n), room)
 
+# Within the tracestate input budget, TraceState.parse is the reading
+# machine alone: read the text from Scan.start() and finish.
+# StateProof.within turns `fits` into the success of the budget measure.
+# later_duplicate, later_new_key and full_state start with it, and so do
+# ows_around in proofs/normal.bend and first_wins in proofs/first.bend.
 law parse_scan:
   for +limits: TC.Limits
   for +text: String
@@ -305,7 +369,9 @@ def parse_scan(limits, text, fits):
       StateProof.within(text, TC.Limits.tracestate_input(limits)), fits))
 
 # A state's value, a comma and one more entry leave that entry pending after
-# every entry of the state.
+# every entry of the state: its key and reversed value wait in the current
+# member, not yet validated or counted. It is read_state_then followed by
+# StateProof.read_entry. The three laws below end the text there.
 law scan_state_entry:
   for +entries: List<&2, TC.StateEntry>
   for +evidence: {TC.TraceState.is_valid(entries) == True{} : Bool}
@@ -325,7 +391,12 @@ def scan_state_entry(entries, evidence, entry):
     read_state_then(entries, evidence, TC.StateEntry.format(entry)),
     StateProof.read_entry(entry, opened(entries), after(List.length(&2, TC.StateEntry, entries), 32n), entries))
 
-# A later entry whose key the state has is dropped.
+# When the value of a state with fewer than 32 entries is followed by a comma
+# and an entry whose key the state has, and the text fits the budget,
+# parsing gives back the state: the later entry is dropped, though it still
+# counts as a member. This is the law later_duplicate with `present` stated
+# with Entries.has_key; Laws.later_duplicate converts its key_among
+# hypothesis with DistinctProof.has_key_among.
 law later_duplicate:
   for +limits: TC.Limits
   for state: TC.TraceState
@@ -337,6 +408,7 @@ law later_duplicate:
   {TC.TraceState.parse(limits, TC.TraceState.format(state) ++ "," ++ TC.StateEntry.format(entry)) == Done{state} :
     Result<&2, &2, TC.StateError, TC.TraceState>}
 
+# Rewrites the parse step by step; keep_present drops the repeated entry.
 def later_duplicate(limits, state, entry, present, room, fits):
   match state:
     case TC.TraceState{+entries, +evidence}:
@@ -371,7 +443,11 @@ def later_duplicate(limits, state, entry, present, room, fits):
             {_ == Done{TC.TraceState{entries, evidence}} : Result<&2, &2, TC.StateError, TC.TraceState>}
           StateProof.checked_valid(entries, evidence)
 
-# A later entry with a new key is added after every entry of the state.
+# When the key of `entry` is new, the state has fewer than 32 entries and
+# the state's value, a comma and `entry` fit the budget, parsing that text
+# gives the state's entries followed by `entry`, in order; Result.map keeps
+# only the parsed entries. The law later_new_key, with `absent` stated with
+# Entries.has_key as in later_duplicate.
 law later_new_key:
   for +limits: TC.Limits
   for state: TC.TraceState
@@ -385,6 +461,7 @@ law later_new_key:
     Done{List.append(&2, TC.StateEntry, TC.TraceState.entries(state), Con{entry, Nil{}})} :
     Result<&2, &2, TC.StateError, List<&2, TC.StateEntry>>}
 
+# As later_duplicate, with keep_new; valid_snoc is the new state's evidence.
 def later_new_key(limits, state, entry, absent, room, fits):
   match state:
     case TC.TraceState{+entries, +evidence}:
@@ -435,8 +512,10 @@ def later_new_key(limits, state, entry, absent, room, fits):
               Result<&2, &2, TC.StateError, List<&2, TC.StateEntry>>}
           {==}
 
-# Members are counted before duplicates are dropped: after 32 entries, any
-# entry is refused, even one repeating a key.
+# Members are counted before duplicates are dropped: after a state of 32
+# entries, any further entry makes parsing fail with TooManyMembers when the
+# text fits the budget, even an entry repeating a key. The law full_state,
+# stated as in LAWS.bend.
 law full_state:
   for +limits: TC.Limits
   for state: TC.TraceState
@@ -447,6 +526,7 @@ law full_state:
   {TC.TraceState.parse(limits, TC.TraceState.format(state) ++ "," ++ TC.StateEntry.format(entry)) ==
     Fail{TC.TooManyMembers{}} : Result<&2, &2, TC.StateError, TC.TraceState>}
 
+# As later_duplicate up to Scan.keep; with `full`, its room computes to 0n.
 def full_state(limits, state, entry, full, fits):
   match state:
     case TC.TraceState{+entries, +evidence}:

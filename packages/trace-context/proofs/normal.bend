@@ -1,3 +1,26 @@
+# Proofs: separators and optional whitespace
+# ==========================================
+#
+# Two groups of lemmas. Separators: no key or value contains "," or "=",
+# because every character of a valid key or value passes a class that
+# refuses both (laws key_separators and value_separators). Optional
+# whitespace: a state's normalized value with optional whitespace before and
+# after it parses back to the state when it fits the budget (law
+# ows_around), and so does the value alone (law state_roundtrip, proved by
+# roundtrip). PROOF.bend calls key_separators, value_separators, ows_around
+# and roundtrip.
+#
+# The separator proofs follow the grammar checks of trace_context.bend: an
+# induction on the text, with the room of the check, in which
+# StateProof.differs shows that a character a class accepts differs from
+# one it refuses. The whitespace proofs follow the reading machine:
+# MergeProof.parse_scan removes the budget check, blank_ows skips the
+# whitespace before the value, and ows_after reads the value. Its induction,
+# read_rest_ows, reads one entry at a time like MergeProof.read_closed; at
+# the end, value_ows reads the trailing whitespace into the last value, and
+# close_entry_ows shows, through restore_ows, that closing the member drops
+# it.
+
 import Base
 import ../LAWS.bend as Laws
 import ../trace_context.bend as TC
@@ -8,7 +31,13 @@ import ./tracestate.bend as StateProof
 import ./merge.bend as MergeProof
 
 # Separators
-# ----------
+# ==========
+
+# When StateKey.valid.rest accepts `text`, every character of it is a key
+# character, so `text` lacks any `char` that StateChar.is_key refuses.
+# Induction on `text` with the room of the check; StateProof.differs shows
+# that each character differs from `char`. key_lacks uses it for the
+# characters after a key's first.
 law key_rest_lacks:
   for text: String
   for room: Nat
@@ -33,6 +62,10 @@ def key_rest_lacks(text, room, valid, char, fails):
           key_rest_lacks(rest, left,
             BoolsProof.and_right(TC.StateChar.is_key(first), TC.StateKey.valid.rest(rest, left), valid), char, fails)
 
+# A valid key lacks every `char` refused both as a key's first character
+# (StateChar.is_key_start) and as a later one (StateChar.is_key, through
+# key_rest_lacks). key_separators applies it to "," and "=", for which both
+# checks compute to False{}.
 law key_lacks:
   for text: String
   for +valid: {TC.StateKey.is_valid(text) == True{} : Bool}
@@ -55,6 +88,8 @@ def key_lacks(text, valid, char, start_fails, fails):
         BoolsProof.and_right(TC.StateChar.is_key_start(first), TC.StateKey.valid.rest(rest, 255n), valid),
         char, fails)
 
+# No key contains "," or "=": the law key_separators, which PROOF.bend
+# proves with it.
 law key_separators:
   for key: TC.StateKey
   {Laws.lacks(',', TC.StateKey.to_string(key)) == True{} : Bool} &
@@ -65,6 +100,11 @@ def key_separators(key):
     case TC.StateKey{+text, +valid}:
       (key_lacks(text, valid, ',', {==}, {==}), key_lacks(text, valid, '=', {==}, {==}))
 
+# When StateValue.valid.go accepts `first` followed by `tail`, that text
+# lacks any `char` refused both by StateChar.is_value, which the check
+# applies to every character but the last, and by StateChar.is_value_end,
+# which it applies to the last. Induction on `tail` with the room of the
+# check. value_lacks uses it.
 law value_go_lacks:
   for tail: String
   for +first: Char
@@ -96,6 +136,9 @@ def value_go_lacks(tail, first, room, valid, char, value_fails, end_fails):
             BoolsProof.and_right(TC.StateChar.is_value(first), TC.StateValue.valid.go(rest, next, left), valid),
             char, value_fails, end_fails)
 
+# A valid value lacks every `char` that StateChar.is_value and
+# StateChar.is_value_end both refuse. value_separators applies it to ","
+# and "=", for which both checks compute to False{}.
 law value_lacks:
   for text: String
   for +valid: {TC.StateValue.is_valid(text) == True{} : Bool}
@@ -111,6 +154,8 @@ def value_lacks(text, valid, char, value_fails, end_fails):
     case SCon{+first, +tail}:
       value_go_lacks(tail, first, 255n, valid, char, value_fails, end_fails)
 
+# No value contains "," or "=": the law value_separators, which PROOF.bend
+# proves with it.
 law value_separators:
   for value: TC.StateValue
   {Laws.lacks(',', TC.StateValue.to_string(value)) == True{} : Bool} &
@@ -122,8 +167,11 @@ def value_separators(value):
       (value_lacks(text, valid, ',', {==}, {==}), value_lacks(text, valid, '=', {==}, {==}))
 
 # Optional whitespace
-# -------------------
+# ===================
 
+# The first character of a text that Laws.all_ows accepts passes
+# StateChar.is_ows: all_ows spells out the same test, a space or a
+# horizontal tab. The whitespace lemmas below use it at each character.
 law ows_is_ows:
   for +char: Char
   for +rest: String
@@ -133,7 +181,11 @@ law ows_is_ows:
 def ows_is_ows(char, rest, ows):
   BoolsProof.and_left(Bool.or(Char.is_eq(char, ' '), Char.is_eq(char, '\t')), Laws.all_ows(rest), ows)
 
-# Whitespace after a value's last character is read into the pending value...
+# Whitespace after a value's last character is read into the pending value:
+# inside a value, reading a text that Laws.all_ows accepts ends nothing and
+# adds each character to the value text, which is kept most recent first
+# (String.reverse.go(text, acc)). read_rest_ows uses it at the end of the
+# last value.
 law value_ows:
   for text: String
   for +ows: {Laws.all_ows(text) == True{} : Bool}
@@ -158,7 +210,11 @@ def value_ows(text, ows, member, allowed, key, acc, entries):
         BoolsProof.and_right(Bool.or(Char.is_eq(char, ' '), Char.is_eq(char, '\t')), Laws.all_ows(rest), ows),
         member, allowed, key, SCon{char, acc}, entries)
 
-# ...and restoring the value leaves it out.
+# Restoring a pending value leaves out the whitespace read after it:
+# Value.restore skips optional whitespace at the front of a pending value
+# text, where the last characters read are, so whitespace pushed onto `acc`
+# changes nothing. Induction on `text`, generalized over `acc`.
+# close_entry_ows uses it.
 law restore_ows:
   for text: String
   for +ows: {Laws.all_ows(text) == True{} : Bool}
@@ -180,7 +236,10 @@ def restore_ows(text, ows, acc):
             TC.Value.restore.go(acc, (False{}, "")) : String}
         {==})
 
-# Whitespace before a key is skipped.
+# Whitespace before a key is skipped: in a member that has no key yet,
+# reading a text that Laws.all_ows accepts changes nothing. ows_around uses
+# it for the whitespace before the value, and ows_after for the whitespace
+# after the empty state's value.
 law blank_ows:
   for text: String
   for +ows: {Laws.all_ows(text) == True{} : Bool}
@@ -207,6 +266,11 @@ def blank_ows(text, ows, member, allowed, entries):
         BoolsProof.and_right(Bool.or(Char.is_eq(char, ' '), Char.is_eq(char, '\t')), Laws.all_ows(rest), ows),
         member, allowed, entries)
 
+# When an entry's value is followed by whitespace, ending its member works
+# as without it (StateProof.close_entry): with room left and a new key,
+# closing the member adds exactly that entry, because restoring the pending
+# text drops the whitespace (restore_ows) and gives back the value
+# (StateProof.restore_reversed). read_rest_ows uses it for the last entry.
 law close_entry_ows:
   for entry: TC.StateEntry
   for +member: Nat
@@ -235,7 +299,12 @@ def close_entry_ows(entry, member, left, entries, absent, after, after_ows):
           member, 1n+left, entries),
         StateProof.keep_added(member, left, pending, entries, absent))
 
-# The rest of a formatted state followed by whitespace adds every entry.
+# The rest of a formatted state followed by whitespace adds every entry:
+# with `current` pending after `entries`, reading each entry of `rest` after
+# its comma, then `after`, and finishing gives the state `all` that `split`
+# says they form, with its own evidence. `unique` says each key is new, and
+# `fits` that there is room for each entry. Induction on `rest`, as in
+# MergeProof.read_closed, but ending at the end of the text, not a comma.
 law read_rest_ows:
   for rest: List<&2, TC.StateEntry>
   for +current: TC.StateEntry
@@ -329,6 +398,10 @@ def read_rest_ows(rest, current, member, allowed, entries, all, evidence, split,
               TC.Entries.unique(Con{next, later}, added), unique),
             fits, after, after_ows)
 
+# Reading a valid state's normalized value, then whitespace, from the start
+# and finishing gives back the state. For the empty state only whitespace is
+# read (blank_ows); otherwise the first entry is read and read_rest_ows
+# reads the rest. ows_around uses it.
 law ows_after:
   for entries: List<&2, TC.StateEntry>
   for +evidence: {TC.TraceState.is_valid(entries) == True{} : Bool}
@@ -369,6 +442,11 @@ def ows_after(entries, evidence, after, after_ows):
           Nat.is_le(List.length(&2, TC.StateEntry, Con{first, rest}), 32n), evidence),
         after, after_ows)
 
+# When `before` and `after` are optional whitespace and the text fits the
+# budget, a state's normalized value between them parses to the state: the
+# law ows_around, which PROOF.bend proves with it. MergeProof.parse_scan
+# removes the budget check, blank_ows reads `before`, and ows_after the
+# rest.
 law ows_around:
   for +limits: TC.Limits
   for state: TC.TraceState
@@ -399,7 +477,10 @@ def ows_around(limits, state, before, after, before_ows, after_ows, fits):
           Result<&2, &2, TC.StateError, TC.TraceState>}
       ows_after(entries, evidence, after, after_ows)
 
-# Parsing a state's normalized value gives it back: no whitespace around it.
+# Parsing a state's normalized value gives it back when it fits the budget:
+# the law state_roundtrip, as the case of ows_around with no whitespace
+# around the value. StringsProof.append_nil relates the value to the value
+# followed by "", in the goal and in `fits`.
 law roundtrip:
   for +limits: TC.Limits
   for +state: TC.TraceState

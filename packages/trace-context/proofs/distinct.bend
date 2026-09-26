@@ -1,3 +1,25 @@
+# Proofs: distinct keys and lookups
+# =================================
+#
+# The package checks distinct keys backward: Entries.unique compares each
+# entry's key with the entries before it. LAWS.bend states the property
+# forward: keys_distinct says that no entry's key appears after it. This
+# module proves that the check implies keys_distinct, which gives the law
+# state_valid, and it proves the lookup laws get_entry and get_absent:
+# PROOF.bend calls its lemmas of those three names. It also proves
+# has_key_among, which equates the package's Entries.has_key with LAWS.bend's
+# key_among: PROOF.bend uses it for later_duplicate and later_new_key, and
+# proofs/first.bend for first_wins.
+#
+# The main lemmas are inductions on a list of entries. The uniqueness proofs
+# generalize the `seen` list of Entries.unique: seen_key and fresh follow one
+# seen entry while the later entries are checked against it, and distinct
+# applies fresh at each step. The package compares an entry's key with the
+# key sought, and key_among compares them the other way around, so
+# eq_symmetric proves String.eq symmetric by matching on its result. For
+# lookups, unique_split shows that no entry before a given one has its key,
+# and get_first and get_missing walk Entries.get past such entries.
+
 import Base
 import ../LAWS.bend as Laws
 import ../trace_context.bend as TC
@@ -5,7 +27,11 @@ import ./strings.bend as StringsProof
 import ./bools.bend as BoolsProof
 import ./lists.bend as ListsProof
 import ./tracestate.bend as StateProof
-# An entry of the seen list has a key other than every later key checked.
+# When no entry of a list has the key `key`, and `entry` is one of its
+# entries (the list is `before`, then `entry`, then `after`), the key of
+# `entry` differs from `key`. In fresh, the list is the `seen` list of
+# Entries.unique and `key` is a later entry's key: an entry already seen has
+# a key other than every later key checked. Induction on `before`.
 law seen_key:
   for before: List<&2, TC.StateEntry>
   for +entry: TC.StateEntry
@@ -23,7 +49,11 @@ def seen_key(before, entry, after, key, absent):
         BoolsProof.or_right_false(String.eq(TC.StateEntry.key_text(first), key),
           TC.Entries.has_key(List.append(&2, TC.StateEntry, rest, Con{entry, after}), key), absent))
 
-# A key already seen appears in no later entry.
+# A key already seen appears in no later entry: when Entries.unique accepts
+# `later` after a seen list holding `entry`, Laws.key_among finds the key of
+# `entry` in no entry of `later`. Induction on `later`: each entry checked
+# joins the seen list at its end, so `after` grows while `before` and
+# `entry` stay in place (ListsProof.append_assoc). distinct uses it.
 law fresh:
   for later: List<&2, TC.StateEntry>
   for +before: List<&2, TC.StateEntry>
@@ -58,6 +88,12 @@ def fresh(later, before, entry, after, unique):
               ListsProof.append_assoc(TC.StateEntry, before, Con{entry, after}, Con{next, Nil{}}))),
           rest_unique))
 
+# The package's backward check implies the forward property of LAWS.bend:
+# when Entries.unique accepts `entries` after any seen list,
+# Laws.keys_distinct holds of `entries`. Induction on `entries`, the seen
+# list growing by the entry just checked, whose key fresh excludes from the
+# rest. state_valid applies it with the empty seen list, as
+# TraceState.is_valid does.
 law distinct:
   for entries: List<&2, TC.StateEntry>
   for +seen: List<&2, TC.StateEntry>
@@ -76,6 +112,9 @@ def distinct(entries, seen, unique):
         {Bool.and(Bool.not(_), Laws.keys_distinct(rest)) == True{} : Bool}
       distinct(rest, List.append(&2, TC.StateEntry, seen, Con{entry, Nil{}}), rest_unique)
 
+# Every state has distinct keys, in the sense of Laws.keys_distinct, and at
+# most 32 entries: the law state_valid, which PROOF.bend proves with it. The
+# proof splits the state's evidence and applies distinct to its first half.
 law state_valid:
   for state: TC.TraceState
   {Laws.keys_distinct(TC.TraceState.entries(state)) == True{} : Bool} &
@@ -89,8 +128,10 @@ def state_valid(state):
         BoolsProof.and_right(TC.Entries.unique(entries, Nil{}),
           Nat.is_le(List.length(&2, TC.StateEntry, entries), 32n), evidence))
 
-# String comparison is symmetric, so the package's key lookups and the laws'
-# `key_among` agree.
+# When String.eq(a, b) is False{}, so is String.eq(b, a), given as the Bool
+# `same` with the equation `evidence` so that the proof can match on it. The
+# True{} case is refuted: it makes b equal to a (StringsProof.eq_sound),
+# which StringsProof.distinct excludes. eq_symmetric_step uses it.
 law eq_symmetric_false:
   for +a: String
   for +b: String
@@ -107,6 +148,11 @@ def eq_symmetric_false(a, b, different, same, evidence):
       Empty.absurd({False{} == True{} : Bool}, StringsProof.distinct(a, b, different)(
         Equal.sym(String, b, a, StringsProof.eq_sound(b, a, evidence))))
 
+# When `evidence` says that `same` is the result of String.eq(a, b), `same`
+# is also the result of String.eq(b, a). By cases on `same`: for True{}, a
+# and b are equal (StringsProof.eq_sound) and String.eq(a, a) is True{}
+# (StringsProof.eq_refl); for False{}, eq_symmetric_false applies.
+# eq_symmetric passes String.eq(a, b) itself.
 law eq_symmetric_step:
   for +a: String
   for +b: String
@@ -122,6 +168,9 @@ def eq_symmetric_step(a, b, same, evidence):
     case False{}:
       eq_symmetric_false(a, b, evidence, String.eq(b, a), {==})
 
+# String comparison is symmetric. The package's lookups compare an entry's
+# key with the key sought, and Laws.key_among compares them the other way
+# around; has_key_among and get_missing use this law to make them agree.
 law eq_symmetric:
   for +a: String
   for +b: String
@@ -130,6 +179,11 @@ law eq_symmetric:
 def eq_symmetric(a, b):
   eq_symmetric_step(a, b, String.eq(a, b), {==})
 
+# The package's Entries.has_key and LAWS.bend's key_among agree on every
+# list and key. Induction on the entries, with eq_symmetric at each one.
+# PROOF.bend uses it to restate the hypotheses of the laws later_duplicate
+# and later_new_key for proofs/merge.bend, and proofs/first.bend uses it for
+# first_wins.
 law has_key_among:
   for entries: List<&2, TC.StateEntry>
   for +key: String
@@ -149,8 +203,12 @@ def has_key_among(entries, key):
       {==}
 
 # Querying
-# --------
+# ========
 
+# When Laws.key_among finds `key` in no entry, Entries.get finds nothing:
+# each entry's key differs from `key` (eq_symmetric turns the comparison
+# around), so the lookup passes it by. Induction on the entries. get_absent
+# uses it.
 law get_missing:
   for entries: List<&2, TC.StateEntry>
   for +key: String
@@ -170,6 +228,9 @@ def get_missing(entries, key, absent):
       get_missing(rest, key,
         BoolsProof.or_right_false(String.eq(key, TC.StateEntry.key_text(entry)), Laws.key_among(key, rest), absent))
 
+# When no entry of the state has the key, looking it up gives None{}: the
+# law get_absent, which PROOF.bend proves with it. It is get_missing on the
+# state's entries.
 law get_absent:
   for state: TC.TraceState
   for +key: TC.StateKey
@@ -179,7 +240,10 @@ law get_absent:
 def get_absent(state, key, absent):
   get_missing(TC.TraceState.entries(state), TC.StateKey.to_string(key), absent)
 
-# Before an entry whose key they lack, lookups pass every entry by.
+# Before an entry whose key they lack, lookups pass every entry by: when no
+# entry of `before` has the key of `entry`, looking up that key in `before`,
+# then `entry`, then `after` gives the value of `entry`. Induction on
+# `before`. get_entry uses it.
 law get_first:
   for before: List<&2, TC.StateEntry>
   for +entry: TC.StateEntry
@@ -206,7 +270,11 @@ def get_first(before, entry, after, absent):
         BoolsProof.or_right_false(String.eq(TC.StateEntry.key_text(first), TC.StateEntry.key_text(entry)),
           TC.Entries.has_key(rest, TC.StateEntry.key_text(entry)), absent))
 
-# In distinct keys, no entry before another has its key.
+# In distinct keys, no entry before another has its key: when
+# Entries.unique accepts `before`, then `entry`, then `after`, starting from
+# `seen`, neither `seen` nor `before` has the key of `entry`. Induction on
+# `before`, which moves into `seen` one entry at a time. get_entry uses it
+# with an empty `seen`.
 law unique_split:
   for before: List<&2, TC.StateEntry>
   for +entry: TC.StateEntry
@@ -232,6 +300,10 @@ def unique_split(before, entry, after, seen, unique):
           TC.Entries.unique(List.append(&2, TC.StateEntry, rest, Con{entry, after}),
             List.append(&2, TC.StateEntry, seen, Con{first, Nil{}})), unique))
 
+# When `split` places `entry` in a state, between `before` and `after`,
+# looking up the key of `entry` gives its value: the law get_entry, which
+# PROOF.bend proves with it. unique_split shows that no entry of `before`
+# has the key, and get_first then finds `entry`.
 law get_entry:
   for state: TC.TraceState
   for +before: List<&2, TC.StateEntry>

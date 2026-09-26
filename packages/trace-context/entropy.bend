@@ -1,3 +1,10 @@
+# Host entropy
+# ============
+#
+# The package's only host binding for randomness: entropy/native.c natively and
+# entropy/webcrypto.js in JavaScript. generation.bend reads source words from
+# it; trace_context.bend never does.
+
 import Base
 
 # One word from the host's cryptographic source: WebCrypto in JavaScript and

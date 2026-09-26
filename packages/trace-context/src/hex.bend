@@ -1,6 +1,18 @@
+# Hexadecimal digits
+# ==================
+#
+# The sixteen lowercase hexadecimal digits as a closed type, with their
+# characters, values and bits. The codec reads identifiers and flags into this
+# type, so anything other than a lowercase hexadecimal digit (W3C 3.2.2,
+# HEXDIGLC) cannot appear in a parsed value. This module is internal: callers
+# handle identifiers as text through trace_context.bend. proofs/hex.bend proves
+# that decoding inverts encoding: every digit's character decodes back to it,
+# and an accepted character is exactly the encoding of the digit returned.
+
 import Base
 
-# A hexadecimal digit has exactly these sixteen values. Encoding is lowercase.
+# A hexadecimal digit has exactly these sixteen values, H0 to Hf, in value
+# order. Encoding is lowercase.
 type Digit is Data:
   H0{}
   H1{}
@@ -19,6 +31,7 @@ type Digit is Data:
   He{}
   Hf{}
 
+# The lowercase character of a digit: '0' to '9', then 'a' to 'f'.
 def Digit.to_char(digit: Digit) -> Char:
   match digit:
     case H0{}:
@@ -54,6 +67,7 @@ def Digit.to_char(digit: Digit) -> Char:
     case Hf{}:
       'f'
 
+# The value of a digit, 0 to 15.
 def Digit.to_u32(digit: Digit) -> U32:
   match digit:
     case H0{}:
@@ -89,6 +103,7 @@ def Digit.to_u32(digit: Digit) -> U32:
     case Hf{}:
       15
 
+# Whether the digit is 0. An identifier is all zero when every digit is.
 def Digit.is_zero(digit: Digit) -> Bool:
   match digit:
     case H0{}:
@@ -124,6 +139,8 @@ def Digit.is_zero(digit: Digit) -> Bool:
     case Hf{}:
       False{}
 
+# Whether bit 0 (value 1) of the digit is set. In the last digit of the flags
+# this is the sampled flag (W3C 3.2.2.5.1).
 def Digit.is_odd(digit: Digit) -> Bool:
   match digit:
     case H0{}:
@@ -159,7 +176,8 @@ def Digit.is_odd(digit: Digit) -> Bool:
     case Hf{}:
       True{}
 
-# Whether bit 1 (value 2) of the digit is set.
+# Whether bit 1 (value 2) of the digit is set. In the last digit of the flags
+# this is the random-trace-id flag (W3C 3.2.2.5.2).
 def Digit.has_bit1(digit: Digit) -> Bool:
   match digit:
     case H0{}:
@@ -318,6 +336,7 @@ def Digit.from_char.find(digits: List<&2, Digit>, +char: Char) -> Maybe<&2, Digi
       Bool.pick(Maybe<&2, Digit>, Char.is_eq(char, Digit.to_char(digit)),
         Some{digit}, Digit.from_char.find(tail, char))
 
-# Uppercase and every non-hexadecimal character are rejected.
+# The digit a character encodes. Uppercase and every non-hexadecimal character
+# are rejected with None.
 def Digit.from_char(char: Char) -> Maybe<&2, Digit>:
   Digit.from_char.find(Digit.all(), char)

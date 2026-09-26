@@ -1,3 +1,41 @@
+# Proofs: two states' values joined by a comma
+# ============================================
+#
+# Proves the package law first_wins of LAWS.bend (PROOF.bend's
+# Laws.first_wins calls first_wins below): when two states have at most 32
+# entries in all and their values joined by a comma fit the tracestate input
+# budget, parsing the joined value gives the first state's entries followed,
+# in order, by the second state's entries whose keys the first lacks
+# (`missing`, defined in LAWS.bend). It is the general form of
+# later_duplicate and later_new_key, and reuses the reading lemmas of
+# proofs/merge.bend.
+#
+# MergeProof.parse_scan turns parsing into a run of the reading machine
+# (TC.Scan), and MergeProof.read_state_then reads the first state's value and
+# the comma, keeping all of its entries. merge_second then reads the second
+# state's value, and merge_rest reads its entries by induction on those still
+# to read. merge_rest is generalized over the scan's member number, room and
+# kept entries, and over `seen`, the second state's entries already read, so
+# that its induction hypothesis applies at the next entry. At the entry being
+# read, `current`, followed by `rest`, it assumes five invariants, which are
+# its hypotheses:
+#
+#   split   the kept entries are `earlier`, the first state's entries,
+#           followed by missing(earlier, seen)
+#   unique  no entry from `current` on repeats the key of an earlier entry
+#           of the second state
+#   valid   the kept entries have distinct keys
+#   count   the kept entries, `current` and `rest` are at most 32 in all
+#   fits    `current` and `rest` fit the members the scan still allows
+#
+# In reading order: Nat and key lemmas; `missing` one entry at a time
+# (missing_snoc, missing_subset); machine_key, where the scan's duplicate
+# check meets the law's check on the first state's keys; split_step,
+# valid_step and count_step, which carry split, valid and count to the next
+# entry (unique passes on through BoolsProof.and_right, and fits by
+# computation), and result_step, which does the same for the claim; then
+# merge_rest, merge_second and first_wins.
+
 import Base
 import ../LAWS.bend as Laws
 import ../trace_context.bend as TC
@@ -8,8 +46,12 @@ import ./distinct.bend as DistinctProof
 import ./merge.bend as MergeProof
 
 # Naturals
-# --------
+# ========
 
+# Adding a successor on the right: a + (1 + b) is 1 + (a + b). Nat.add
+# recurses on its first argument, so the proof is an induction on `a`, and
+# `b` is erased because the proof never inspects it. count_step uses it to
+# move the 1 that counts the entry being read out of the sum.
 law add_succ:
   for a: Nat
   for -b: Nat
@@ -23,6 +65,10 @@ def add_succ(a, b):
       %add_succ(less, b) : {1n+Nat.add(less, 1n+b) == 1n+_ : Nat}
       {==}
 
+# Adding zero on the right: a + 0 is a, by induction on `a`. merge_rest uses
+# it at the last entry of the second state, where count_step bounds the kept
+# entries plus 0 entries left: the kept entries are then at most 32, as
+# TraceState.is_valid requires.
 law add_zero:
   for a: Nat
   {Nat.add(a, 0n) == a : Nat}
@@ -35,6 +81,8 @@ def add_zero(a):
       %add_zero(less) : {1n+Nat.add(less, 0n) == 1n+_ : Nat}
       {==}
 
+# When a <= b, also a <= 1 + b. By induction on `a` and `b` together; b = 0
+# with a > 0 contradicts `holds`. le_drop uses it.
 law le_weaken:
   for a: Nat
   for b: Nat
@@ -52,6 +100,8 @@ def le_weaken(a, b, holds):
         case 1n+more:
           le_weaken(less, more, holds)
 
+# When 1 + a <= b, also a <= b. count_step uses it for a duplicate entry:
+# the kept entries do not grow, and one fewer entry is left to count.
 law le_drop:
   for a: Nat
   for b: Nat
@@ -65,7 +115,11 @@ def le_drop(a, b, holds):
     case 1n+more:
       le_weaken(a, more, holds)
 
-# The members a state's entries leave for those after them.
+# When a + b <= room, then b <= MergeProof.after(a, room), the members still
+# allowed once `a` more are counted. By induction on `a` and `room`; a room
+# of 0 with a > 0 contradicts `fits`. merge_second uses it to show that the
+# second state's entries fit the room that the first state's entries leave
+# of the 32 members allowed.
 law after_room:
   for a: Nat
   for b: Nat
@@ -85,8 +139,11 @@ def after_room(a, b, room, fits):
           after_room(less, b, more, fits)
 
 # Keys
-# ----
+# ====
 
+# Bool.or is associative. Bool.or inspects only its first argument, so the
+# proof matches on `a` alone, and `b` and `c` are erased. has_key_append uses
+# it to regroup the lookups in the two parts of a list.
 law or_assoc:
   for a: Bool
   for -b: Bool
@@ -100,6 +157,9 @@ def or_assoc(a, b, c):
     case True{}:
       {==}
 
+# False is a right identity of Bool.or: Bool.or(a, False{}) is `a`, by cases
+# on `a`. machine_key uses it once the lookup in the entries kept from the
+# second state is known to be False.
 law or_false:
   for a: Bool
   {Bool.or(a, False{}) == a : Bool}
@@ -111,6 +171,10 @@ def or_false(a):
     case True{}:
       {==}
 
+# A lookup in two lists joined is a lookup in either: TC.Entries.has_key on
+# `before` followed by `after` is the Bool.or of the lookups in each. By
+# induction on `before`. machine_key uses it to split the kept entries into
+# the first state's entries and those kept from the second.
 law has_key_append:
   for before: List<&2, TC.StateEntry>
   for +after: List<&2, TC.StateEntry>
@@ -131,9 +195,13 @@ def has_key_append(before, after, key):
       or_assoc(String.eq(TC.StateEntry.key_text(entry), key), TC.Entries.has_key(rest, key),
         TC.Entries.has_key(after, key))
 
-# What the second state's entries leave
-# -------------------------------------
+# One more entry of the second state
+# ==================================
 
+# Appending a tail commutes with Bool.pick, which gives its first list when
+# `c` is True and its second otherwise: picking between `kept` and
+# Con{entry, kept}, then appending `tail`, is picking between the two lists
+# with `tail` already appended. By cases on `c`. missing_snoc uses it.
 law pick_append:
   for c: Bool
   for -kept: List<&2, TC.StateEntry>
@@ -151,6 +219,10 @@ def pick_append(c, kept, entry, tail):
     case False{}:
       {==}
 
+# `missing` of a list with one more entry at its end: what it keeps of the
+# list, followed by the entry unless an entry of `earlier` has its key (the
+# Bool.pick gives Nil{} when key_among is True). By induction on `seen`.
+# split_step uses it when the scan reads one more entry.
 law missing_snoc:
   for +earlier: List<&2, TC.StateEntry>
   for seen: List<&2, TC.StateEntry>
@@ -160,6 +232,7 @@ law missing_snoc:
       Bool.pick(List<&2, TC.StateEntry>, Laws.key_among(TC.StateEntry.key_text(entry), earlier), Nil{},
         Con{entry, Nil{}})) : List<&2, TC.StateEntry>}
 
+# The induction hypothesis rewrites both branches of the pick (two `_`).
 def missing_snoc(earlier, seen, entry):
   match seen:
     case Nil{}:
@@ -175,6 +248,12 @@ def missing_snoc(earlier, seen, entry):
           List<&2, TC.StateEntry>}
       pick_append(Laws.key_among(TC.StateEntry.key_text(first), earlier), Laws.missing(earlier, rest), first, tail)
 
+# The step of missing_subset, for either answer `c` of key_among on `first`:
+# when no entry of missing(earlier, rest) has `key` and `first` has another
+# key, whichever list the Bool.pick gives, missing(earlier, rest) with or
+# without `first` in front, has no entry with `key`. `c` is a parameter so
+# that the proof can match on it (`match` never inspects a computed value);
+# missing_subset passes the key_among call.
 law missing_subset_step:
   for -earlier: List<&2, TC.StateEntry>
   for -first: TC.StateEntry
@@ -195,7 +274,10 @@ def missing_subset_step(earlier, first, rest, key, c, rest_absent, first_differs
         {Bool.or(_, TC.Entries.has_key(Laws.missing(earlier, rest), key)) == False{} : Bool}
       rest_absent
 
-# A key no entry of the seen list has is not among the entries it leaves.
+# `missing` keeps only entries of its second list: when no entry of `seen`
+# has `key`, no entry of missing(earlier, seen) has it either. By induction
+# on `seen`, splitting `absent` with BoolsProof.or_left_false and
+# or_right_false. machine_key uses it.
 law missing_subset:
   for +earlier: List<&2, TC.StateEntry>
   for seen: List<&2, TC.StateEntry>
@@ -215,8 +297,11 @@ def missing_subset(earlier, seen, key, absent):
         BoolsProof.or_left_false(String.eq(TC.StateEntry.key_text(first), key), TC.Entries.has_key(rest, key), absent))
 
 # The scan's duplicate check on the kept entries is the law's check on the
-# first state's keys: none of the second state's entries kept so far has the
-# key of a later one.
+# first state's keys: when the kept entries are `earlier` followed by
+# missing(earlier, seen) (`split`) and no entry of `seen` has `key`
+# (`fresh`, since the second state's keys are distinct), TC.Entries.has_key
+# on the kept entries is key_among(key, earlier), as no entry kept from
+# `seen` has `key`. merge_rest uses it at each entry of the second state.
 law machine_key:
   for +earlier: List<&2, TC.StateEntry>
   for +seen: List<&2, TC.StateEntry>
@@ -226,6 +311,7 @@ law machine_key:
   for +fresh: {TC.Entries.has_key(seen, key) == False{} : Bool}
   {TC.Entries.has_key(entries, key) == Laws.key_among(key, earlier) : Bool}
 
+# Rewrites with split, has_key_append, missing_subset and or_false in turn.
 def machine_key(earlier, seen, entries, split, key, fresh):
   %Equal.sym(List<&2, TC.StateEntry>, entries, List.append(&2, TC.StateEntry, earlier, Laws.missing(earlier, seen)),
     split) : {TC.Entries.has_key(_, key) == Laws.key_among(key, earlier) : Bool}
@@ -242,7 +328,12 @@ def machine_key(earlier, seen, entries, split, key, fresh):
   DistinctProof.has_key_among(earlier, key)
 
 # One more entry of the second state, dropped or kept as the first state's
-# keys decide, keeps each invariant of the scan.
+# keys decide, keeps the invariant `split`: when the scan's check
+# (`machine`) and the law's check (`among`) give the same answer `present`,
+# TC.Entries.add of `entry` gives `earlier` followed by `missing` of `seen`
+# with `entry` appended. `present` is a parameter, not a call to either
+# check, so that the proof can match on it. merge_rest uses it to pass
+# `split` to the next entry.
 law split_step:
   for +earlier: List<&2, TC.StateEntry>
   for +seen: List<&2, TC.StateEntry>
@@ -295,6 +386,11 @@ def split_step(earlier, seen, entries, entry, present, machine, among, split):
         List.append(&2, TC.StateEntry, _, Con{entry, Nil{}}) : List<&2, TC.StateEntry>}
       {==}
 
+# One more entry keeps the expected result: when the two checks agree as in
+# split_step (`machine`, `among`), the kept entries after TC.Entries.add,
+# followed by missing(earlier, rest), are the kept entries before it,
+# followed by missing(earlier, Con{entry, rest}). merge_rest uses it to
+# relate the result of reading the entries after `entry` to its own claim.
 law result_step:
   for +earlier: List<&2, TC.StateEntry>
   for +entries: List<&2, TC.StateEntry>
@@ -328,6 +424,12 @@ def result_step(earlier, entries, entry, rest, present, machine, among):
             Con{entry, Laws.missing(earlier, rest)})) : List<&2, TC.StateEntry>}
       ListsProof.append_assoc(TC.StateEntry, entries, Con{entry, Nil{}}, Laws.missing(earlier, rest))
 
+# One more entry keeps the invariant `valid`: when the kept entries have
+# distinct keys, so do they after TC.Entries.add of `entry`. The scan's
+# check arrives as the Bool `present` with its equation `machine`, so that
+# the proof can match on it. A duplicate leaves the kept entries unchanged,
+# and an entry with a new key is appended (MergeProof.unique_snoc).
+# merge_rest uses it to pass `valid` on and for the final state's evidence.
 law valid_step:
   for +entries: List<&2, TC.StateEntry>
   for +entry: TC.StateEntry
@@ -347,6 +449,11 @@ def valid_step(entries, entry, present, machine, valid):
         {TC.Entries.unique(TC.Entries.add.if(entries, entry, _), Nil{}) == True{} : Bool}
       MergeProof.unique_snoc(entries, entry, Nil{}, valid, machine)
 
+# One more entry keeps the invariant `count`: when the kept entries and the
+# 1 + rest entries still to count are at most 32, so are the kept entries
+# after TC.Entries.add and the `rest` after `entry`. A duplicate keeps the
+# list (le_drop); a new key adds one entry (ListsProof.length_snoc,
+# add_succ). merge_rest uses it at every entry.
 law count_step:
   for +entries: List<&2, TC.StateEntry>
   for +entry: TC.StateEntry
@@ -376,8 +483,15 @@ def count_step(entries, entry, rest, present, machine, count):
       count
 
 # Reading the rest of the second state
-# ------------------------------------
+# ====================================
 
+# The induction over the second state's entries, started by merge_second.
+# The scan has kept `entries` and has just read the text of `current`, now
+# its pending member (an InValue holding the key and the value's characters
+# most recent first, hence String.reverse); the text left is
+# TC.Entries.format.rest(rest). Under the invariants split, unique, valid,
+# count and fits (module header), finishing the scan gives `entries`
+# followed by missing(earlier, Con{current, rest}).
 law merge_rest:
   for rest: List<&2, TC.StateEntry>
   for +current: TC.StateEntry
@@ -400,6 +514,7 @@ law merge_rest:
     Done{List.append(&2, TC.StateEntry, entries, Laws.missing(earlier, Con{current, rest}))} :
     Result<&2, &2, TC.StateError, List<&2, TC.StateEntry>>}
 
+# Induction on `rest`. The comma before `next` closes `current` by computation.
 def merge_rest(rest, current, member, allowed, entries, seen, earlier, split, unique, valid, count, fits):
   match rest:
     case Nil{}:
@@ -513,6 +628,12 @@ def merge_rest(rest, current, member, allowed, entries, seen, earlier, split, un
               List.append(&2, TC.StateEntry, entries, Laws.missing(earlier, Con{current, Con{next, later}})),
               result_step(earlier, entries, current, Con{next, later}, Laws.key_among(key, earlier), machine, {==})))
 
+# Reading the second state's value, the last step of first_wins, from the
+# scan that MergeProof.read_state_then leaves: the first state's entries kept
+# and no member pending. When both lists are valid states with at most 32
+# entries in all, finishing gives `earlier` followed by
+# missing(earlier, later). An empty second state leaves only an empty member,
+# which is ignored; otherwise merge_rest starts with nothing in `seen`.
 law merge_second:
   for later: List<&2, TC.StateEntry>
   for +later_evidence: {TC.TraceState.is_valid(later) == True{} : Bool}
@@ -573,8 +694,12 @@ def merge_second(later, later_evidence, earlier, earlier_evidence, count):
         after_room(List.length(&2, TC.StateEntry, earlier), List.length(&2, TC.StateEntry, Con{first, rest}), 32n,
           count))
 
-# Two states' values joined by a comma: the first state's entries, then the
-# second's entries whose keys the first lacks, in order.
+# Two states' values joined by a comma: when the two states have at most 32
+# entries in all (`count`) and the joined value fits the tracestate input
+# budget (`fits`), parsing it gives the first state's entries, then, in
+# order, the second's entries whose keys the first lacks. This is the law
+# first_wins of LAWS.bend, which PROOF.bend's Laws.first_wins proves by
+# calling it. Result.map keeps only the entries of the parsed state.
 law first_wins:
   for +limits: TC.Limits
   for first: TC.TraceState

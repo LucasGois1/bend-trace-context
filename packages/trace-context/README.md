@@ -474,7 +474,6 @@ every value of their types, not over examples:
   trace ID and randomness assertion, resolves sampled and never reuses the
   parent's span ID; a generated restart's trace ID differs from the received
   one, asserts randomness and is unsampled.
-
 - **Limits:** a validated configuration has a traceparent input budget of at
   least 55, an output budget of at least 512 and an input budget no smaller
   than its output budget; `Limits.new` accepts exactly those configurations,
@@ -514,6 +513,15 @@ nonzero ID, string comparison and the word-to-digit round trip. Proofs use
 structural induction/composition, without local axioms or `@unsafe`
 shortcuts. The laws do not cover the origin of supplied IDs, the truth of a
 randomness assertion, the quality of a source or global uniqueness.
+
+The sources are written to be read by developers new to Bend. Each law in
+[LAWS.bend](LAWS.bend) is preceded by a comment that states its claim in
+words, the requirement it verifies (a section of W3C Trace Context Level 2 or
+of the approved specification), why it matters and how to read its statement.
+[PROOF.bend](PROOF.bend) opens with a guide to reading Bend proofs and a map of
+the modules under [proofs](proofs), each of which starts with a summary of what
+it proves. [trace_context.bend](trace_context.bend) opens with notes on the
+Bend features the implementation relies on, and documents every definition.
 
 ## Validation and scope
 

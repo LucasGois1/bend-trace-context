@@ -62,6 +62,11 @@ qualified JavaScript/entropy boundaries; it is not a published release.
   fields and the budget. Whitespace between members and other inputs that are
   not normalized values are tested by the corpus. A runnable tracestate example
   is added.
+- Document the sources for developers new to Bend. Every law in `LAWS.bend`
+  states its claim in words, the W3C or specification requirement it verifies,
+  its motivation and how to read it; `PROOF.bend` explains how to read a Bend
+  proof; every definition of the package and every helper law under `proofs/`
+  has a comment. Law statements, proofs and code are unchanged.
 - Establish reproducible Bend 2.0.27 setup, Git-pinned consumption, MIT licensing
   and baseline validation on native and Node targets.
 - Standardize documentation and package paths in English, including the public
