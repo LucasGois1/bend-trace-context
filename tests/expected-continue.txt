@@ -1,0 +1,9 @@
+OK: a usable context is continued
+OK: the base is continued without a usable traceparent
+OK: a root starts a trace without context
+OK: a boundary restarts the trace
+OK: generation failures under both policies
+OK: each outgoing message gets its own child
+OK: a service sets its own entries
+OK: no new operation after a failed generation
+OK: diagnostics without received values

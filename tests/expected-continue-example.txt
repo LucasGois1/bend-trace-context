@@ -1,0 +1,10 @@
+traced request: Continued 00-0af7651916cd43dd8448eb211c80319c-S1-01
+sent: Fresh | Host: inventory.internal | traceparent: 00-0af7651916cd43dd8448eb211c80319c-S2-01 | tracestate: congo=t61rcWkgMzE
+sent: Fresh | Host: billing.internal | traceparent: 00-0af7651916cd43dd8448eb211c80319c-S3-01 | tracestate: congo=t61rcWkgMzE
+request without context: Started 00-T1-S4-02
+sent: Fresh | Host: inventory.internal | traceparent: 00-T1-S5-02
+partner request: Restarted 00-T2-S6-02
+sent: Fresh | Host: inventory.internal | traceparent: 00-T2-S7-02
+without entropy: Untraced SourceFailure 5 entropy unavailable
+sent: Forwarded after SourceFailure 5 entropy unavailable | Host: inventory.internal | traceparent: 00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01 | tracestate: congo=t61rcWkgMzE
+strict, without entropy: refused after SourceFailure 5 entropy unavailable

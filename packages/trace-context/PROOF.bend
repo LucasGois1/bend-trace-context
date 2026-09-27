@@ -61,6 +61,7 @@
 #   proofs/extract.bend             field selection, traceparent reading and
 #                                   extraction
 #   proofs/inject.bend              cleanup, injection and forwarding
+#   proofs/continue.bend            continuing or starting, and sending
 
 import Base
 import ./LAWS.bend as Laws
@@ -83,6 +84,7 @@ import ./proofs/update.bend as UpdateProof
 import ./proofs/emit.bend as EmitProof
 import ./proofs/extract.bend as ExtractProof
 import ./proofs/inject.bend as InjectProof
+import ./proofs/continue.bend as ContinueProof
 
 # 1. Strict v00 codec
 # ===================
@@ -606,3 +608,38 @@ def Laws.forward_extracted(limits, received, base, incoming, pair, carrier, extr
 # same fields.
 def Laws.forward_idempotent(limits, incoming, carrier, forwarded, done):
   InjectProof.forward_idempotent(limits, incoming, carrier, forwarded, done)
+
+# 14. Continuing or starting, and sending
+# =======================================
+
+# The child of the usable context, over the tape (proofs/continue.bend).
+def Laws.continue_usable(tape, extraction, base, sampling, policy, usable):
+  ContinueProof.continue_usable(tape, extraction, base, sampling, policy, usable)
+
+# A restart of the usable context at a boundary, over the tape
+# (proofs/continue.bend).
+def Laws.restart_usable(tape, extraction, base, sampling, policy, usable):
+  ContinueProof.restart_usable(tape, extraction, base, sampling, policy, usable)
+
+# A root without a usable context, over the tape (proofs/continue.bend).
+def Laws.start_unusable(tape, extraction, reception, sampling, policy, none):
+  ContinueProof.start_unusable(tape, extraction, reception, sampling, policy, none)
+
+# A new trace keeps nothing received, whatever extraction keeps
+# (proofs/continue.bend).
+def Laws.restart_keeps_nothing(tape, extraction, sampling, policy):
+  ContinueProof.restart_keeps_nothing(tape, extraction, sampling, policy)
+
+# A child of the service's operation for a message sent, over the tape
+# (proofs/continue.bend).
+def Laws.send_operating(tape, limits, origin, outgoing, received, sampling, policy, carrier):
+  ContinueProof.send_operating(tape, limits, origin, outgoing, received, sampling, policy, carrier)
+
+# The fallback of a service without an operation (proofs/continue.bend).
+def Laws.send_untraced(tape, limits, error, received, sampling, policy, carrier):
+  ContinueProof.send_untraced(tape, limits, error, received, sampling, policy, carrier)
+
+# A message reports the generated child and nothing else
+# (proofs/continue.bend).
+def Laws.send_reports_generated(tape, limits, service, sampling, policy, carrier):
+  ContinueProof.send_reports_generated(tape, limits, service, sampling, policy, carrier)

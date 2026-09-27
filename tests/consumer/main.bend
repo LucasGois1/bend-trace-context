@@ -379,6 +379,152 @@ def injection() -> IO(Unit):
           TC.Header{"tracestate", "rojo"}], None{})))
     IO.print("discarded state forwarded: " ++ forwarded(TC.Context.forward(limits, discarded, [])))
 
+# The service's own operation for each request it receives, and the
+# requests it sends on. On the host's source, it continues a traced request
+# and sends two requests on, each with a child of its own. With replayed
+# words, it shows every outcome it handles: a continued request, its own
+# entry put first in the state it sends, a source failure after which the
+# request sent on forwards the received context unchanged, exhausted
+# candidates without a context to forward, an invalid traceparent that
+# continues its own base, a partner's request restarted at its trust
+# boundary, and the strict policy, which refuses the request.
+def received_request() -> List<&2, TC.Header>:
+  [TC.Header{"traceparent", "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"},
+    TC.Header{"tracestate", "rojo=00f067aa0ba902b7"}, TC.Header{"tracestate", "congo=t61rcWkgMzE"}]
+
+def request_fields() -> List<&2, TC.Header>:
+  [TC.Header{"Accept", "application/json"}]
+
+def service_operation(outgoing: Maybe<&2, TC.OutgoingContext>) -> String:
+  match outgoing:
+    case None{}:
+      ""
+    case Some{context}:
+      " " ++ TC.TraceParentV00.format(TC.LocalContext.to_traceparent(TC.OutgoingContext.context(context)))
+
+def service_line(+service: TC.Service) -> String:
+  TC.Service.show(service) ++ service_operation(TC.Service.outgoing(service))
+
+def sent_line(+sent: TC.Sent) -> String:
+  TC.Sent.show(sent) ++ " | " ++ carrier(TC.Sent.carrier(sent))
+
+def own_operation(outgoing: Maybe<&2, TC.OutgoingContext>) -> IO(TC.LocalContext):
+  match outgoing:
+    case None{}:
+      IO.die(TC.LocalContext, 1, "FAIL: the host service has no operation")
+    case Some{context}:
+      IO.pure(TC.LocalContext, TC.OutgoingContext.context(context))
+
+def sent_operation(operation: Maybe<&2, TC.LocalContext>) -> IO(TC.LocalContext):
+  match operation:
+    case None{}:
+      IO.die(TC.LocalContext, 1, "FAIL: a host request has no operation")
+    case Some{context}:
+      IO.pure(TC.LocalContext, context)
+
+def host_send(service: TC.Service) -> IO(TC.LocalContext):
+  do IO<TC.LocalContext>:
+    sent : TC.Sent <- Generate.Context.send(TC.Limits.default(), service, TC.InheritSampled{}, TC.Lenient{},
+      request_fields())
+    sent_operation(TC.Sent.operation(sent))
+
+def same_trace(+a: TC.LocalContext, +b: TC.LocalContext) -> Bool:
+  TC.TraceId.is_eq(TC.LocalContext.trace_id(a), TC.LocalContext.trace_id(b))
+
+def other_span(+a: TC.LocalContext, +b: TC.LocalContext) -> Bool:
+  Bool.not(TC.SpanId.is_eq(TC.LocalContext.span_id(a), TC.LocalContext.span_id(b)))
+
+def host_service() -> IO(Unit):
+  do IO<Unit>:
+    +service : TC.Service <- Generate.Context.continue_or_start(TC.Context.extract(TC.Limits.default(),
+      received_request(), None{}), TC.Continue{}, TC.InheritSampled{}, TC.Lenient{})
+    Unit <- IO.print("host service: " ++ TC.Service.show(service))
+    +own : TC.LocalContext <- own_operation(TC.Service.outgoing(service))
+    Unit <- IO.print("host service keeps the received trace: " ++
+      Bool.show(String.eq(TC.TraceId.to_string(TC.LocalContext.trace_id(own)), "0af7651916cd43dd8448eb211c80319c")))
+    +first : TC.LocalContext <- host_send(service)
+    +second : TC.LocalContext <- host_send(service)
+    Unit <- IO.print("host requests keep the trace: " ++
+      Bool.show(Bool.and(same_trace(first, own), same_trace(second, own))))
+    IO.print("host requests have their own spans: " ++
+      Bool.show(Bool.and(other_span(first, own), Bool.and(other_span(second, own), other_span(first, second)))))
+
+def Words() -> Type:
+  List<&1, Result<&1, &1, U32 & String, U32>>
+
+def zero_words(count: Nat) -> Words():
+  match count:
+    case 0n:
+      Nil{}
+    case 1n+p:
+      Con{Done{0}, zero_words(p)}
+
+def replayed_service(words: Words(), +extraction: TC.Extraction, reception: TC.Reception) -> IO(TC.Service):
+  do IO<TC.Service>:
+    done : Words() & TC.Service <- TC.Context.continue_or_start_with(~Words(), ~TC.Source.tape, words, extraction,
+      reception, TC.InheritSampled{}, TC.Lenient{})
+    return Pair.snd(Words(), TC.Service, done)
+
+def replayed_send(words: Words(), service: TC.Service) -> IO(TC.Sent):
+  do IO<TC.Sent>:
+    done : Words() & TC.Sent <- TC.Context.send_with(~Words(), ~TC.Source.tape, words, TC.Limits.default(),
+      service, TC.InheritSampled{}, TC.Lenient{}, request_fields())
+    return Pair.snd(Words(), TC.Sent, done)
+
+# The service a received request gives with replayed words, and the request
+# it sends on.
+def flow(+label: String, service_words: Words(), send_words: Words(), +extraction: TC.Extraction,
+  reception: TC.Reception) -> IO(Unit):
+  do IO<Unit>:
+    +service : TC.Service <- replayed_service(service_words, extraction, reception)
+    Unit <- IO.print(label ++ " service: " ++ service_line(service))
+    sent : TC.Sent <- replayed_send(send_words, service)
+    IO.print(label ++ " request: " ++ sent_line(sent))
+
+# The service puts its own entry first in the state it sends.
+def own_entry(+extraction: TC.Extraction) -> IO(Unit):
+  do IO<Unit>:
+    own : TC.StateKey <- entry("own key", TC.StateKey.parse("fw529a3039"))
+    value : TC.StateValue <- entry_text(TC.StateValue.parse("cHJpbWFyeQ"))
+    service : TC.Service <- replayed_service([Done{15755178}, Done{195625655}], extraction, TC.Continue{})
+    sent : TC.Sent <- replayed_send([Done{1402559551}, Done{1120766680}], TC.Service.set(service, own, value))
+    IO.print("own entry request: " ++ sent_line(sent))
+
+def refusal(result: Result<&2, &2, TC.GenerationError, TC.Service>) -> String:
+  match result:
+    case Fail{error}:
+      "refused after " ++ TC.GenerationError.show(error)
+    case Done{service}:
+      "handled: " ++ TC.Service.show(service)
+
+def strict_service(words: Words(), +extraction: TC.Extraction) -> IO(Unit):
+  do IO<Unit>:
+    done : Words() & Result<&2, &2, TC.GenerationError, TC.Service> <- TC.Context.continue_or_start_with(~Words(),
+      ~TC.Source.tape, words, extraction, TC.Continue{}, TC.InheritSampled{}, TC.Strict{})
+    IO.print("strict service: " ++ refusal(Pair.snd(Words(), Result<&2, &2, TC.GenerationError, TC.Service>, done)))
+
+def continuation() -> IO(Unit):
+  +limits = TC.Limits.default()
+  do IO<Unit>:
+    Unit <- host_service()
+    Unit <- flow("continued", [Done{15755178}, Done{195625655}], [Done{1402559551}, Done{1120766680}],
+      TC.Context.extract(limits, received_request(), None{}), TC.Continue{})
+    Unit <- own_entry(TC.Context.extract(limits, received_request(), None{}))
+    Unit <- flow("source failure", [Fail{(3, "no entropy")}], [], TC.Context.extract(limits, received_request(),
+      None{}), TC.Continue{})
+    Unit <- flow("exhausted", zero_words(32n), [], TC.Context.extract(limits, request_fields(), None{}),
+      TC.Continue{})
+    base_trace : TC.TraceId <- trace_id("5b8efff798038103d269b633813fc60c")
+    base_span : TC.SpanId <- span_id("eee19b7ec3c1b174")
+    +base : TC.BaseContext = TC.OutgoingBase{TC.OutgoingContext.new(TC.Context.root_from_ids(base_trace, base_span))}
+    Unit <- flow("invalid traceparent", [Done{15755178}, Done{195625655}], [Done{1402559551}, Done{1120766680}],
+      TC.Context.extract(limits, [TC.Header{"traceparent", "00-00000000000000000000000000000000-b7ad6b7169203331-01"}],
+        Some{base}), TC.Continue{})
+    Unit <- flow("boundary", [Done{1274621749}, Done{2008239526}, Done{2748224157}, Done{235816758},
+      Done{15755178}, Done{195625655}], [Done{1402559551}, Done{1120766680}],
+      TC.Context.extract(limits, received_request(), Some{base}), TC.Restart{})
+    strict_service([Fail{(3, "no entropy")}], TC.Context.extract(limits, received_request(), None{}))
+
 def main() -> IO(Unit):
   do IO<Unit>:
     Unit <- show(TC.TraceParentV00.parse(
@@ -390,4 +536,5 @@ def main() -> IO(Unit):
     Unit <- tracestate()
     Unit <- outgoing()
     Unit <- extraction()
-    injection()
+    Unit <- injection()
+    continuation()

@@ -29,10 +29,11 @@
 #   and so does a whole drive (root_run, child_run, restart_run, by induction
 #   on the fuel). Branches an invariant excludes are refuted through the
 #   clash motives MaybeTraceClash and MaybeSpanClash.
-# - IO. read_tape_then shows, by induction on the fuel, that Draw.read over
-#   Source.tape computes Draw.run, whatever continuation follows it;
-#   root_tape, child_tape and restart_tape apply it to the continuation of
-#   Draw.finished.
+# - IO. read_tape_outcome shows, by induction on the fuel, that Draw.read
+#   over Source.tape computes Draw.run, whatever function of the outcome the
+#   continuation emits; root_tape, child_tape and restart_tape apply it to
+#   the continuation of Draw.finished, and proofs/continue.bend to those of
+#   the operations of section 14.
 #
 # The statements use Tape, TapeStep, TapeOutcome and Observe of LAWS.bend,
 # so each statement here is the statement of the law it proves.
@@ -1331,33 +1332,49 @@ def restart_run(previous, fuel, step, tape, valid):
 # and restart_with over Source.tape produce the outcome of Draw.run.
 
 # Over a tape, the IO driver computes what the pure driver computes: running
-# Draw.read over Source.tape with a continuation `next`, to any result type
-# R, gives `next` the result of Draw.run, the same words read in the same
-# order. Since an IO action is a function of R and a continuation (IO in
-# Base), this says how Draw.read behaves inside a larger action, such as the
-# one Draw.finished builds. root_tape, child_tape and restart_tape rest on it.
-law read_tape_then:
-  for -R: Type
-  for next: Laws.TapeStep() -> IO.OP<R>
+# Draw.read over Source.tape, followed by a continuation that emits a
+# function `f` of the driver's outcome, gives what any `g` that agrees with
+# `f` on every outcome (`same`) emits for the outcome of Draw.run, the same
+# words read in the same order. Since an IO action is a function of a result
+# type and a continuation (IO in Base), this says how Draw.read behaves
+# inside a larger action, such as the one Draw.finished builds. The
+# induction applies `same` once, to the outcome the tape leads to, so the
+# tape, which is linear, is read once. root_tape, child_tape and
+# restart_tape rest on it, and so does proofs/continue.bend.
+law read_tape_outcome:
+  for -A: Type
+  for -f: Laws.TapeOutcome() -> A
+  for -g: Laws.TapeOutcome() -> A
+  for same: @outcome: Laws.TapeOutcome() -> {f(outcome) == g(outcome) : A}
   for +fuel: Nat
   for current: Laws.TapeStep()
-  {TC.Draw.read(~Laws.Tape(), ~TC.Source.tape, fuel, current)(R, next) == next(TC.Draw.run(fuel, current)) : IO.OP<R>}
+  {TC.Draw.read(~Laws.Tape(), ~TC.Source.tape, fuel, current)(A, step => Emit{f(TC.Draw.outcome(Laws.Tape(), step))}) ==
+    Emit{g(TC.Draw.outcome(Laws.Tape(), TC.Draw.run(fuel, current)))} : IO.OP<A>}
 
-# Splits on the fuel for every step: the drivers compute only once it is known.
-def read_tape_then(R, next, fuel, current):
+# Splits on the fuel for every step: the drivers compute only once it is
+# known. An ended step or an empty fuel emits at once, and a word is fed
+# otherwise.
+def read_tape_outcome(A, f, g, same, fuel, current):
   match fuel current:
     case 0n Tuple{tape, TC.Created{context}}:
-      {==}
+      Equal.cong(A, IO.OP<A>, value => Emit{value}, f((tape, Done{context})), g((tape, Done{context})),
+        same((tape, Done{context})))
     case 0n Tuple{tape, TC.Failed{error}}:
-      {==}
+      Equal.cong(A, IO.OP<A>, value => Emit{value}, f((tape, Fail{error})), g((tape, Fail{error})),
+        same((tape, Fail{error})))
     case 0n Tuple{tape, TC.NeedWord{draw}}:
-      {==}
+      Equal.cong(A, IO.OP<A>, value => Emit{value},
+        f(TC.Draw.outcome(Laws.Tape(), (tape, TC.NeedWord{draw}))),
+        g(TC.Draw.outcome(Laws.Tape(), (tape, TC.NeedWord{draw}))),
+        same(TC.Draw.outcome(Laws.Tape(), (tape, TC.NeedWord{draw}))))
     case 1n+p Tuple{tape, TC.Created{context}}:
-      {==}
+      Equal.cong(A, IO.OP<A>, value => Emit{value}, f((tape, Done{context})), g((tape, Done{context})),
+        same((tape, Done{context})))
     case 1n+p Tuple{tape, TC.Failed{error}}:
-      {==}
+      Equal.cong(A, IO.OP<A>, value => Emit{value}, f((tape, Fail{error})), g((tape, Fail{error})),
+        same((tape, Fail{error})))
     case 1n+p Tuple{tape, TC.NeedWord{draw}}:
-      read_tape_then(R, next, p, TC.Draw.fed_by(Laws.Tape(), TC.Tape.next(tape), draw))
+      read_tape_outcome(A, f, g, same, p, TC.Draw.fed_by(Laws.Tape(), TC.Tape.next(tape), draw))
 
 # Law root_tape: generating a root as an IO action over a tape source
 # (Context.root_with with Source.tape) produces Draw.outcome of the pure
@@ -1368,9 +1385,11 @@ law root_tape:
   {Laws.Observe(Laws.TapeOutcome(), TC.Context.root_with(~Laws.Tape(), ~TC.Source.tape, tape)) ==
     Emit{TC.Draw.outcome(Laws.Tape(), TC.Draw.run(48n, (tape, TC.Draw.root())))} : IO.OP<Laws.TapeOutcome()>}
 
-# read_tape_then, with the continuation that Draw.finished and Observe supply.
+# read_tape_outcome, with the continuation that Draw.finished and Observe
+# supply: the outcome itself.
 def root_tape(tape):
-  read_tape_then(Laws.TapeOutcome(), done => Emit{TC.Draw.outcome(Laws.Tape(), done)}, 48n, (tape, TC.Draw.root()))
+  read_tape_outcome(Laws.TapeOutcome(), outcome => outcome, outcome => outcome, outcome => {==}, 48n,
+    (tape, TC.Draw.root()))
 
 # Law child_tape: as root_tape, for a child with a budget of 16 words.
 # Laws.child_tape returns this proof.
@@ -1382,7 +1401,7 @@ law child_tape:
     Emit{TC.Draw.outcome(Laws.Tape(), TC.Draw.run(16n, (tape, TC.Draw.child(parent, sampling))))} : IO.OP<Laws.TapeOutcome()>}
 
 def child_tape(tape, parent, sampling):
-  read_tape_then(Laws.TapeOutcome(), done => Emit{TC.Draw.outcome(Laws.Tape(), done)}, 16n,
+  read_tape_outcome(Laws.TapeOutcome(), outcome => outcome, outcome => outcome, outcome => {==}, 16n,
     (tape, TC.Draw.child(parent, sampling)))
 
 # Law restart_tape: as root_tape, for a restart with a budget of 48 words.
@@ -1394,5 +1413,5 @@ law restart_tape:
     Emit{TC.Draw.outcome(Laws.Tape(), TC.Draw.run(48n, (tape, TC.Draw.restart(previous))))} : IO.OP<Laws.TapeOutcome()>}
 
 def restart_tape(tape, previous):
-  read_tape_then(Laws.TapeOutcome(), done => Emit{TC.Draw.outcome(Laws.Tape(), done)}, 48n,
+  read_tape_outcome(Laws.TapeOutcome(), outcome => outcome, outcome => outcome, outcome => {==}, 48n,
     (tape, TC.Draw.restart(previous)))

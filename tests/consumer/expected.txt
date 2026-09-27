@@ -38,3 +38,19 @@ injected: Accept: application/json | X-Request-Id: 42 | traceparent: 00-0af76519
 injection dropped: none
 cleared: Accept: application/json
 discarded state forwarded: refused: NothingToForward
+host service: Continued
+host service keeps the received trace: True
+host requests keep the trace: True
+host requests have their own spans: True
+continued service: Continued 00-0af7651916cd43dd8448eb211c80319c-00f067aa0ba902b7-01
+continued request: Fresh | Accept: application/json | traceparent: 00-0af7651916cd43dd8448eb211c80319c-53995c3f42cd8ad8-01 | tracestate: rojo=00f067aa0ba902b7,congo=t61rcWkgMzE
+own entry request: Fresh | Accept: application/json | traceparent: 00-0af7651916cd43dd8448eb211c80319c-53995c3f42cd8ad8-01 | tracestate: fw529a3039=cHJpbWFyeQ,rojo=00f067aa0ba902b7,congo=t61rcWkgMzE
+source failure service: Untraced SourceFailure 3 no entropy
+source failure request: Forwarded after SourceFailure 3 no entropy | Accept: application/json | traceparent: 00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01 | tracestate: rojo=00f067aa0ba902b7,congo=t61rcWkgMzE
+exhausted service: Untraced ExhaustedTraceId
+exhausted request: NoContext after ExhaustedTraceId, NothingKept | Accept: application/json
+invalid traceparent service: Continued 00-5b8efff798038103d269b633813fc60c-00f067aa0ba902b7-00
+invalid traceparent request: Fresh | Accept: application/json | traceparent: 00-5b8efff798038103d269b633813fc60c-53995c3f42cd8ad8-00
+boundary service: Restarted 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-02
+boundary request: Fresh | Accept: application/json | traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-53995c3f42cd8ad8-02
+strict service: refused after SourceFailure 3 no entropy

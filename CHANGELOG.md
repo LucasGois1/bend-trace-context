@@ -7,8 +7,9 @@ currently provides the strict v00 codec, contexts created from supplied or
 generated IDs, Level 2 tracestate parsing within validated limits, tracestate
 updates and emission within the output budget, context extraction from a
 received message's fields, participant injection and transparent forwarding
-into the fields of a message to send, and qualified JavaScript/entropy
-boundaries; it is not a published release.
+into the fields of a message to send, the continue-or-start and sending
+operations of a service, and qualified JavaScript/entropy boundaries; it is
+not a published release.
 
 - Preserve the pure Bend codec, dependent ID representation, universal
   round-trip and fixed-length proofs, independent protocol corpus and
@@ -115,6 +116,29 @@ boundaries; it is not a published release.
   continues the injected operation with the truncated state, and that the
   pair of an extracted context is refused only for the output budget. A
   runnable injection example is added.
+- Continue or start a service's operation with `Context.continue_or_start`
+  and give each message it sends a child with `Context.send`, on the host's
+  source in `generation.bend`, or with `Context.continue_or_start_with` and
+  `Context.send_with` on a caller's source. The `Reception` decides what
+  happens to the context that extraction keeps, the message's or the base:
+  `Continue{}` continues it with a child that sends its state, and
+  `Restart{}`, at a trust boundary, replaces it with a new trace that never
+  reuses its trace ID and keeps none of its state; without a kept context a
+  root starts the trace. Roots and restarts take the root default, not
+  sampled, unless `SetSampled` says otherwise. The result is a `Service`,
+  `Operating` with its `Origin` or `Untraced` with the `GenerationError`;
+  `Service.set` and `Service.remove` edit the state its operation sends.
+  `Context.send` generates a new child for every call, whose span ID is
+  never the service's, and injects it; when none can be generated, the
+  message forwards the received pair unchanged if it can (`Forwarded`) and
+  carries no context fields otherwise (`NoContext`, with an `Unforwarded`
+  reason), and it never reports a new operation. `Lenient{}` lets the
+  business operation proceed with diagnostics that hold no received value,
+  truncation included; `Strict{}` returns `Fail{GenerationError}` instead.
+  Laws prove, for every tape and under both policies, which generation each
+  operation performs and what its outcome gives, that a restart keeps
+  nothing of a received context, and that a message reports a new operation
+  exactly when one was generated for it. A runnable example is added.
 - Document the sources for developers new to Bend. Every law in `LAWS.bend`
   states its claim in words, the W3C or specification requirement it verifies,
   its motivation and how to read it; `PROOF.bend` explains how to read a Bend
@@ -136,16 +160,16 @@ boundaries; it is not a published release.
   no-redirect behavior and the listener's header-size limit. This is a
   development transport fixture, not Trace Context propagation or a tracer.
 
-Header injection, transparent forwarding, browser generation, propagation and
-HTTP/Fetch integration are planned under
+Browser generation and HTTP/Fetch propagation are planned under
 [specification #1](https://github.com/LucasGois1/bend-trace-context/issues/1).
 
 **Migration within 0.1.0-dev:** `Field` gains `SpanIdField{}`, so
 `Error.ZeroId` can now name a supplied span ID. Code that matches every `Field`
 constructor, or every `ZeroId{...}` case of `Error`, without a default case
 must handle it. Context creation reports the new `ContextError` type; `Error`
-itself gains no constructor. Tracestate, limits, updates and extraction add new
-types and functions only; no existing name or behavior changes.
+itself gains no constructor. Tracestate, limits, updates, extraction,
+injection, forwarding and continue-or-start add new types and functions only;
+no existing name or behavior changes.
 
 ## Versioning and compatibility
 
@@ -160,8 +184,10 @@ which performs no host effect of its own, and
 cryptographic source. Their documented types, constructors, functions and
 error behavior form the current API contract. Internal parsing, generation
 machine (`Draw`/`Step`), tracestate reading machine (`Scan`/`Member`),
-extraction steps (`Carrier`, `Text`, `Read`, `Extract`) and proof helpers are
-not compatibility promises, even where Bend makes their names importable.
+extraction steps (`Carrier`, `Text`, `Read`, `Extract`), forwarding steps
+(`Forward`), continue-or-start and sending steps (`Policy`, `Serve`, `Send`)
+and proof helpers are not compatibility promises, even where Bend makes their
+names importable.
 
 The additional JavaScript inspection and entropy entries and their error
 contracts are documented in the [qualification guide](packages/trace-context/JAVASCRIPT.md).

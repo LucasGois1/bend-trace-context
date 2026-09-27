@@ -5,8 +5,10 @@
 # effect: the strict traceparent v00 codec, validated trace and span IDs, local
 # and remote contexts, the machine that turns source words into IDs, validated
 # limits, the Level 2 tracestate parser, tracestate updates and emission,
-# outgoing contexts, the extraction of a received message's context, and the
-# injection and forwarding of a context into an outgoing message's carrier.
+# outgoing contexts, the extraction of a received message's context, the
+# injection and forwarding of a context into an outgoing message's carrier,
+# and the operations that continue or start a service's operation for a
+# received message and give each message it sends a child of it.
 # generation.bend adds the host's cryptographic source on top of it. The
 # claims this code must satisfy are stated in LAWS.bend and proved in
 # PROOF.bend, beside this file. The tests in tests/*.bend here and the
@@ -41,11 +43,15 @@
 #   Injection                        Context.inject and the Injection it
 #                                    writes, Context.clear
 #   Forwarding                       Context.forward, ForwardError
+#   Continuing or starting           Context.continue_or_start_with,
+#                                    Reception, FailurePolicy, Service
+#   Sending                          Context.send_with, Sent
 #
 # The public names are documented in packages/trace-context/README.md. Names in
 # the Parse, Draw, Step, Tape, Scan, Member, Value, Budget, Utf8, Entries,
-# StateChar, Carrier, Text, Read, Extract and Forward namespaces are internal:
-# Bend lets any module import them, but they are not a compatibility contract.
+# StateChar, Carrier, Text, Read, Extract, Forward, Policy, Serve and Send
+# namespaces are internal: Bend lets any module import them, but they are not
+# a compatibility contract.
 #
 # Notes for readers new to Bend
 # -----------------------------
@@ -87,8 +93,9 @@ import ./src/digits.bend as Digits
 # =====
 #
 # The types of the codec, of the identifiers and contexts, and of the
-# generation machine. The limits, tracestate, outgoing, extraction, injection
-# and forwarding types are declared in their own sections below.
+# generation machine. The limits, tracestate, outgoing, extraction, injection,
+# forwarding, continue-or-start and sending types are declared in their own
+# sections below.
 
 # The field that a ZeroId error names: the trace ID or parent ID of a
 # traceparent value, or a supplied span ID.
@@ -2742,3 +2749,430 @@ def ForwardError.show(error: ForwardError) -> String:
       "InvalidForwardParent " ++ TraceParentError.show(reason)
     case InvalidForwardState{reason}:
       "InvalidForwardState " ++ StateError.show(reason)
+
+# Continuing or starting
+# ======================
+#
+# Context.continue_or_start_with gives a service its own operation for a
+# received message (spec #1, "Continue-or-start creates a child when
+# extraction or the retained base supplies a usable context, and creates a
+# root otherwise"): a child of the context that extraction keeps, the
+# message's or the base, or a root when it keeps none. At a trust boundary, a
+# new trace replaces the kept context instead. Context.send_with then gives
+# each message the service sends a child of that operation. When generating
+# an identifier fails, the policy decides: Lenient{} carries on without an
+# operation, forwarding the received pair unchanged when it can and sending
+# no context otherwise, and Strict{} returns the error so that the caller can
+# refuse the operation.
+
+# How a service takes the context that extraction keeps, the message's or
+# the base:
+#   Continue{}   continue it with a child
+#   Restart{}    replace it with a new trace, as at a trust boundary: its
+#                trace ID is not reused, its state is discarded and the root
+#                defaults apply
+type Reception is Data:
+  Continue{}
+  Restart{}
+
+# What the operations do when generating an identifier fails:
+#   Lenient{}   carry on without a new operation; the result says why
+#   Strict{}    fail with the GenerationError, so that the caller can refuse
+#               the operation
+type FailurePolicy is Data:
+  Lenient{}
+  Strict{}
+
+# How a service's operation came about:
+#   Continued{}   a child of the context that extraction kept
+#   Started{}     a root: extraction kept no context
+#   Restarted{}   a new trace in place of the kept context (Restart{})
+type Origin is Data:
+  Continued{}
+  Started{}
+  Restarted{}
+
+# The service's own operation for a received message, with the state it
+# sends, or the error that left it without one. `received` is the message's
+# incoming context when the service continues it, kept so that a message it
+# sends can forward the received pair if generating fails; it is None{} for
+# a root, a restart or a continued base.
+type Service is Data:
+  Operating{origin: Origin, outgoing: OutgoingContext, received: Maybe<&2, IncomingContext>}
+  Untraced{error: GenerationError, received: Maybe<&2, IncomingContext>}
+
+# The type an operation returns under `policy`: the value itself with
+# Lenient{}, and the value or the GenerationError with Strict{}.
+def FailurePolicy.result(policy: FailurePolicy, A: Data) -> Data:
+  match policy:
+    case Lenient{}:
+      A
+    case Strict{}:
+      Result<&2, &2, GenerationError, A>
+
+# A value under `policy`: itself with Lenient{}, and what `strict` makes of it
+# with Strict{}.
+def Policy.apply(policy: FailurePolicy, -A: Data, strict: A -> Result<&2, &2, GenerationError, A>, value: A) ->
+  FailurePolicy.result(policy, A):
+  match policy:
+    case Lenient{}:
+      value
+    case Strict{}:
+      strict(value)
+
+# The source's final state with a value under `policy`.
+def Policy.apply.done(-S: Type, policy: FailurePolicy, -A: Data, strict: A -> Result<&2, &2, GenerationError, A>,
+  done: S & A) -> S & FailurePolicy.result(policy, A):
+  (source, value) = done
+  (source, Policy.apply(policy, A, strict, value))
+
+# A new trace's operation with the sampled indication that `sampling`
+# resolves from the root default, not sampled: InheritSampled{} has nothing
+# to inherit, and SetSampled{} sets its own.
+def Serve.start(sampling: Sampling, +context: LocalContext) -> LocalContext:
+  LocalContext{LocalContext.trace_id(context), LocalContext.span_id(context), Sampling.resolve(sampling, False{})}
+
+# The service that a child of the kept context gives, with `state`, or
+# Untraced with the error.
+def Serve.from_child(state: TraceState, received: Maybe<&2, IncomingContext>,
+  result: Result<&2, &2, GenerationError, LocalContext>) -> Service:
+  match result:
+    case Fail{error}:
+      Untraced{error, received}
+    case Done{context}:
+      Operating{Continued{}, OutgoingContext.with_state(context, state), received}
+
+# The service that a new trace gives: the sampling of Serve.start and no
+# state, or Untraced with the error. A new trace keeps no received pair.
+def Serve.from_start(origin: Origin, sampling: Sampling, result: Result<&2, &2, GenerationError, LocalContext>) ->
+  Service:
+  match result:
+    case Fail{error}:
+      Untraced{error, None{}}
+    case Done{context}:
+      Operating{origin, OutgoingContext.new(Serve.start(sampling, context)), None{}}
+
+# The source's final state with the service that a child gives.
+def Serve.from_child.done(-S: Type, state: TraceState, received: Maybe<&2, IncomingContext>,
+  done: S & Result<&2, &2, GenerationError, LocalContext>) -> S & Service:
+  (source, result) = done
+  (source, Serve.from_child(state, received, result))
+
+# The source's final state with the service that a new trace gives.
+def Serve.from_start.done(-S: Type, origin: Origin, sampling: Sampling,
+  done: S & Result<&2, &2, GenerationError, LocalContext>) -> S & Service:
+  (source, result) = done
+  (source, Serve.from_start(origin, sampling, result))
+
+# Continue `base` with a child: the base's parent and state.
+def Serve.child(~S: Type, ~read: S -> IO(S & Result<&1, &1, U32 & String, U32>), source: S, +base: BaseContext,
+  received: Maybe<&2, IncomingContext>, sampling: Sampling) -> IO(S & Service):
+  IO.bind(S & Result<&2, &2, GenerationError, LocalContext>, S & Service,
+    Context.child_with(~S, ~read, source, BaseContext.parent(base), sampling),
+    done => IO.pure(S & Service, Serve.from_child.done(S, BaseContext.state(base), received, done)))
+
+# Start a trace with a root.
+def Serve.root(~S: Type, ~read: S -> IO(S & Result<&1, &1, U32 & String, U32>), source: S, sampling: Sampling) ->
+  IO(S & Service):
+  IO.bind(S & Result<&2, &2, GenerationError, LocalContext>, S & Service, Context.root_with(~S, ~read, source),
+    done => IO.pure(S & Service, Serve.from_start.done(S, Started{}, sampling, done)))
+
+# The context that a restart replaces, as Context.restart_with takes it: an
+# incoming base's received context, or an outgoing base's operation as
+# another participant receives it. The new trace ID reuses neither.
+def Serve.replaced(base: BaseContext) -> RemoteContext:
+  match base:
+    case IncomingBase{incoming}:
+      IncomingContext.context(incoming)
+    case OutgoingBase{outgoing}:
+      RemoteContext.from_traceparent(LocalContext.to_traceparent(OutgoingContext.context(outgoing)))
+
+# Start a new trace in place of `base` (Context.restart_with).
+def Serve.restart(~S: Type, ~read: S -> IO(S & Result<&1, &1, U32 & String, U32>), source: S, base: BaseContext,
+  sampling: Sampling) -> IO(S & Service):
+  IO.bind(S & Result<&2, &2, GenerationError, LocalContext>, S & Service,
+    Context.restart_with(~S, ~read, source, Serve.replaced(base)),
+    done => IO.pure(S & Service, Serve.from_start.done(S, Restarted{}, sampling, done)))
+
+# Continue the kept context or replace it, as `reception` says.
+def Serve.usable(~S: Type, ~read: S -> IO(S & Result<&1, &1, U32 & String, U32>), source: S, +base: BaseContext,
+  received: Maybe<&2, IncomingContext>, reception: Reception, sampling: Sampling) -> IO(S & Service):
+  match reception:
+    case Continue{}:
+      Serve.child(~S, ~read, source, base, received, sampling)
+    case Restart{}:
+      Serve.restart(~S, ~read, source, base, sampling)
+
+# Take the context that extraction keeps, or start a root without one.
+def Serve.kept(~S: Type, ~read: S -> IO(S & Result<&1, &1, U32 & String, U32>), source: S,
+  context: Maybe<&2, BaseContext>, received: Maybe<&2, IncomingContext>, reception: Reception, sampling: Sampling) ->
+  IO(S & Service):
+  match context:
+    case None{}:
+      Serve.root(~S, ~read, source, sampling)
+    case Some{+base}:
+      Serve.usable(~S, ~read, source, base, received, reception, sampling)
+
+# The service for a message, before the policy applies.
+def Serve.operation(~S: Type, ~read: S -> IO(S & Result<&1, &1, U32 & String, U32>), source: S,
+  +extraction: Extraction, reception: Reception, sampling: Sampling) -> IO(S & Service):
+  Serve.kept(~S, ~read, source, Extraction.context(extraction), Extraction.incoming(extraction), reception, sampling)
+
+# A service without an operation as the GenerationError that caused it.
+def Serve.strict(service: Service) -> Result<&2, &2, GenerationError, Service>:
+  match service:
+    case Operating{origin, outgoing, received}:
+      Done{Operating{origin, outgoing, received}}
+    case Untraced{error, received}:
+      Fail{error}
+
+# Give a service its own operation for a received message, from a caller's
+# source (see the section's introduction). Laws: continue_usable,
+# restart_usable, start_unusable and restart_keeps_nothing.
+def Context.continue_or_start_with(~S: Type, ~read: S -> IO(S & Result<&1, &1, U32 & String, U32>), source: S,
+  +extraction: Extraction, reception: Reception, sampling: Sampling, +policy: FailurePolicy) ->
+  IO(S & FailurePolicy.result(policy, Service)):
+  IO.bind(S & Service, S & FailurePolicy.result(policy, Service),
+    Serve.operation(~S, ~read, source, extraction, reception, sampling),
+    done => IO.pure(S & FailurePolicy.result(policy, Service), Policy.apply.done(S, policy, Service, Serve.strict,
+      done)))
+
+# Sending
+# =======
+#
+# Context.send_with gives one message that the service sends the context of
+# a new operation: a child of the service's operation, generated anew for
+# every message, so that each request of a fan-out is an operation of its
+# own (spec #1, "each distinct outgoing operation obtains its own child
+# before injection"). When the service has no operation, or when the child
+# cannot be generated, no new operation is reported: the message forwards the
+# received pair unchanged if it can be sent whole, and carries no context
+# fields otherwise (spec #1, "It may forward only an entirely accepted
+# original pair that can be sent intact within bounds; otherwise clear
+# outgoing context fields").
+
+# Why a message without a new operation does not forward a received pair:
+#   NothingKept{}          the service keeps no received context: its
+#                          operation is, or was to be, a root, a restart or
+#                          a child of a base
+#   ForwardFailed{error}   Context.forward refused the received context with
+#                          `error`
+type Unforwarded is Data:
+  NothingKept{}
+  ForwardFailed{error: ForwardError}
+
+# The context fields of one message and how they came about:
+#   Fresh{operation, injection}      a new operation, injected with the
+#                                    service's state
+#   Forwarded{carrier, error}        no operation could be generated (`error`);
+#                                    the received pair is forwarded unchanged
+#   NoContext{carrier, error,        no operation could be generated, and no
+#     reason}                        pair was forwarded (`reason`): the context
+#                                    fields are cleared
+type Sent is Data:
+  Fresh{operation: LocalContext, injection: Injection}
+  Forwarded{carrier: List<&2, Header>, error: GenerationError}
+  NoContext{carrier: List<&2, Header>, error: GenerationError, reason: Unforwarded}
+
+# The fallback when a forwarding of the received pair was tried.
+def Send.forwarded(result: Result<&2, &2, ForwardError, List<&2, Header>>, error: GenerationError,
+  carrier: List<&2, Header>) -> Sent:
+  match result:
+    case Done{forwarded}:
+      Forwarded{forwarded, error}
+    case Fail{reason}:
+      NoContext{Context.clear(carrier), error, ForwardFailed{reason}}
+
+# The fields a message carries when no operation could be generated: the
+# received pair forwarded unchanged if it can be, and no context fields
+# otherwise.
+def Send.fallback(+limits: Limits, received: Maybe<&2, IncomingContext>, error: GenerationError,
+  +carrier: List<&2, Header>) -> Sent:
+  match received:
+    case None{}:
+      NoContext{Context.clear(carrier), error, NothingKept{}}
+    case Some{incoming}:
+      Send.forwarded(Context.forward(limits, incoming, carrier), error, carrier)
+
+# The message that a generated child gives: the child injected with the
+# service's state, or the fallback.
+def Send.of(+limits: Limits, +outgoing: OutgoingContext, received: Maybe<&2, IncomingContext>,
+  +carrier: List<&2, Header>, result: Result<&2, &2, GenerationError, LocalContext>) -> Sent:
+  match result:
+    case Fail{error}:
+      Send.fallback(limits, received, error, carrier)
+    case Done{+operation}:
+      Fresh{operation, Context.inject(limits, OutgoingContext.with_state(operation, OutgoingContext.state(outgoing)),
+        carrier)}
+
+# The source's final state with the message that a generated child gives.
+def Send.done(-S: Type, +limits: Limits, +outgoing: OutgoingContext, received: Maybe<&2, IncomingContext>,
+  +carrier: List<&2, Header>, done: S & Result<&2, &2, GenerationError, LocalContext>) -> S & Sent:
+  (source, result) = done
+  (source, Send.of(limits, outgoing, received, carrier, result))
+
+# The message, before the policy applies: a child of the service's
+# operation, or the fallback without reading the source.
+def Send.message(~S: Type, ~read: S -> IO(S & Result<&1, &1, U32 & String, U32>), source: S, +limits: Limits,
+  service: Service, sampling: Sampling, +carrier: List<&2, Header>) -> IO(S & Sent):
+  match service:
+    case Operating{origin, +outgoing, received}:
+      IO.bind(S & Result<&2, &2, GenerationError, LocalContext>, S & Sent,
+        Context.child_with(~S, ~read, source, LocalParent{OutgoingContext.context(outgoing)}, sampling),
+        done => IO.pure(S & Sent, Send.done(S, limits, outgoing, received, carrier, done)))
+    case Untraced{error, received}:
+      IO.pure(S & Sent, (source, Send.fallback(limits, received, error, carrier)))
+
+# A message without a new operation as the GenerationError that caused it.
+def Send.strict(sent: Sent) -> Result<&2, &2, GenerationError, Sent>:
+  match sent:
+    case Fresh{operation, injection}:
+      Done{Fresh{operation, injection}}
+    case Forwarded{carrier, error}:
+      Fail{error}
+    case NoContext{carrier, error, reason}:
+      Fail{error}
+
+# Give one message that the service sends the context of a new operation,
+# from a caller's source (see the section's introduction). `carrier` is the
+# message's own fields; its old context fields are replaced in every case.
+# Laws: send_operating, send_untraced and send_reports_generated.
+def Context.send_with(~S: Type, ~read: S -> IO(S & Result<&1, &1, U32 & String, U32>), source: S, +limits: Limits,
+  service: Service, sampling: Sampling, +policy: FailurePolicy, +carrier: List<&2, Header>) ->
+  IO(S & FailurePolicy.result(policy, Sent)):
+  IO.bind(S & Sent, S & FailurePolicy.result(policy, Sent),
+    Send.message(~S, ~read, source, limits, service, sampling, carrier),
+    done => IO.pure(S & FailurePolicy.result(policy, Sent), Policy.apply.done(S, policy, Sent, Send.strict, done)))
+
+# The name of an origin.
+def Origin.show(origin: Origin) -> String:
+  match origin:
+    case Continued{}:
+      "Continued"
+    case Started{}:
+      "Started"
+    case Restarted{}:
+      "Restarted"
+
+# How the service's operation came about; None{} without an operation.
+def Service.origin(service: Service) -> Maybe<&2, Origin>:
+  match service:
+    case Operating{origin, outgoing, received}:
+      Some{origin}
+    case Untraced{error, received}:
+      None{}
+
+# The service's operation with the state it sends; None{} without one.
+def Service.outgoing(service: Service) -> Maybe<&2, OutgoingContext>:
+  match service:
+    case Operating{origin, outgoing, received}:
+      Some{outgoing}
+    case Untraced{error, received}:
+      None{}
+
+# Why the service has no operation; None{} with one.
+def Service.error(service: Service) -> Maybe<&2, GenerationError>:
+  match service:
+    case Operating{origin, outgoing, received}:
+      None{}
+    case Untraced{error, received}:
+      Some{error}
+
+# Add or update an entry of the state that the service's operation sends,
+# such as this participant's own (see OutgoingContext.set). A service
+# without an operation is unchanged: it sends no state of its own.
+def Service.set(service: Service, key: StateKey, value: StateValue) -> Service:
+  match service:
+    case Operating{origin, outgoing, received}:
+      Operating{origin, OutgoingContext.set(outgoing, key, value), received}
+    case Untraced{error, received}:
+      Untraced{error, received}
+
+# Delete an entry of the state that the service's operation sends (see
+# OutgoingContext.remove). A service without an operation is unchanged.
+def Service.remove(service: Service, key: StateKey) -> Service:
+  match service:
+    case Operating{origin, outgoing, received}:
+      Operating{origin, OutgoingContext.remove(outgoing, key), received}
+    case Untraced{error, received}:
+      Untraced{error, received}
+
+# The name of a service's origin, or Untraced with its error. It includes no
+# received value.
+def Service.show(service: Service) -> String:
+  match service:
+    case Operating{origin, outgoing, received}:
+      Origin.show(origin)
+    case Untraced{error, received}:
+      "Untraced " ++ GenerationError.show(error)
+
+# Why no pair was forwarded: NothingKept, or the ForwardError's name.
+def Unforwarded.show(reason: Unforwarded) -> String:
+  match reason:
+    case NothingKept{}:
+      "NothingKept"
+    case ForwardFailed{error}:
+      ForwardError.show(error)
+
+# The fields to send with the message, in every case.
+def Sent.carrier(sent: Sent) -> List<&2, Header>:
+  match sent:
+    case Fresh{operation, injection}:
+      Injection.carrier(injection)
+    case Forwarded{carrier, error}:
+      carrier
+    case NoContext{carrier, error, reason}:
+      carrier
+
+# The new operation that the message carries; None{} for a fallback.
+def Sent.operation(sent: Sent) -> Maybe<&2, LocalContext>:
+  match sent:
+    case Fresh{operation, injection}:
+      Some{operation}
+    case Forwarded{carrier, error}:
+      None{}
+    case NoContext{carrier, error, reason}:
+      None{}
+
+# Why no operation could be generated; None{} for a new operation.
+def Sent.error(sent: Sent) -> Maybe<&2, GenerationError>:
+  match sent:
+    case Fresh{operation, injection}:
+      None{}
+    case Forwarded{carrier, error}:
+      Some{error}
+    case NoContext{carrier, error, reason}:
+      Some{error}
+
+# The keys that truncating the service's state to the output budget dropped
+# from a new operation's message (see Injection.dropped); none for a
+# fallback, which sends no state of its own.
+def Sent.dropped(sent: Sent) -> List<&2, StateKey>:
+  match sent:
+    case Fresh{operation, injection}:
+      Injection.dropped(injection)
+    case Forwarded{carrier, error}:
+      Nil{}
+    case NoContext{carrier, error, reason}:
+      Nil{}
+
+# The name of a new operation's message, saying whether its state was
+# truncated.
+def Send.fresh(dropped: List<&2, StateKey>) -> String:
+  match dropped:
+    case Nil{}:
+      "Fresh"
+    case Con{key, rest}:
+      "Fresh, truncated"
+
+# The name of a message's context: Fresh, saying whether its state was
+# truncated, or for a fallback why no operation was generated and, without a
+# forwarded pair, why none was forwarded. It includes no received value.
+def Sent.show(sent: Sent) -> String:
+  match sent:
+    case Fresh{operation, injection}:
+      Send.fresh(Injection.dropped(injection))
+    case Forwarded{carrier, error}:
+      "Forwarded after " ++ GenerationError.show(error)
+    case NoContext{carrier, error, reason}:
+      "NoContext after " ++ GenerationError.show(error) ++ ", " ++ Unforwarded.show(reason)
