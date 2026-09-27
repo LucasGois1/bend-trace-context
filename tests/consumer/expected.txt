@@ -25,3 +25,11 @@ outgoing: 00-0af7651916cd43dd8448eb211c80319c-53995c3f42cd8ad8-01
 outgoing state: fw529a3039=cHJpbWFyeQ,rojo=00f067aa0ba902b7,congo=t61rcWkgMzE
 without rojo: fw529a3039=cHJpbWFyeQ,congo=t61rcWkgMzE
 large state dropped: b,c
+extracted: TraceParentAccepted, StateAccepted
+extracted parent: b7ad6b7169203331 sampled: True
+extracted state: rojo=00f067aa0ba902b7,congo=t61rcWkgMzE
+forwardable traceparent: 00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01
+extracted child: 00-0af7651916cd43dd8448eb211c80319c-53995c3f42cd8ad8-01
+repeated traceparent: TraceParentRejected RepeatedTraceParent, StateAbsent
+discarded state: TraceParentAccepted, StateDiscarded InvalidEntry 0 MissingEquals
+kept base: 00-5b8efff798038103d269b633813fc60c-eee19b7ec3c1b174-00

@@ -4,8 +4,9 @@ The currently implemented part of **bend-trace-context 0.1.0-dev** is a pure,
 strict v00 codec for Bend 2.0.27, validated trace and span IDs, root, child
 and restarted local contexts, either from IDs the caller supplies or from IDs
 generated on a cryptographic source, a bounded Level 2 `tracestate` parser
-with validated limits, and the operations that update a local operation's
-tracestate and emit it within the output budget. It has no external package
+with validated limits, the operations that update a local operation's
+tracestate and emit it within the output budget, and the extraction of a
+received message's context from its fields. It has no external package
 dependencies beyond the
 compiler's bundled `Base`. The public entries are
 [trace_context.bend](trace_context.bend), which performs no host effect of its
@@ -109,9 +110,8 @@ assertion does not change which trace an ID names.
 `RemoteContext.from_traceparent` receives a strictly parsed v00 value. It keeps
 the trace ID, the sender's span ID, sampled and random-trace-id; reserved flag
 bits are not part of a remote context. The strict codec rejects versions `01`
-to `fe`, which header extraction
-([#9](https://github.com/LucasGois1/bend-trace-context/issues/9)) will accept by
-their known prefix. `LocalContext.to_traceparent` gives the participating
+to `fe`, which [extraction](#extracting-context) reads by their known prefix.
+`LocalContext.to_traceparent` gives the participating
 representation: version `00` and flags `00` to `03`, with every reserved bit
 zero. Header injection and transparent forwarding of the original header pair
 belong to [#10](https://github.com/LucasGois1/bend-trace-context/issues/10).
@@ -259,8 +259,7 @@ TC.EntryError.show(error: TC.EntryError) -> String
 arrival order and reads them as their comma-joined combination, so member
 numbers run across fields. Read a message's tracestate only once its
 traceparent has been accepted: the standard gives tracestate no meaning
-without a valid traceparent, and extraction
-([#9](https://github.com/LucasGois1/bend-trace-context/issues/9)) will apply
+without a valid traceparent, and [extraction](#extracting-context) applies
 that rule itself. `parse` reads one combined value. `format` returns
 the normalized value: the entries in order, as `key=value`, joined by commas
 without optional whitespace. The empty state formats as `""`, which header
@@ -302,9 +301,9 @@ discarded: InvalidEntry 1 InvalidKey
   member fails with `TooManyMembers{}` even when it repeats a key.
 - The first entry of each key is kept; later entries with that key are
   dropped.
-- Any invalid member or a 33rd member discards the whole state. Extraction
-  ([#9](https://github.com/LucasGois1/bend-trace-context/issues/9)) will keep a
-  valid traceparent when its state is discarded.
+- Any invalid member or a 33rd member discards the whole state.
+  [Extraction](#extracting-context) keeps a valid traceparent when its state is
+  discarded.
 
 ### Limits
 
@@ -331,9 +330,9 @@ TC.LimitsError.show(error: TC.LimitsError) -> String
 The 512-octet output budget is this package's capacity policy, not a W3C
 maximum; emission truncates to it (see
 [Updating and emitting tracestate](#updating-and-emitting-tracestate)). The
-traceparent input budget belongs to extraction
-([#9](https://github.com/LucasGois1/bend-trace-context/issues/9)).
-`Limits.new` reports the first rule a configuration breaks.
+traceparent input budget bounds a received traceparent value (see
+[Extracting context](#extracting-context)). `Limits.new` reports the first
+rule a configuration breaks.
 
 The tracestate input budget bounds the combined value, its whitespace and the
 commas that join repeated fields included. A value over the budget fails with
@@ -466,6 +465,149 @@ dropped: none
 large state: 298 octets sent, dropped: b
 ```
 
+## Extracting context
+
+`Context.extract` reads the trace context of a received message from its
+carrier: the message's fields in their order, each a `Header`. Names below are
+qualified by the alias `TC` for trace_context.bend:
+
+```bend
+TC.Context.extract(limits: TC.Limits, carrier: List<&2, TC.Header>, base: Maybe<&2, TC.BaseContext>) ->
+  TC.Extraction
+TC.TraceParent.read(limits: TC.Limits, value: String) -> Result<&2, &2, TC.TraceParentError, TC.TraceParentV00>
+TC.Header.name(header: TC.Header) -> String
+TC.Header.value(header: TC.Header) -> String
+TC.Extraction.context(extraction: TC.Extraction) -> Maybe<&2, TC.BaseContext>
+TC.Extraction.incoming(extraction: TC.Extraction) -> Maybe<&2, TC.IncomingContext>
+TC.Extraction.parent(extraction: TC.Extraction) -> TC.TraceParentOutcome
+TC.Extraction.state(extraction: TC.Extraction) -> TC.StateOutcome
+TC.Extraction.show(extraction: TC.Extraction) -> String
+TC.IncomingContext.context(incoming: TC.IncomingContext) -> TC.RemoteContext
+TC.IncomingContext.state(incoming: TC.IncomingContext) -> TC.TraceState
+TC.IncomingContext.received(incoming: TC.IncomingContext) -> Maybe<&2, TC.ReceivedPair>
+TC.IncomingContext.parent(incoming: TC.IncomingContext) -> TC.Parent
+TC.ReceivedPair.traceparent(pair: TC.ReceivedPair) -> String
+TC.ReceivedPair.tracestate(pair: TC.ReceivedPair) -> List<&2, String>
+TC.BaseContext.parent(base: TC.BaseContext) -> TC.Parent
+TC.BaseContext.state(base: TC.BaseContext) -> TC.TraceState
+TC.TraceParentError.show(error: TC.TraceParentError) -> String
+TC.TraceParentOutcome.show(outcome: TC.TraceParentOutcome) -> String
+TC.StateOutcome.show(outcome: TC.StateOutcome) -> String
+```
+
+| Type | Meaning |
+| --- | --- |
+| `Header` | `Header{name, value}`: one field of a message. A carrier is a `List<&2, Header>` in the message's order |
+| `IncomingContext` | A context extracted from a message: the sender's `RemoteContext`, the state received with it, and the received pair when the whole pair was accepted |
+| `ReceivedPair` | The accepted traceparent value, without the whitespace around it, and the tracestate field values as they came |
+| `BaseContext` | `IncomingBase{incoming}` or `OutgoingBase{outgoing}`: the context to continue from when a message has no usable traceparent |
+| `Extraction` | The context to continue from, if any, with a `TraceParentOutcome` and a `StateOutcome` |
+
+Extraction follows these rules:
+
+- Field names are compared without regard to ASCII case (W3C Level 2,
+  sections 3.2.1 and 3.3.1): `TraceParent`, `TRACEPARENT` and `traceparent`
+  name the same field, while `trace-parent`, or a name that differs by a
+  non-ASCII letter such as `traceſtate`, names another field.
+- No traceparent field keeps the base. More than one traceparent field,
+  whatever the case of their names, is refused with `RepeatedTraceParent{}`,
+  and so is a single value that contains a comma: a host may join repeated
+  fields into one value with commas (RFC 9110, section 5.3). This includes a
+  comma in the unknown fields of a later version. W3C asks not to assume
+  anything about those fields; the package accepts that small departure so
+  that a joined pair of traceparent fields is never read as one parent. No
+  version defines a comma.
+- A single value is read by `TraceParent.read`:
+  - its UTF-8 octets, whitespace and unknown fields included, must fit the
+    traceparent input budget, or it is refused with `TraceParentTooLarge{}`
+    without being read further;
+  - the optional whitespace around it, spaces and tabs, is removed (RFC 9110,
+    section 5.5);
+  - version `00` is read exactly by the strict codec: 55 characters and
+    nothing after them;
+  - version `ff` is refused with `ForbiddenVersion` (section 3.2.2.1);
+  - versions `01` to `fe` are read by their known prefix: the trace ID, parent
+    ID and flags of version 00, followed by the end of the value or by a dash
+    and fields that are not read, whatever they hold other than a comma
+    (sections 3.2.4 and 4.1.2);
+  - any other problem is reported with the codec's `Error`, its offset
+    counted from the first character after the whitespace.
+- An accepted value gives an incoming context, which replaces the base. Its
+  sender's operation keeps the sampled and random-trace-id flags of the value.
+  Its tracestate fields, whatever the case of their names, are read in
+  arrival order as their comma-joined combination within the tracestate input
+  budget, as `TraceState.parse_fields` reads them. Refused fields are
+  discarded as a whole with `StateDiscarded{error}`: the traceparent stays
+  accepted, the incoming context has no state, and no received pair is kept,
+  since the pair was not accepted whole.
+- Without an accepted traceparent the tracestate fields are not read
+  (section 3.3): `StateIgnored{}` reports that there were some.
+- Extraction generates no identifier and performs no effect, and no
+  diagnostic contains a received value.
+
+| `TraceParentOutcome` | Meaning |
+| --- | --- |
+| `TraceParentAccepted{}` | The message's traceparent was read; `Extraction.incoming` gives its context |
+| `TraceParentAbsent{}` | The message has no traceparent field; the base is kept |
+| `TraceParentRejected{error}` | The traceparent was refused; the base is kept |
+
+| `TraceParentError` | Meaning |
+| --- | --- |
+| `RepeatedTraceParent{}` | More than one traceparent field, or a value joining several with a comma |
+| `TraceParentTooLarge{}` | The value exceeds the traceparent input budget |
+| `InvalidTraceParent{error}` | The value breaks the rules of its version; `error` is a codec `Error` |
+
+| `StateOutcome` | Meaning |
+| --- | --- |
+| `StateAbsent{}` | The message has no tracestate field |
+| `StateAccepted{}` | The fields were read into the incoming context's state, which may be empty |
+| `StateDiscarded{error}` | The fields were refused as a whole; the traceparent stays accepted |
+| `StateIgnored{}` | The fields were not read, because the message has no accepted traceparent |
+
+`Extraction.show` joins both outcomes for a log line, such as
+`TraceParentAccepted, StateDiscarded InvalidEntry 1 MissingEquals`.
+
+An incoming context identifies the sender's operation, not one of this
+participant's. A service continues it with a child operation,
+`Context.child_from_id(IncomingContext.parent(incoming), span_id, sampling)`
+with a supplied span ID or `Context.child` of generation.bend with a generated
+one, and sends the received state with the child in an `OutgoingContext`.
+`BaseContext.parent` and `BaseContext.state` give the same for a base. The
+continue-or-start operation of
+[#11](https://github.com/LucasGois1/bend-trace-context/issues/11) will do this
+for a message and its base. The received pair is what transparent forwarding
+sends unchanged ([#10](https://github.com/LucasGois1/bend-trace-context/issues/10));
+it is `None{}` when the tracestate was discarded. Only the pairs that
+extraction keeps are known to be accepted and within the input budgets: as
+with the contexts, Bend constructors are not private, and an
+`IncomingContext` or `ReceivedPair` built directly carries no such
+guarantee, so forwarding checks what it sends.
+
+The carrier holds what the host hands over. A host that joins repeated fields
+into one value turns a repeated traceparent into a value with a comma, which
+is refused, and a joined tracestate reads as its separate fields would. What a
+host does to names and whitespace before extraction is documented by its
+adapter.
+
+The [extraction example](examples/extract.bend) extracts a request with two
+tracestate fields, continues it with a child, reads a later version and keeps
+a base for an invalid request. From the repository root:
+
+```sh
+./bend packages/trace-context/examples/extract.bend
+```
+
+```text
+request: TraceParentAccepted, StateAccepted
+received state: congo=t61rcWkgMzE,rojo=00f067aa0ba902b7
+kept for forwarding: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01 | congo=t61rcWkgMzE | rojo=00f067aa0ba902b7
+child traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-53995c3f42cd8ad8-01
+child tracestate: fw529a3039=cHJpbWFyeQ,congo=t61rcWkgMzE,rojo=00f067aa0ba902b7
+later version: TraceParentAccepted, StateAbsent, parent 00f067aa0ba902b7
+invalid request: TraceParentRejected InvalidTraceParent ZeroTraceId, StateIgnored
+kept base: 00-5b8efff798038103d269b633813fc60c-eee19b7ec3c1b174-00
+```
+
 ## Parsing contract
 
 - Exactly 55 characters, version `00`, lowercase ASCII hexadecimal, and dashes
@@ -501,9 +643,10 @@ Creating a context from valid IDs can only fail with a `ContextError`:
 `ReusedSpanId{}` when a child uses its parent's span ID, and `ReusedTraceId{}`
 when a restart uses the received trace ID.
 
-These strict-codec errors are not the future propagator's extraction policy.
-A valid future-version header can be rejected here while a participating
-propagator would process its known prefix.
+These are the strict codec's errors. [Extraction](#extracting-context)
+applies a participant's policy on top of them: `TraceParent.read` reads
+versions `01` to `fe` by their known prefix where the strict codec reports
+`UnsupportedVersion`.
 
 ## Representation
 
@@ -599,6 +742,22 @@ every value of their types, not over examples:
   budget and reports exactly the keys it dropped. An outgoing context emits the traceparent of
   its local context and its truncated state, which fits the output budget and
   which the same limits parse back into that state.
+- **Extraction:** a message without a traceparent field keeps the base, more
+  than one is refused as repeated, and a single value that `TraceParent.read`
+  refuses keeps the base with the reason; in all three cases the tracestate is
+  not read, only whether there is any. A single accepted value gives the
+  incoming context: the sender's operation from the value's known fields, the
+  state its tracestate fields parse to together in arrival order, or none when
+  there are none or they are refused, and the received pair unless the state
+  was refused. Two messages with the same traceparent fields give the same
+  outcome and the same sender's operation whatever their tracestate, and a
+  kept pair fits the input budgets. `TraceParent.read` reads every strict v00
+  text, with any optional whitespace around it, as its value, refuses a
+  strict v00 text followed by more characters, reads versions `01` to `fe` by
+  their known prefix, refuses `ff` and any value with a comma, and refuses a
+  value over the traceparent budget, which otherwise changes nothing. Field
+  names are selected by a statement written with Base's ASCII lowercase,
+  independently of the package's comparison.
 
 The generation laws quantify over tapes, that is, over every sequence of word
 results. The host source runs through the same driver with its effect in
@@ -609,7 +768,11 @@ that are not normalized values, the character classes, the octet width of each
 character and the member numbers in diagnostics are covered by the corpus, not
 by laws. Truncation is stated as spec #1's procedure itself: while over the
 budget, the rightmost entry larger than 128 octets goes, or the rightmost
-entry when none is, and removal stops as soon as the value fits.
+entry when none is, and removal stops as soon as the value fits. The
+extraction laws quantify over every carrier, base, limits and value; the
+offsets in diagnostics, whitespace or other characters inside unknown fields,
+names with non-ASCII letters and exact budget boundaries are covered by the
+corpus.
 
 Auxiliary universal proofs cover hexadecimal and character decoding, encoded
 lengths, reading an encoded sequence while preserving its suffix, recovery of a
@@ -654,6 +817,17 @@ larger than the budget and a larger configured budget, checking the entries
 kept and the keys dropped. It also emits outgoing contexts for a root and for
 a child of a received context.
 
+The [extraction corpus](tests/EXTRACT.bend) uses the inputs of the pinned W3C
+harness for field names, repeated fields, versions, IDs, flags and
+whitespace. It checks the precedence of a message's context over the base,
+repeated traceparent fields apart and joined by a host, the combination,
+discard and neglect of tracestate fields, strict version 00, `ff` and later
+versions with and without unknown fields, the exact traceparent budget with
+one-, two- and three-octet characters and a mebibyte refused without being
+read, the tracestate budget with its joining commas, a carrier of 100000
+fields, incoming and base contexts and their parents and states, and
+diagnostics that never contain the received values.
+
 The [generation corpus](tests/GENERATION.bend) replays tapes through the public
 operations: conversion vectors in decimal for the W3C example words, the digit
 order within a word, zero then valid candidates, eight zero candidates with no ninth read, a 48-word
@@ -673,9 +847,9 @@ The planned propagator targets the pinned
 [Level 2 Candidate Recommendation Draft](https://www.w3.org/TR/2024/CRD-trace-context-2-20240328/).
 The random-trace-id flag `0x02` still uses wire version `00`.
 
-This package does not yet implement header extraction/injection,
-future-version participation, browser generation or HTTP/browser
-integration. Its faithful formatter does not mask reserved bits of a parsed
+This package does not yet implement header injection, transparent
+forwarding, the continue-or-start operation, browser generation or
+HTTP/browser integration. Its faithful formatter does not mask reserved bits of a parsed
 value; `LocalContext.to_traceparent` emits only known flags. There is no claim of
 complete W3C propagator conformance or a full OpenTelemetry SDK.
 

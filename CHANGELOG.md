@@ -5,8 +5,9 @@
 Development toward the complete 0.1.0 Trace Context propagator. This version
 currently provides the strict v00 codec, contexts created from supplied or
 generated IDs, Level 2 tracestate parsing within validated limits, tracestate
-updates and emission within the output budget, and qualified
-JavaScript/entropy boundaries; it is not a published release.
+updates and emission within the output budget, context extraction from a
+received message's fields, and qualified JavaScript/entropy boundaries; it is
+not a published release.
 
 - Preserve the pure Bend codec, dependent ID representation, universal
   round-trip and fixed-length proofs, independent protocol corpus and
@@ -76,6 +77,25 @@ JavaScript/entropy boundaries; it is not a published release.
   update, the exact size, and that truncation is spec #1's procedure: it
   keeps a fitting state whole, keeps entries in order, fits the budget and
   reports exactly the keys dropped. A runnable outgoing example is added.
+- Extract the trace context of a received message with `Context.extract`,
+  from its fields in order as `Header{name, value}` values and a base context
+  to keep. Field names are compared without regard to ASCII case. More than
+  one traceparent field, or a value joining several with a comma, is refused.
+  `TraceParent.read` reads one value by the rules of a participant: within its
+  own input budget, without the optional whitespace around it, version 00
+  exactly as the strict codec reads it, ff refused, and versions 01 to fe by
+  their known prefix, followed by the end or a dash and fields that are not
+  read. An accepted message gives an `IncomingContext`: the sender's
+  operation, the state of its tracestate fields read in arrival order, and the
+  `ReceivedPair` of original fields when the whole pair was accepted, for
+  forwarding. Refused tracestate is discarded whole while the traceparent
+  stays accepted; without an accepted traceparent the base, a `BaseContext`,
+  is kept and the tracestate is not read. `TraceParentOutcome` and
+  `StateOutcome` report absence, rejection, discard and neglect without
+  received values. Laws prove how each version is read, the budget, comma and
+  repetition rules, the kept base, the incoming context, the independence of
+  the traceparent from the tracestate and the bounds of the kept pair. A
+  runnable extraction example is added.
 - Document the sources for developers new to Bend. Every law in `LAWS.bend`
   states its claim in words, the W3C or specification requirement it verifies,
   its motivation and how to read it; `PROOF.bend` explains how to read a Bend
@@ -97,7 +117,7 @@ JavaScript/entropy boundaries; it is not a published release.
   no-redirect behavior and the listener's header-size limit. This is a
   development transport fixture, not Trace Context propagation or a tracer.
 
-Header extraction/injection, browser generation, propagation and
+Header injection, transparent forwarding, browser generation, propagation and
 HTTP/Fetch integration are planned under
 [specification #1](https://github.com/LucasGois1/bend-trace-context/issues/1).
 
@@ -105,8 +125,8 @@ HTTP/Fetch integration are planned under
 `Error.ZeroId` can now name a supplied span ID. Code that matches every `Field`
 constructor, or every `ZeroId{...}` case of `Error`, without a default case
 must handle it. Context creation reports the new `ContextError` type; `Error`
-itself gains no constructor. Tracestate and limits add new types and functions
-only; no existing name or behavior changes.
+itself gains no constructor. Tracestate, limits, updates and extraction add new
+types and functions only; no existing name or behavior changes.
 
 ## Versioning and compatibility
 
@@ -120,9 +140,9 @@ which performs no host effect of its own, and
 `packages/trace-context/generation.bend`, which generates on the host's
 cryptographic source. Their documented types, constructors, functions and
 error behavior form the current API contract. Internal parsing, generation
-machine (`Draw`/`Step`), tracestate reading machine (`Scan`/`Member`) and
-proof helpers are not compatibility promises, even where Bend makes their names
-importable.
+machine (`Draw`/`Step`), tracestate reading machine (`Scan`/`Member`),
+extraction steps (`Carrier`, `Text`, `Read`, `Extract`) and proof helpers are
+not compatibility promises, even where Bend makes their names importable.
 
 The additional JavaScript inspection and entropy entries and their error
 contracts are documented in the [qualification guide](packages/trace-context/JAVASCRIPT.md).

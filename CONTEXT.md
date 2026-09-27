@@ -95,6 +95,23 @@ Reading tracing information from an incoming message and interpreting its fields
 **Context injection**:
 Writing trace context information into the fields of an outgoing message.
 
+**Carrier**:
+The fields of a message in their order, each a name and a value, from which trace context is extracted and into which it is injected. Repeated fields stay separate unless the host joined them.
+_Avoid_: Header map
+
+**Incoming context**:
+A remote context extracted from a message, together with the tracestate received with it and, unless that tracestate was refused, the received pair.
+_Avoid_: Local context
+
+**Received pair**:
+The traceparent and tracestate field values of a message as they were accepted, kept so that the context can be forwarded unchanged.
+
+**Base context**:
+The context that extraction keeps when a message carries no usable traceparent: a context received earlier, or an operation of this participant.
+
+**Known prefix**:
+The trace ID, parent ID and flags at the start of a traceparent of a later version, read as those of version 00. The fields after them are not interpreted.
+
 **Trace continuation**:
 Adding a new operation to an existing trace, preserving its trace ID and identifying the new operation.
 

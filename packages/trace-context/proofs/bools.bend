@@ -1,20 +1,20 @@
 # Proofs: general lemmas on Bool
 # ==============================
 #
-# General lemmas on Base's Bool. true_ne_false shows that True and False
-# differ, and absurd closes a case whose hypothesis computes to
-# {False{} == True{}}. The others take apart a hypothesis saying a check
-# returned True or False: each half of a true Bool.and, each half of a false
-# Bool.or and the argument of a true Bool.not; or_assoc, or_false and
-# or_true regroup or settle a chain of Bool.or, and pick_true settles a
-# Bool.pick whose two answers are True. The package's checks are chains of
-# Bool.and (TraceState.is_valid, TC.Entries.unique, the key and value
-# grammars, the rules of Limits) and its lookups are chains of Bool.or, so
-# the proofs of the Limits and tracestate laws use these lemmas throughout:
-# proofs/limits.bend, tracestate.bend, distinct.bend, merge.bend,
-# normal.bend, first.bend, order.bend, update.bend and emit.bend.
-# proofs/strings.bend, nats.bend and generation.bend use true_ne_false or
-# absurd.
+# General lemmas on Base's Bool. true_ne_false shows that True and False differ,
+# and absurd closes a case whose hypothesis computes to {False{} == True{}}. The
+# others take apart a hypothesis saying a check returned True or False: each
+# half of a true Bool.and, each half of a false Bool.or and the argument of a
+# true Bool.not; or_assoc, or_false and or_true regroup or settle a chain of
+# Bool.or, and_false and and_swap do the same for Bool.and, or_not is De
+# Morgan's law for a search, and pick_true settles a Bool.pick whose two answers
+# are True. The package's checks are chains of Bool.and (TraceState.is_valid,
+# TC.Entries.unique, the key and value grammars, the rules of Limits) and its
+# lookups are chains of Bool.or, so the proofs of the Limits, tracestate and
+# extraction laws use these lemmas throughout: proofs/limits.bend,
+# tracestate.bend, distinct.bend, merge.bend, normal.bend, first.bend,
+# order.bend, update.bend, emit.bend and extract.bend. proofs/strings.bend,
+# nats.bend and generation.bend use true_ne_false or absurd.
 #
 # Bool.and, Bool.or and Bool.not inspect only their first argument, so each
 # law is proved by cases on `a`, and a second argument `b` is erased (`-b`).
@@ -205,3 +205,51 @@ def pick_true(c, a, b, first, second):
       first
     case False{}:
       second
+
+# False absorbs Bool.and from the right. By cases on `a`. proofs/extract.bend
+# uses it when the rest of a text is not all whitespace.
+law and_false:
+  for a: Bool
+  {Bool.and(a, False{}) == False{} : Bool}
+
+def and_false(a):
+  match a:
+    case False{}:
+      {==}
+    case True{}:
+      {==}
+
+# Bool.and regrouped with its first two operands swapped: a and (b and c) is
+# (b and a) and c. By cases on `a` and `b`. proofs/extract.bend uses it to
+# check a reversed text character by character.
+law and_swap:
+  for a: Bool
+  for b: Bool
+  for -c: Bool
+  {Bool.and(a, Bool.and(b, c)) == Bool.and(Bool.and(b, a), c) : Bool}
+
+def and_swap(a, b, c):
+  match a b:
+    case False{} False{}:
+      {==}
+    case False{} True{}:
+      {==}
+    case True{} False{}:
+      {==}
+    case True{} True{}:
+      {==}
+
+# De Morgan's law in the form a comma search needs: a or not b is not (not a
+# and b). By cases on `a`. proofs/extract.bend uses it to relate the
+# package's comma search to Laws.lacks.
+law or_not:
+  for a: Bool
+  for -b: Bool
+  {Bool.or(a, Bool.not(b)) == Bool.not(Bool.and(Bool.not(a), b)) : Bool}
+
+def or_not(a, b):
+  match a:
+    case False{}:
+      {==}
+    case True{}:
+      {==}

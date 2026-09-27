@@ -4,8 +4,9 @@
 # This file is the package's public entry for everything that performs no host
 # effect: the strict traceparent v00 codec, validated trace and span IDs, local
 # and remote contexts, the machine that turns source words into IDs, validated
-# limits, the Level 2 tracestate parser, tracestate updates and emission, and
-# outgoing contexts. generation.bend adds the host's cryptographic source on
+# limits, the Level 2 tracestate parser, tracestate updates and emission,
+# outgoing contexts, and the extraction of a received message's context.
+# generation.bend adds the host's cryptographic source on
 # top of it. The claims this code must satisfy are stated in LAWS.bend and
 # proved in PROOF.bend, beside this file. The tests in tests/*.bend here and
 # the repository's consumer in tests/consumer exercise it through the same
@@ -34,11 +35,13 @@
 #                                    truncate
 #   Outgoing contexts                OutgoingContext, a local context with the
 #                                    state it sends, and its Emission
+#   Extraction                       Context.extract, TraceParent.read,
+#                                    incoming and base contexts, diagnostics
 #
 # The public names are documented in packages/trace-context/README.md. Names in
-# the Parse, Draw, Step, Tape, Scan, Member, Value, Budget, Utf8, Entries and
-# StateChar namespaces are internal: Bend lets any module import them, but they
-# are not a compatibility contract.
+# the Parse, Draw, Step, Tape, Scan, Member, Value, Budget, Utf8, Entries,
+# StateChar, Carrier, Text, Read and Extract namespaces are internal: Bend lets
+# any module import them, but they are not a compatibility contract.
 #
 # Notes for readers new to Bend
 # -----------------------------
@@ -68,7 +71,7 @@
 #   a loop: the JavaScript backend overflows its stack after a few thousand
 #   nested calls, and a received value may be 32 KiB long. The other
 #   recursions are bounded: at most 32 digits, 256 characters of a key or
-#   value, or 32 entries.
+#   value, 32 entries, or the characters of a field name sought.
 # - `do Result<...>:` sequences steps that may fail: `x : T <- step` stops at
 #   the first Fail, and the block ends with `return v` or with a last step.
 
@@ -80,8 +83,8 @@ import ./src/digits.bend as Digits
 # =====
 #
 # The types of the codec, of the identifiers and contexts, and of the
-# generation machine. The limits and tracestate types are declared in their
-# own sections below.
+# generation machine. The limits, tracestate, outgoing and extraction types
+# are declared in their own sections below.
 
 # The field that a ZeroId error names: the trace ID or parent ID of a
 # traceparent value, or a supplied span ID.
@@ -99,9 +102,8 @@ type Field is Data:
 #   TrailingInput{}              characters follow a complete value
 #   ForbiddenVersion{}           the version is ff, forbidden by W3C 3.2.2.1
 #   UnsupportedVersion{version}  a version other than 00, which the strict
-#                                codec does not read (header extraction, #9,
-#                                will read later versions by their known
-#                                prefix)
+#                                codec does not read (TraceParent.read reads
+#                                versions 01 to fe by their known prefix)
 #   ZeroId{field}                the named ID is all zero, forbidden by W3C
 #                                3.2.2.3 and 3.2.2.4
 type Error is Data:
@@ -369,9 +371,9 @@ def Parse.start(parsed: Parsed<2n>) -> Result<&2, &2, Error, TraceParentV00>:
 # hexadecimal digits, "-", 16 digits, "-" and two digits; the IDs must not be
 # all zero. No whitespace, case folding or suffix is accepted, and every flag
 # byte is kept as received.
-# This is the strict wire codec, not a complete W3C propagator: extracting a
-# context from headers (#9) will apply the processing rules of W3C 4.1.2, such
-# as reading later versions by their known prefix.
+# This is the strict wire codec, not a complete W3C propagator:
+# TraceParent.read and Context.extract apply the processing rules of W3C 3.2.4
+# and 4.1.2, such as reading later versions by their known prefix.
 # Laws: roundtrip, inverse and formatted_length.
 def TraceParentV00.parse(text: String) -> Result<&2, &2, Error, TraceParentV00>:
   do Result<&2, &2, Error, TraceParentV00>:
@@ -1936,3 +1938,548 @@ def Emission.dropped(emission: Emission) -> List<&2, StateKey>:
   match emission:
     case Emission{traceparent, tracestate, dropped}:
       dropped
+
+# Extraction
+# ==========
+#
+# Context.extract reads the trace context of a received message from its
+# carrier: the list of the message's fields in their order, repeated fields
+# included (spec #1, "Preserve an ordered multi-value carrier"). Field names
+# are compared without regard to ASCII case. A single traceparent field is
+# read by TraceParent.read: version 00 exactly as the strict codec reads it,
+# ff never, and versions 01 to fe by their known prefix (W3C 3.2.4 and
+# 4.1.2). A message whose traceparent is accepted gives an incoming context:
+# the sender's operation, the state received with it, and the original pair
+# of fields, kept so that the context can be forwarded unchanged (#10). A
+# message without a usable traceparent keeps the base context the caller
+# passes, and its tracestate is not read (W3C 3.3). Extraction reads text
+# only: it generates no identifier, performs no effect and never includes a
+# received value in a diagnostic.
+
+# One field of a message: its name and its value. A carrier is the list of a
+# message's fields in their order; repeated fields stay separate, as the
+# message carried them. A host that joins repeated fields into one value
+# with commas (RFC 9110, section 5.3) gives one field with that value.
+type Header is Data:
+  Header{name: String, value: String}
+
+# Why extraction refused a message's traceparent:
+#   RepeatedTraceParent{}       the message has more than one traceparent field,
+#                               or a value that joins several with a comma
+#   TraceParentTooLarge{}       the value exceeds the traceparent input budget
+#   InvalidTraceParent{error}   the value breaks the rules of its version;
+#                               `error` is the first problem, as the codec
+#                               reports it, with offsets counted from the
+#                               first character after optional whitespace
+# The received value itself is never included.
+type TraceParentError is Data:
+  RepeatedTraceParent{}
+  TraceParentTooLarge{}
+  InvalidTraceParent{error: Error}
+
+# The original fields of an accepted message: its traceparent value, without
+# the optional whitespace around it, and its tracestate field values as they
+# came, in arrival order, none when it had no tracestate field. They are what
+# a context forwarded unchanged sends (#10). The input budgets bound the pairs
+# that extraction keeps (law received_bounds); a pair built directly with
+# this constructor carries no such guarantee, so forwarding checks what it
+# sends.
+type ReceivedPair is Data:
+  ReceivedPair{traceparent: String, tracestate: List<&2, String>}
+
+# A context extracted from a message: the sender's operation, the state that
+# came with it, and the received pair when the whole pair was accepted. It is
+# not this participant's operation: a service continues it with a child
+# (Context.child_from_id with IncomingContext.parent), or forwards the
+# received pair unchanged (#10).
+type IncomingContext is Data:
+  IncomingContext{context: RemoteContext, state: TraceState, received: Maybe<&2, ReceivedPair>}
+
+# The context to continue from that extraction keeps when a message carries
+# no usable traceparent: a context received earlier, or an operation of this
+# participant with the state it sends.
+type BaseContext is Data:
+  IncomingBase{incoming: IncomingContext}
+  OutgoingBase{outgoing: OutgoingContext}
+
+# What extraction found in the traceparent fields of a message: an accepted
+# value, no field, or a refusal with its reason.
+type TraceParentOutcome is Data:
+  TraceParentAccepted{}
+  TraceParentAbsent{}
+  TraceParentRejected{error: TraceParentError}
+
+# What extraction did with the tracestate fields of a message:
+#   StateAbsent{}            there was no tracestate field
+#   StateAccepted{}          the fields were read into the incoming state,
+#                            which may be empty
+#   StateDiscarded{error}    the fields were refused as a whole; the incoming
+#                            context has no state and the traceparent stays
+#                            accepted
+#   StateIgnored{}           the fields were not read, because the message has
+#                            no accepted traceparent (W3C 3.3)
+type StateOutcome is Data:
+  StateAbsent{}
+  StateAccepted{}
+  StateDiscarded{error: StateError}
+  StateIgnored{}
+
+# The result of extracting a message: the context to continue from, if any,
+# and what happened to each field. `context` is the incoming context of the
+# message when its traceparent was accepted, and the base otherwise.
+type Extraction is Data:
+  Extraction{context: Maybe<&2, BaseContext>, parent: TraceParentOutcome, state: StateOutcome}
+
+# Extraction: carriers
+# ====================
+#
+# A message's fields are selected by name, in their order. Reading a carrier
+# is a loop, so a message with many fields needs no deep stack.
+
+# The field's name.
+def Header.name(header: Header) -> String:
+  match header:
+    case Header{name, value}:
+      name
+
+# The field's value.
+def Header.value(header: Header) -> String:
+  match header:
+    case Header{name, value}:
+      value
+
+# Whether `text` is `name` without regard to ASCII case (W3C 3.2.1 and
+# 3.3.1): each character of `text`, with the letters A to Z lowered, is the
+# character of `name` at its position. Other characters are compared as they
+# are, so a name that differs by more than ASCII case names another field.
+# `name` is written in lowercase, and the comparison follows it, so a long
+# field name is not read past it.
+def Carrier.named(name: String, text: String) -> Bool:
+  match name text:
+    case SNil{} SNil{}:
+      True{}
+    case SNil{} SCon{char, rest}:
+      False{}
+    case SCon{expected, more} SNil{}:
+      False{}
+    case SCon{expected, more} SCon{char, rest}:
+      Bool.and(Char.is_eq(Char.to_lower(char), expected), Carrier.named(more, rest))
+
+# `value` before `found` when `hit` is True: one step of Carrier.values.
+def Carrier.keep(hit: Bool, value: String, found: List<&2, String>) -> List<&2, String>:
+  match hit:
+    case True{}:
+      Con{value, found}
+    case False{}:
+      found
+
+# The values of the fields named `name`, most recent first, before `found`.
+def Carrier.values.go(carrier: List<&2, Header>, +name: String, found: List<&2, String>) -> List<&2, String>:
+  match carrier:
+    case Nil{}:
+      found
+    case Con{+header, rest}:
+      Carrier.values.go(rest, name, Carrier.keep(Carrier.named(name, Header.name(header)), Header.value(header), found))
+
+# The values of the fields named `name` without regard to ASCII case, in
+# their order: the loop collects them most recent first, and reversing, also
+# a loop, puts them back in order.
+def Carrier.values(carrier: List<&2, Header>, +name: String) -> List<&2, String>:
+  List.reverse(&2, String, Carrier.values.go(carrier, name, Nil{}))
+
+# Extraction: reading a traceparent
+# =================================
+#
+# TraceParent.read measures a value against the traceparent input budget,
+# removes the optional whitespace around it, refuses a comma and reads its
+# known fields by the rules of its version. Measuring stops at the first
+# character past the budget, and the loops below keep the stack flat for a
+# value of any length.
+
+# `head` followed by `tail`, without the optional whitespace at its start:
+# `ows` says whether `head` is optional whitespace.
+def Text.drop_ows.go(tail: String, head: Char, ows: Bool) -> String:
+  match tail ows:
+    case SNil{} False{}:
+      SCon{head, SNil{}}
+    case SCon{next, rest} False{}:
+      SCon{head, SCon{next, rest}}
+    case SNil{} True{}:
+      SNil{}
+    case SCon{+next, rest} True{}:
+      Text.drop_ows.go(rest, next, StateChar.is_ows(next))
+
+# The text without the optional whitespace, spaces and horizontal tabs, at its
+# start.
+def Text.drop_ows(text: String) -> String:
+  match text:
+    case SNil{}:
+      SNil{}
+    case SCon{+head, tail}:
+      Text.drop_ows.go(tail, head, StateChar.is_ows(head))
+
+# The text without the optional whitespace at its start and at its end (RFC
+# 9110, section 5.5: "A field value does not include leading or trailing
+# whitespace"). Reversing brings the end to the front, and reversing again
+# brings it back.
+def Text.trim_ows(text: String) -> String:
+  String.reverse(Text.drop_ows(String.reverse(Text.drop_ows(text))))
+
+# Whether the text contains a comma: `found` records whether one was seen
+# before.
+def Text.has_comma.go(text: String, found: Bool) -> Bool:
+  match text found:
+    case _ True{}:
+      True{}
+    case SNil{} False{}:
+      False{}
+    case SCon{char, rest} False{}:
+      Text.has_comma.go(rest, Char.is_eq(char, ','))
+
+# Whether the text contains a comma.
+def Text.has_comma(text: String) -> Bool:
+  Text.has_comma.go(text, False{})
+
+# Whether a value's version, from its two digits, is later than 00 and so
+# read by its known prefix (W3C 3.2.2.1 and 3.2.4): Done{False{}} for 00,
+# which the strict codec reads, Done{True{}} for 01 to fe, and a refusal for
+# ff.
+def Read.is_later(digits: Digits.Digits(2n)) -> Result<&2, &2, Error, Bool>:
+  match digits:
+    case Digits.DCon{Hex.H0{}, Digits.DCon{Hex.H0{}, Digits.DNil{}}}:
+      Done{False{}}
+    case Digits.DCon{Hex.Hf{}, Digits.DCon{Hex.Hf{}, Digits.DNil{}}}:
+      Fail{ForbiddenVersion{}}
+    case other:
+      Done{True{}}
+
+# Whether the version whose two digits were read is later than 00.
+def Read.is_later.parsed(parsed: Parsed<2n>) -> Result<&2, &2, Error, Bool>:
+  match parsed:
+    case Parsed{digits, rest}:
+      Read.is_later(digits)
+
+# What may follow the flags of a later version: the end of the value, or a
+# dash that starts fields this version does not know. Those fields are not
+# read (W3C 3.2.4: "Vendors MUST NOT parse or assume anything about unknown
+# fields"); any other character at offset 55 is ExpectedSeparator.
+def Read.extension(rest: String) -> Result<&2, &2, Error, Unit>:
+  match rest:
+    case SNil{}:
+      Done{Unit{}}
+    case SCon{char, tail}:
+      do Result<&2, &2, Error, Unit>:
+        unknown : String <- Parse.separator_result(tail, Char.is_eq(char, '-'), 55n)
+        return Unit{}
+
+# A later version is read by its known prefix (W3C 3.2.4 and 4.1.2): its first
+# 55 characters are read as version 00, which checks the trace ID, the parent
+# ID, the flags and the dashes between them at their own offsets, and then the
+# value must end or continue with a dash. A value that ends before its 55th
+# character, with no invalid character before, fails with UnexpectedEnd.
+def Read.prefix(+text: String) -> Result<&2, &2, Error, TraceParentV00>:
+  do Result<&2, &2, Error, TraceParentV00>:
+    known : TraceParentV00 <- TraceParentV00.parse("00" ++ String.drop(String.take(text, 55n), 2n))
+    rest : Unit <- Read.extension(String.drop(text, 55n))
+    return known
+
+# Read a value by the rules of its version: `later` is False for 00.
+def Read.by_version(later: Bool, text: String) -> Result<&2, &2, Error, TraceParentV00>:
+  match later:
+    case False{}:
+      TraceParentV00.parse(text)
+    case True{}:
+      Read.prefix(text)
+
+# The known fields of a value, read by the rules of its version.
+def Read.known(+text: String) -> Result<&2, &2, Error, TraceParentV00>:
+  do Result<&2, &2, Error, TraceParentV00>:
+    version : Parsed<2n> <- Parse.digits(2n, text, 0n)
+    later : Bool <- Read.is_later.parsed(version)
+    Read.by_version(later, text)
+
+# A refusal of the codec, as a refused traceparent.
+def Read.invalid(result: Result<&2, &2, Error, TraceParentV00>) ->
+  Result<&2, &2, TraceParentError, TraceParentV00>:
+  match result:
+    case Fail{error}:
+      Fail{InvalidTraceParent{error}}
+    case Done{value}:
+      Done{value}
+
+# A value that joins several with a comma is refused as repeated fields; any
+# other value is read by the rules of its version.
+def Read.single(combined: Bool, text: String) -> Result<&2, &2, TraceParentError, TraceParentV00>:
+  match combined:
+    case True{}:
+      Fail{RepeatedTraceParent{}}
+    case False{}:
+      Read.invalid(Read.known(text))
+
+# A value without the whitespace around it, refused when it joins several.
+def Read.trimmed(+text: String) -> Result<&2, &2, TraceParentError, TraceParentV00>:
+  Read.single(Text.has_comma(text), text)
+
+# A value within its budget is read without the optional whitespace around
+# it; a value over the budget is refused without being read further.
+def Read.within(fits: Maybe<&2, Nat>, value: String) -> Result<&2, &2, TraceParentError, TraceParentV00>:
+  match fits:
+    case None{}:
+      Fail{TraceParentTooLarge{}}
+    case Some{left}:
+      Read.trimmed(Text.trim_ows(value))
+
+# Read one received traceparent value by the rules of a participant, and
+# return its known fields as a v00 value, flag byte included:
+#   - a value over the traceparent input budget of `limits`, counted in UTF-8
+#     octets with its whitespace, is refused with TraceParentTooLarge;
+#   - optional whitespace around the value is removed (RFC 9110, section 5.5);
+#   - a value with a comma joins repeated fields and is refused with
+#     RepeatedTraceParent, even when the comma is in fields of a later
+#     version: no version defines a comma, and a host that joins repeated
+#     fields separates them with one (RFC 9110, section 5.3);
+#   - version 00 is read exactly by TraceParentV00.parse: 55 characters and
+#     nothing after them;
+#   - version ff is refused with ForbiddenVersion (W3C 3.2.2.1);
+#   - versions 01 to fe are read by their known prefix: the fields of version
+#     00, followed by the end of the value or by a dash and fields that are
+#     not read, whatever they hold other than a comma (W3C 3.2.4 and 4.1.2).
+# RemoteContext.from_traceparent then keeps the sampled and random-trace-id
+# flags. Laws: read_v00, read_v00_exact, read_future, read_ff, read_comma,
+# read_over_budget and read_within_budgets.
+def TraceParent.read(limits: Limits, +value: String) -> Result<&2, &2, TraceParentError, TraceParentV00>:
+  Read.within(Utf8.left(value, Some{Limits.traceparent_input(limits)}), value)
+
+# Extraction: messages
+# ====================
+#
+# Extract.parents decides from the traceparent values: none keeps the base,
+# several are refused, and a single value is read. Only an accepted value lets
+# the tracestate values be read.
+
+# The state outcome when the tracestate fields are not read: absent without
+# a field, ignored with one (W3C 3.3).
+def Extract.ignored(states: List<&2, String>) -> StateOutcome:
+  match states:
+    case Nil{}:
+      StateAbsent{}
+    case Con{field, rest}:
+      StateIgnored{}
+
+# The extraction of a message whose context is not read: the base is kept,
+# with the traceparent outcome and the presence of tracestate fields.
+def Extract.kept(base: Maybe<&2, BaseContext>, parent: TraceParentOutcome, states: List<&2, String>) -> Extraction:
+  Extraction{base, parent, Extract.ignored(states)}
+
+# The incoming context of an accepted message, as the context to continue
+# from.
+def Extract.incoming(remote: RemoteContext, state: TraceState, received: Maybe<&2, ReceivedPair>) ->
+  Maybe<&2, BaseContext>:
+  Some{IncomingBase{IncomingContext{remote, state, received}}}
+
+# An accepted message whose tracestate fields were parsed: an accepted state
+# keeps the pair, which can be forwarded, and a refused one is discarded
+# whole, keeping the traceparent (spec #1) but no pair, since the pair was not
+# accepted whole.
+def Extract.parsed(parsed: Result<&2, &2, StateError, TraceState>, remote: RemoteContext, text: String,
+  states: List<&2, String>) -> Extraction:
+  match parsed:
+    case Fail{error}:
+      Extraction{Extract.incoming(remote, TraceState.empty(), None{}), TraceParentAccepted{}, StateDiscarded{error}}
+    case Done{state}:
+      Extraction{Extract.incoming(remote, state, Some{ReceivedPair{text, states}}), TraceParentAccepted{},
+        StateAccepted{}}
+
+# An accepted message with its tracestate field values, read in arrival order
+# as their comma-joined combination (W3C 3.3.2).
+def Extract.state(+limits: Limits, +states: List<&2, String>, remote: RemoteContext, text: String) -> Extraction:
+  match states:
+    case Nil{}:
+      Extraction{Extract.incoming(remote, TraceState.empty(), Some{ReceivedPair{text, Nil{}}}), TraceParentAccepted{},
+        StateAbsent{}}
+    case Con{field, rest}:
+      Extract.parsed(TraceState.parse_fields(limits, Con{field, rest}), remote, text, Con{field, rest})
+
+# The extraction of a message whose only traceparent value `value` was read.
+# The value is kept without the whitespace around it only once accepted, so a
+# refused value is not read further.
+def Extract.read(read: Result<&2, &2, TraceParentError, TraceParentV00>, value: String, +limits: Limits,
+  +states: List<&2, String>, base: Maybe<&2, BaseContext>) -> Extraction:
+  match read:
+    case Fail{error}:
+      Extract.kept(base, TraceParentRejected{error}, states)
+    case Done{known}:
+      Extract.state(limits, states, RemoteContext.from_traceparent(known), Text.trim_ows(value))
+
+# The extraction of a message with these traceparent and tracestate field
+# values.
+def Extract.parents(+limits: Limits, parents: List<&2, String>, +states: List<&2, String>,
+  base: Maybe<&2, BaseContext>) -> Extraction:
+  match parents:
+    case Nil{}:
+      Extract.kept(base, TraceParentAbsent{}, states)
+    case Con{+value, Nil{}}:
+      Extract.read(TraceParent.read(limits, value), value, limits, states, base)
+    case Con{first, Con{second, more}}:
+      Extract.kept(base, TraceParentRejected{RepeatedTraceParent{}}, states)
+
+# Extract the trace context of a received message from its carrier, with
+# `base` as the context to keep when the message has no usable traceparent
+# (spec #1, user stories 14, 15, 16, 24 and 25):
+#   - no traceparent field keeps the base, TraceParentAbsent{};
+#   - more than one traceparent field, whatever the case of their names, is
+#     refused, and so is a single value that TraceParent.read refuses; the
+#     base is kept, TraceParentRejected{error};
+#   - an accepted value gives the incoming context and replaces the base: its
+#     tracestate fields, whatever the case of their names, are read in
+#     arrival order as their comma-joined combination, within the tracestate
+#     input budget; refused fields are discarded whole, keeping the
+#     traceparent;
+#   - without an accepted traceparent, tracestate fields are not read.
+# Laws: extract_absent, extract_repeated, extract_refused, extract_read,
+# state_independent and received_bounds.
+def Context.extract(+limits: Limits, +carrier: List<&2, Header>, base: Maybe<&2, BaseContext>) -> Extraction:
+  Extract.parents(limits, Carrier.values(carrier, "traceparent"), Carrier.values(carrier, "tracestate"), base)
+
+# Extraction: results and diagnostics
+# ===================================
+
+# The context to continue from: this message's incoming context when its
+# traceparent was accepted, the base otherwise.
+def Extraction.context(extraction: Extraction) -> Maybe<&2, BaseContext>:
+  match extraction:
+    case Extraction{context, parent, state}:
+      context
+
+# What extraction found in the traceparent fields.
+def Extraction.parent(extraction: Extraction) -> TraceParentOutcome:
+  match extraction:
+    case Extraction{context, parent, state}:
+      parent
+
+# What extraction did with the tracestate fields.
+def Extraction.state(extraction: Extraction) -> StateOutcome:
+  match extraction:
+    case Extraction{context, parent, state}:
+      state
+
+# The incoming context an accepted message gives as its context.
+def Extraction.incoming.base(context: Maybe<&2, BaseContext>) -> Maybe<&2, IncomingContext>:
+  match context:
+    case Some{IncomingBase{incoming}}:
+      Some{incoming}
+    case _:
+      None{}
+
+# This message's own context: the incoming context when its traceparent was
+# accepted, None{} when extraction kept the base.
+def Extraction.incoming.of(parent: TraceParentOutcome, context: Maybe<&2, BaseContext>) ->
+  Maybe<&2, IncomingContext>:
+  match parent:
+    case TraceParentAccepted{}:
+      Extraction.incoming.base(context)
+    case TraceParentAbsent{}:
+      None{}
+    case TraceParentRejected{error}:
+      None{}
+
+# The context this message carried, when its traceparent was accepted; None{}
+# when extraction kept the base, even an incoming one.
+def Extraction.incoming(extraction: Extraction) -> Maybe<&2, IncomingContext>:
+  match extraction:
+    case Extraction{context, parent, state}:
+      Extraction.incoming.of(parent, context)
+
+# The sender's operation.
+def IncomingContext.context(incoming: IncomingContext) -> RemoteContext:
+  match incoming:
+    case IncomingContext{context, state, received}:
+      context
+
+# The state received with it: empty when the message had none or when it was
+# discarded.
+def IncomingContext.state(incoming: IncomingContext) -> TraceState:
+  match incoming:
+    case IncomingContext{context, state, received}:
+      state
+
+# The received pair, when the whole pair was accepted: None{} when the
+# tracestate was discarded.
+def IncomingContext.received(incoming: IncomingContext) -> Maybe<&2, ReceivedPair>:
+  match incoming:
+    case IncomingContext{context, state, received}:
+      received
+
+# The received context as the parent of a child operation.
+def IncomingContext.parent(incoming: IncomingContext) -> Parent:
+  RemoteParent{IncomingContext.context(incoming)}
+
+# The received traceparent value, without the whitespace around it.
+def ReceivedPair.traceparent(pair: ReceivedPair) -> String:
+  match pair:
+    case ReceivedPair{traceparent, tracestate}:
+      traceparent
+
+# The received tracestate field values, in arrival order.
+def ReceivedPair.tracestate(pair: ReceivedPair) -> List<&2, String>:
+  match pair:
+    case ReceivedPair{traceparent, tracestate}:
+      tracestate
+
+# The base as the parent of a child operation: a received context or an
+# operation of this participant.
+def BaseContext.parent(base: BaseContext) -> Parent:
+  match base:
+    case IncomingBase{incoming}:
+      IncomingContext.parent(incoming)
+    case OutgoingBase{outgoing}:
+      LocalParent{OutgoingContext.context(outgoing)}
+
+# The state that goes with the base: the state received with an incoming
+# context, or the state an outgoing context sends.
+def BaseContext.state(base: BaseContext) -> TraceState:
+  match base:
+    case IncomingBase{incoming}:
+      IncomingContext.state(incoming)
+    case OutgoingBase{outgoing}:
+      OutgoingContext.state(outgoing)
+
+# The name of a traceparent error; InvalidTraceParent adds the codec's error.
+def TraceParentError.show(error: TraceParentError) -> String:
+  match error:
+    case RepeatedTraceParent{}:
+      "RepeatedTraceParent"
+    case TraceParentTooLarge{}:
+      "TraceParentTooLarge"
+    case InvalidTraceParent{reason}:
+      "InvalidTraceParent " ++ Error.show(reason)
+
+# The name of a traceparent outcome; a rejection adds its error.
+def TraceParentOutcome.show(outcome: TraceParentOutcome) -> String:
+  match outcome:
+    case TraceParentAccepted{}:
+      "TraceParentAccepted"
+    case TraceParentAbsent{}:
+      "TraceParentAbsent"
+    case TraceParentRejected{error}:
+      "TraceParentRejected " ++ TraceParentError.show(error)
+
+# The name of a tracestate outcome; a discard adds its error.
+def StateOutcome.show(outcome: StateOutcome) -> String:
+  match outcome:
+    case StateAbsent{}:
+      "StateAbsent"
+    case StateAccepted{}:
+      "StateAccepted"
+    case StateDiscarded{error}:
+      "StateDiscarded " ++ StateError.show(error)
+    case StateIgnored{}:
+      "StateIgnored"
+
+# Both outcomes of an extraction, for a log line: "TraceParentAccepted,
+# StateDiscarded InvalidEntry 1 MissingEquals" for example. No received
+# value is included, so the line can be logged as it is.
+def Extraction.show(extraction: Extraction) -> String:
+  match extraction:
+    case Extraction{context, parent, state}:
+      TraceParentOutcome.show(parent) ++ ", " ++ StateOutcome.show(state)

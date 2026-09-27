@@ -83,9 +83,11 @@
 #   10. Tracestate parsing             state_roundtrip ... first_wins
 #   11. Tracestate updates and         set_entries ... emit_accepted
 #       emission
+#   12. Extraction                     extract_absent ... read_within_budgets
 
 import Base
 import ./trace_context.bend as Trace
+import ./src/digits.bend as Digits
 
 # 1. Strict v00 codec
 # ===================
@@ -110,8 +112,8 @@ import ./trace_context.bend as Trace
 #   Reading: `for context: Trace.TraceParentV00` ranges over every value of
 #     the type: every nonzero trace ID, every nonzero parent ID and all 256
 #     flag bytes.
-#   Proof: Laws.formatted_length in PROOF.bend, from the encoded length of each
-#     digit sequence (proofs/digits.bend) and of joined strings
+#   Proof: Laws.formatted_length, via proofs/context.bend, from the encoded
+#     length of each digit sequence (proofs/digits.bend) and of joined strings
 #     (proofs/strings.bend).
 law formatted_length:
   for context: Trace.TraceParentV00
@@ -324,7 +326,8 @@ law emitted_traceparent:
 #     exactly the operation that sent the request.
 #   Scope: stated for the traceparent value, through the codec and the context
 #     conversions. The same law over whole header carriers belongs to
-#     extraction and injection (#9 and #10).
+#     injection (#10), which builds the carriers that extraction (section 12)
+#     reads.
 #   Proof: Laws.emitted_projection, by case analysis on both flags.
 law emitted_projection:
   for context: Trace.LocalContext
@@ -1688,3 +1691,449 @@ law emit_accepted:
   {Trace.TraceState.parse(limits, Trace.Emission.tracestate(Trace.OutgoingContext.emit(limits, outgoing))) ==
     Done{Trace.Truncation.kept(Trace.TraceState.truncate(limits, Trace.OutgoingContext.state(outgoing)))} :
     Result<&2, &2, Trace.StateError, Trace.TraceState>}
+
+# 12. Extraction
+# ==============
+#
+# Context.extract reads the trace context of a received message from its
+# carrier: the message's fields in their order, each a name and a value (W3C
+# Level 2, sections 3.2, 3.3 and 4.1; spec #1, "Wire values, carriers and
+# emission"). Field names are compared without regard to ASCII case. A single
+# traceparent field is read by TraceParent.read: version 00 strictly, version
+# ff never, and any later version by its known prefix. When the traceparent is
+# accepted, the message gives an incoming context with the state of its
+# tracestate fields; otherwise the base context the caller passed is kept and
+# the tracestate is not read. These laws state that policy for every carrier,
+# value, state and limits. The corpus, tests/EXTRACT.bend, covers the pinned
+# W3C harness's inputs, the offsets in diagnostics, exact budget boundaries,
+# whitespace inside unknown fields and names that differ from the field names
+# by other than ASCII case.
+
+# The values of the fields of `carrier` whose name, with its ASCII letters in
+# lowercase (Base's String.to_lower), is `name`, in their order. This is the
+# file's own statement of the rule of W3C 3.2.1 and 3.3.1; the package
+# compares names one character at a time instead.
+def named(+name: String, carrier: List<&2, Trace.Header>) -> List<&2, String>:
+  match carrier:
+    case Nil{}:
+      Nil{}
+    case Con{+header, +rest}:
+      Bool.pick(List<&2, String>, String.eq(String.to_lower(Trace.Header.name(header)), name),
+        Con{Trace.Header.value(header), named(name, rest)}, named(name, rest))
+
+# What extraction reports about tracestate fields it does not read: absent
+# when there are none, ignored when there are some. Their text plays no part.
+def ignored(fields: List<&2, String>) -> Trace.StateOutcome:
+  match fields:
+    case Nil{}:
+      Trace.StateAbsent{}
+    case Con{field, rest}:
+      Trace.StateIgnored{}
+
+# LAW extract_absent
+#   Claim: a message without a traceparent field keeps the base context, and
+#     its tracestate fields are not read: only whether there are any is
+#     reported.
+#   Requirement: W3C Level 2, section 3.3: "If the vendor failed to parse
+#     traceparent, it MUST NOT attempt to parse tracestate"; section 4.1.1 on
+#     a tracestate received without a traceparent. Spec #1: "absent or
+#     invalid traceparent preserves the supplied base context and reports the
+#     outcome. Do not interpret tracestate without eligible traceparent" (user
+#     story 25).
+#   Why: extraction must never erase a context the application already holds,
+#     and a tracestate without its traceparent must not be attached to it.
+#   Reading: named and ignored are defined just above. The conclusion depends
+#     on the tracestate fields only through whether there are any.
+#   Proof: Laws.extract_absent, via proofs/extract.bend.
+law extract_absent:
+  for +limits: Trace.Limits
+  for +carrier: List<&2, Trace.Header>
+  for +base: Maybe<&2, Trace.BaseContext>
+  for absent: {named("traceparent", carrier) == Nil{} : List<&2, String>}
+  {Trace.Context.extract(limits, carrier, base) ==
+    Trace.Extraction{base, Trace.TraceParentAbsent{}, ignored(named("tracestate", carrier))} : Trace.Extraction}
+
+# LAW extract_repeated
+#   Claim: a message with more than one traceparent field is refused with
+#     RepeatedTraceParent, whatever the values; the base is kept and the
+#     tracestate is not read.
+#   Requirement: spec #1, "Multiple traceparent fields are invalid" (user
+#     story 15); the pinned harness's test_traceparent_duplicated.
+#   Why: choosing one of several parents would continue a trace the sender may
+#     not have meant.
+#   Reading: `repeated` says that the carrier has at least two traceparent
+#     fields, `first` and `second`, and possibly `more`.
+#   Proof: Laws.extract_repeated, via proofs/extract.bend.
+law extract_repeated:
+  for +limits: Trace.Limits
+  for +carrier: List<&2, Trace.Header>
+  for +base: Maybe<&2, Trace.BaseContext>
+  for first: String
+  for second: String
+  for more: List<&2, String>
+  for repeated: {named("traceparent", carrier) == Con{first, Con{second, more}} : List<&2, String>}
+  {Trace.Context.extract(limits, carrier, base) == Trace.Extraction{base,
+    Trace.TraceParentRejected{Trace.RepeatedTraceParent{}}, ignored(named("tracestate", carrier))} : Trace.Extraction}
+
+# LAW extract_refused
+#   Claim: a message whose only traceparent value TraceParent.read refuses
+#     keeps the base context and reports the reason, and its tracestate is not
+#     read.
+#   Requirement: W3C Level 2, sections 3.3 and 4.1.2; spec #1, as for
+#     extract_absent.
+#   Why: an invalid header must neither erase the application's context nor
+#     smuggle in the tracestate that came with it.
+#   Reading: the laws on TraceParent.read below say which values it refuses.
+#   Proof: Laws.extract_refused, via proofs/extract.bend.
+law extract_refused:
+  for +limits: Trace.Limits
+  for +carrier: List<&2, Trace.Header>
+  for +base: Maybe<&2, Trace.BaseContext>
+  for +value: String
+  for error: Trace.TraceParentError
+  for single: {named("traceparent", carrier) == Con{value, Nil{}} : List<&2, String>}
+  for refused: {Trace.TraceParent.read(limits, value) == Fail{error} :
+    Result<&2, &2, Trace.TraceParentError, Trace.TraceParentV00>}
+  {Trace.Context.extract(limits, carrier, base) ==
+    Trace.Extraction{base, Trace.TraceParentRejected{error}, ignored(named("tracestate", carrier))} : Trace.Extraction}
+
+# The text without the optional whitespace at its start: spaces and
+# horizontal tabs.
+def ows_start(text: String) -> String:
+  match text:
+    case SNil{}:
+      SNil{}
+    case SCon{+first, +rest}:
+      Bool.pick(String, Bool.or(Char.is_eq(first, ' '), Char.is_eq(first, '\t')), ows_start(rest), SCon{first, rest})
+
+# The text without the optional whitespace at its end: a character stays
+# unless it and every character after it are whitespace (all_ows, section
+# 10).
+def ows_end(text: String) -> String:
+  match text:
+    case SNil{}:
+      SNil{}
+    case SCon{+first, +rest}:
+      Bool.pick(String, all_ows(SCon{first, rest}), SNil{}, SCon{first, ows_end(rest)})
+
+# The text without the optional whitespace around it. RFC 9110, section 5.5:
+# "A field value does not include leading or trailing whitespace".
+def trimmed(text: String) -> String:
+  ows_end(ows_start(text))
+
+# The extraction of a message whose tracestate fields were parsed, given the
+# result of parsing them (see `accepted`).
+def accepted.parsed(parsed: Result<&2, &2, Trace.StateError, Trace.TraceState>, remote: Trace.RemoteContext,
+  text: String, fields: List<&2, String>) -> Trace.Extraction:
+  match parsed:
+    case Fail{error}:
+      Trace.Extraction{Some{Trace.IncomingBase{Trace.IncomingContext{remote, Trace.TraceState.empty(), None{}}}},
+        Trace.TraceParentAccepted{}, Trace.StateDiscarded{error}}
+    case Done{state}:
+      Trace.Extraction{Some{Trace.IncomingBase{Trace.IncomingContext{remote, state,
+        Some{Trace.ReceivedPair{text, fields}}}}}, Trace.TraceParentAccepted{}, Trace.StateAccepted{}}
+
+# The extraction of a message whose traceparent was accepted: `remote` is the
+# sender's operation, `text` the traceparent value kept for forwarding and
+# `fields` the values of the tracestate fields. Without a tracestate field
+# the context has no state and the pair keeps no tracestate. With fields,
+# they are parsed together in arrival order: a state they parse to is kept
+# with the pair, and when they are refused the context has no state, the
+# discard is reported with its error, and no pair is kept, since the pair was
+# not accepted whole. This is the case split of spec #1's policy for an
+# accepted message; the parsing itself is TraceState.parse_fields, which
+# section 10 states.
+def accepted(+limits: Trace.Limits, remote: Trace.RemoteContext, text: String, +fields: List<&2, String>) ->
+  Trace.Extraction:
+  match fields:
+    case Nil{}:
+      Trace.Extraction{Some{Trace.IncomingBase{Trace.IncomingContext{remote, Trace.TraceState.empty(),
+        Some{Trace.ReceivedPair{text, Nil{}}}}}}, Trace.TraceParentAccepted{}, Trace.StateAbsent{}}
+    case Con{field, rest}:
+      accepted.parsed(Trace.TraceState.parse_fields(limits, Con{field, rest}), remote, text, Con{field, rest})
+
+# LAW extract_read
+#   Claim: a message whose only traceparent value TraceParent.read accepts
+#     gives an incoming context: the sender's operation from the value's
+#     known fields; the state its tracestate fields parse to, together, in
+#     arrival order, or no state when there is none or when they are refused,
+#     the refusal being reported; and, unless the state was refused, the
+#     received pair: the value without the whitespace around it and the
+#     tracestate fields exactly as they came. The base plays no part.
+#   Requirement: W3C Level 2, section 3.3: "failure to parse tracestate MUST
+#     NOT affect the parsing of traceparent"; section 3.3.2: multiple
+#     tracestate fields "MUST be combined". Spec #1: "Valid incoming
+#     traceparent yields remote context", "Other syntax or member-limit
+#     errors discard the entire tracestate while keeping a valid
+#     traceparent" and "Distinguish remote context, local context and the
+#     accepted original header pair needed for transparent forwarding".
+#   Why: a valid traceparent is never lost to an invalid tracestate; the
+#     pair kept for forwarding is exactly what was accepted, and only a pair
+#     accepted whole can be forwarded (#10).
+#   Reading: `accepted` and `trimmed` are defined just above.
+#     RemoteContext.from_traceparent keeps the sampled and random-trace-id
+#     flags (received_flags) and drops the reserved bits.
+#   Proof: Laws.extract_read, via proofs/extract.bend.
+law extract_read:
+  for +limits: Trace.Limits
+  for +carrier: List<&2, Trace.Header>
+  for +base: Maybe<&2, Trace.BaseContext>
+  for +value: String
+  for +known: Trace.TraceParentV00
+  for single: {named("traceparent", carrier) == Con{value, Nil{}} : List<&2, String>}
+  for read: {Trace.TraceParent.read(limits, value) == Done{known} :
+    Result<&2, &2, Trace.TraceParentError, Trace.TraceParentV00>}
+  {Trace.Context.extract(limits, carrier, base) == accepted(limits, Trace.RemoteContext.from_traceparent(known),
+    trimmed(value), named("tracestate", carrier)) : Trace.Extraction}
+
+# The operation of an incoming context, if there is one.
+def sender.of(incoming: Maybe<&2, Trace.IncomingContext>) -> Maybe<&2, Trace.RemoteContext>:
+  match incoming:
+    case None{}:
+      None{}
+    case Some{context}:
+      Some{Trace.IncomingContext.context(context)}
+
+# The sender's operation of an extraction whose message's own traceparent was
+# accepted, None{} otherwise. It observes the extraction through the public
+# accessor Extraction.incoming; it restates no rule.
+def sender(extraction: Trace.Extraction) -> Maybe<&2, Trace.RemoteContext>:
+  sender.of(Trace.Extraction.incoming(extraction))
+
+# LAW state_independent
+#   Claim: two messages with the same traceparent fields give the same
+#     traceparent outcome and the same sender's operation, whatever their
+#     tracestate fields.
+#   Requirement: spec #1, formal proof obligations: "Discarding invalid state
+#     does not change extraction of a valid traceparent" (user story 24). W3C
+#     Level 2, section 3.3: "failure to parse tracestate MUST NOT affect the
+#     parsing of traceparent".
+#   Why: a vendor's broken or oversized tracestate never costs the trace its
+#     continuity.
+#   Reading: `same` says that both carriers have the same traceparent values
+#     in the same order; their other fields, tracestate included, may differ.
+#     sender, defined just above, gives the operation of the incoming context.
+#   Proof: Laws.state_independent, via proofs/extract.bend.
+law state_independent:
+  for +limits: Trace.Limits
+  for +first: List<&2, Trace.Header>
+  for +second: List<&2, Trace.Header>
+  for +base: Maybe<&2, Trace.BaseContext>
+  for same: {named("traceparent", first) == named("traceparent", second) : List<&2, String>}
+  {Trace.Extraction.parent(Trace.Context.extract(limits, first, base)) ==
+    Trace.Extraction.parent(Trace.Context.extract(limits, second, base)) : Trace.TraceParentOutcome} &
+  {sender(Trace.Context.extract(limits, first, base)) == sender(Trace.Context.extract(limits, second, base)) :
+    Maybe<&2, Trace.RemoteContext>}
+
+# LAW received_bounds
+#   Claim: the pair an incoming context keeps fits the input budgets it was
+#     accepted with: the traceparent value within the traceparent budget, and
+#     the tracestate fields, joined by commas, within the tracestate budget.
+#   Requirement: ticket #9, "Retain bounded original-pair information needed
+#     for eligible intact forwarding"; spec #1, "Default input budgets are 32
+#     KiB per traceparent value and 32 KiB for the combined tracestate value".
+#   Why: what is kept for forwarding (#10) is bounded by the configuration,
+#     whatever the message held.
+#   Reading: `extracted` says that the message's traceparent was accepted as
+#     `incoming`, and `kept` that the incoming context kept `pair`.
+#   Proof: Laws.received_bounds, via proofs/extract.bend.
+law received_bounds:
+  for +limits: Trace.Limits
+  for +carrier: List<&2, Trace.Header>
+  for +base: Maybe<&2, Trace.BaseContext>
+  for +incoming: Trace.IncomingContext
+  for +pair: Trace.ReceivedPair
+  for extracted: {Trace.Extraction.incoming(Trace.Context.extract(limits, carrier, base)) == Some{incoming} :
+    Maybe<&2, Trace.IncomingContext>}
+  for kept: {Trace.IncomingContext.received(incoming) == Some{pair} : Maybe<&2, Trace.ReceivedPair>}
+  {Nat.is_le(Trace.Utf8.length(Trace.ReceivedPair.traceparent(pair)), Trace.Limits.traceparent_input(limits)) ==
+    True{} : Bool} &
+  {Nat.is_le(Trace.Utf8.length(String.join(Trace.ReceivedPair.tracestate(pair), ",")),
+    Trace.Limits.tracestate_input(limits)) == True{} : Bool}
+
+# Whether the text has no comma, space or horizontal tab.
+def plain(+text: String) -> Bool:
+  Bool.and(lacks(',', text), Bool.and(lacks(' ', text), lacks('\t', text)))
+
+# LAW read_v00
+#   Claim: the text of every strict v00 value is read as that value, with any
+#     optional whitespace around it, whenever the whole value fits the
+#     traceparent input budget.
+#   Requirement: W3C Level 2, sections 3.2.2 and 4.1.2: a vendor that
+#     "supports the version number" validates the value. Spec #1: "Reuse the
+#     strict v00 codec" and "Count UTF-8 octets, including whitespace". RFC
+#     9110, section 5.5; the pinned harness's test_traceparent_ows_handling.
+#   Why: a participant continues every valid version 00 header it receives,
+#     whether or not its host removed the whitespace around it.
+#   Reading: the result keeps the whole flag byte of the value;
+#     RemoteContext.from_traceparent then keeps its known flags
+#     (received_flags). `fits` measures the whitespace too, as the package
+#     does.
+#   Proof: Laws.read_v00, via proofs/extract.bend.
+law read_v00:
+  for +limits: Trace.Limits
+  for +known: Trace.TraceParentV00
+  for +before: String
+  for +after: String
+  for before_ows: {all_ows(before) == True{} : Bool}
+  for after_ows: {all_ows(after) == True{} : Bool}
+  for fits: {Nat.is_le(Trace.Utf8.length(before ++ Trace.TraceParentV00.format(known) ++ after),
+    Trace.Limits.traceparent_input(limits)) == True{} : Bool}
+  {Trace.TraceParent.read(limits, before ++ Trace.TraceParentV00.format(known) ++ after) == Done{known} :
+    Result<&2, &2, Trace.TraceParentError, Trace.TraceParentV00>}
+
+# LAW read_v00_exact
+#   Claim: the text of a strict v00 value followed by more characters is
+#     refused: version 00 has no fields after its flags.
+#   Requirement: spec #1, "Keep strict-v00 parsing separate from the
+#     future-version known-prefix rule"; W3C Level 2, section 3.2.2, where
+#     the version-format of version 00 ends with the flags; the pinned
+#     harness's test_traceparent_version_0x00.
+#   Why: a 00 value with a suffix is malformed, not a newer format. Accepting
+#     it would apply the rule of later versions to the one version whose
+#     format is known in full.
+#   Reading: Result.is_done(...) == False{} says that reading fails. `more`
+#     has no comma, which would make the value repeated fields (read_comma),
+#     and no whitespace, which could be removed as optional whitespace.
+#   Scope: the corpus checks the error, TrailingInput.
+#   Proof: Laws.read_v00_exact, via proofs/extract.bend: by law inverse, a
+#     value read back would format to its 55 characters alone.
+law read_v00_exact:
+  for +limits: Trace.Limits
+  for +known: Trace.TraceParentV00
+  for +more: String
+  for nonempty: {String.is_empty(more) == False{} : Bool}
+  for plain_more: {plain(more) == True{} : Bool}
+  for fits: {Nat.is_le(Trace.Utf8.length(Trace.TraceParentV00.format(known) ++ more),
+    Trace.Limits.traceparent_input(limits)) == True{} : Bool}
+  {Result.is_done(&2, &2, Trace.TraceParentError, Trace.TraceParentV00,
+    Trace.TraceParent.read(limits, Trace.TraceParentV00.format(known) ++ more)) == False{} : Bool}
+
+# Whether two version digits name a version after 00 other than the
+# forbidden ff (W3C Level 2, section 3.2.2.1).
+def later_version(+version: Digits.Digits(2n)) -> Bool:
+  Bool.and(Bool.not(String.eq(Digits.Digits.to_string(2n, version), "00")),
+    Bool.not(String.eq(Digits.Digits.to_string(2n, version), "ff")))
+
+# Whether `text` may follow the flags of a later version in these laws:
+# nothing, or a dash and characters other than a comma, a space or a tab.
+def unknown_fields(text: String) -> Bool:
+  match text:
+    case SNil{}:
+      True{}
+    case SCon{+first, rest}:
+      Bool.and(Char.is_eq(first, '-'), plain(rest))
+
+# The text of a value of version `version` with the known fields of `known`,
+# from its first dash, followed by `unknown`.
+def future(+version: Digits.Digits(2n), known: Trace.TraceParentV00, unknown: String) -> String:
+  Digits.Digits.to_string(2n, version) ++ String.drop(Trace.TraceParentV00.format(known), 2n) ++ unknown
+
+# LAW read_future
+#   Claim: a value of a later version, 01 to fe, is read by its known prefix:
+#     its trace ID, parent ID and flags are read as those of version 00, and
+#     what follows the flags after a dash is not read. Optional whitespace
+#     around the value makes no difference.
+#   Requirement: W3C Level 2, section 3.2.4: "If a higher version is
+#     detected, the implementation SHOULD try to parse it" and "Vendors MUST
+#     NOT parse or assume anything about unknown fields"; section 4.1.2. Spec
+#     #1: "For 01 through fe, use the valid known prefix, followed by end of
+#     value or a dash introducing an opaque extension".
+#   Why: a participant keeps continuing the traces of newer participants from
+#     the fields it knows.
+#   Reading: `future`, `later_version` and `unknown_fields` are defined just
+#     above; String.drop(..., 2n) removes the version 00 from the text of
+#     `known`.
+#   Scope: unknown fields holding whitespace or other characters are covered
+#     by the corpus; a comma is refused (read_comma).
+#   Proof: Laws.read_future, via proofs/extract.bend.
+law read_future:
+  for +limits: Trace.Limits
+  for +version: Digits.Digits(2n)
+  for +known: Trace.TraceParentV00
+  for +unknown: String
+  for +before: String
+  for +after: String
+  for later: {later_version(version) == True{} : Bool}
+  for plain_unknown: {unknown_fields(unknown) == True{} : Bool}
+  for before_ows: {all_ows(before) == True{} : Bool}
+  for after_ows: {all_ows(after) == True{} : Bool}
+  for fits: {Nat.is_le(Trace.Utf8.length(before ++ future(version, known, unknown) ++ after),
+    Trace.Limits.traceparent_input(limits)) == True{} : Bool}
+  {Trace.TraceParent.read(limits, before ++ future(version, known, unknown) ++ after) == Done{known} :
+    Result<&2, &2, Trace.TraceParentError, Trace.TraceParentV00>}
+
+# LAW read_ff
+#   Claim: a value of version ff is refused with ForbiddenVersion, whatever
+#     follows.
+#   Requirement: W3C Level 2, section 3.2.2.1: "Version 255 ("ff") is
+#     invalid"; spec #1, "Participating extraction rejects version ff"; the
+#     pinned harness's test_traceparent_version_0xff.
+#   Why: ff is reserved as invalid, so no participant may read it as a later
+#     version.
+#   Reading: `rest` has no comma, space or tab, as in read_v00_exact.
+#   Proof: Laws.read_ff, via proofs/extract.bend.
+law read_ff:
+  for +limits: Trace.Limits
+  for +rest: String
+  for plain_rest: {plain(rest) == True{} : Bool}
+  for fits: {Nat.is_le(Trace.Utf8.length("ff" ++ rest), Trace.Limits.traceparent_input(limits)) == True{} : Bool}
+  {Trace.TraceParent.read(limits, "ff" ++ rest) == Fail{Trace.InvalidTraceParent{Trace.ForbiddenVersion{}}} :
+    Result<&2, &2, Trace.TraceParentError, Trace.TraceParentV00>}
+
+# LAW read_comma
+#   Claim: a value that fits the budget and contains a comma is refused with
+#     RepeatedTraceParent, whatever else it contains.
+#   Requirement: spec #1, "Multiple traceparent fields are invalid". RFC 9110,
+#     section 5.3: a recipient may combine repeated fields into one value,
+#     separated by commas. No traceparent of version 00 contains a comma.
+#   Why: a host that joined two traceparent fields must not make extraction
+#     choose one of them (see extract_repeated).
+#   Reading: lacks, defined in section 8, is False when the value has a
+#     comma.
+#   Proof: Laws.read_comma, via proofs/extract.bend.
+law read_comma:
+  for +limits: Trace.Limits
+  for +value: String
+  for joined: {lacks(',', value) == False{} : Bool}
+  for fits: {Nat.is_le(Trace.Utf8.length(value), Trace.Limits.traceparent_input(limits)) == True{} : Bool}
+  {Trace.TraceParent.read(limits, value) == Fail{Trace.RepeatedTraceParent{}} :
+    Result<&2, &2, Trace.TraceParentError, Trace.TraceParentV00>}
+
+# LAW read_over_budget
+#   Claim: a traceparent value whose UTF-8 octets, whitespace included,
+#     exceed the traceparent input budget is refused with TraceParentTooLarge,
+#     whatever it contains.
+#   Requirement: spec #1, "Default input budgets are 32 KiB per traceparent
+#     value ... Count UTF-8 octets, including whitespace and extension data"
+#     and "Stop bounded processing once the relevant budget is exceeded".
+#   Why: a received header must not make a service do unbounded work, and the
+#     outcome must not depend on where in an oversized value a problem is.
+#   Scope: that measuring stops at the first character past the budget
+#     follows from Utf8.left, as for tracestate; the corpus refuses a
+#     mebibyte value.
+#   Proof: Laws.read_over_budget, via proofs/extract.bend.
+law read_over_budget:
+  for +limits: Trace.Limits
+  for +value: String
+  for larger: {Nat.is_le(Trace.Utf8.length(value), Trace.Limits.traceparent_input(limits)) == False{} : Bool}
+  {Trace.TraceParent.read(limits, value) == Fail{Trace.TraceParentTooLarge{}} :
+    Result<&2, &2, Trace.TraceParentError, Trace.TraceParentV00>}
+
+# LAW read_within_budgets
+#   Claim: for a value that fits two traceparent input budgets, reading with
+#     either gives the same result.
+#   Requirement: spec #1: budgets only refuse input, and the traceparent
+#     budget is independent of the tracestate budgets.
+#   Why: with read_over_budget, the traceparent budget either refuses a value
+#     or has no effect, and the tracestate budgets never change how a
+#     traceparent is read.
+#   Proof: Laws.read_within_budgets, via proofs/extract.bend.
+law read_within_budgets:
+  for +first: Trace.Limits
+  for +second: Trace.Limits
+  for +value: String
+  for first_fits: {Nat.is_le(Trace.Utf8.length(value), Trace.Limits.traceparent_input(first)) == True{} : Bool}
+  for second_fits: {Nat.is_le(Trace.Utf8.length(value), Trace.Limits.traceparent_input(second)) == True{} : Bool}
+  {Trace.TraceParent.read(first, value) == Trace.TraceParent.read(second, value) :
+    Result<&2, &2, Trace.TraceParentError, Trace.TraceParentV00>}

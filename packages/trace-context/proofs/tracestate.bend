@@ -751,8 +751,9 @@ def left_take(text, need, budget):
 
 # The measure agrees with the length: Utf8.left of `text` against `budget`
 # gives Some exactly when Utf8.length(text) <= budget. Parsing measures with
-# Utf8.left and the laws use Utf8.length, so over_budget, within_budgets and
-# proofs/merge.bend (parse_scan) go through it.
+# Utf8.left and the laws use Utf8.length, so over_budget, within_budgets,
+# proofs/merge.bend (parse_scan) and, for the traceparent budget,
+# proofs/extract.bend (read_fits, read_over_budget) go through it.
 law within:
   for +text: String
   for budget: Nat
@@ -805,7 +806,8 @@ def read_over(m, fields, larger):
 # When Utf8.length(text) exceeds the tracestate input budget of `limits`,
 # TraceState.parse refuses `text` with StateTooLarge: `within` turns the
 # hypothesis into one on the measurement, and read_over concludes.
-# Laws.over_budget proves law over_budget with it.
+# Laws.over_budget proves law over_budget with it, and proofs/extract.bend
+# (fields_fit) bounds the tracestate fields an extraction keeps with it.
 law over_budget:
   for +limits: TC.Limits
   for +text: String
@@ -1040,7 +1042,9 @@ def read_join(m, fields):
 
 # Parsing repeated fields gives exactly the result of parsing their values
 # joined with commas: fields_left rewrites the measurement, and read_join
-# compares the reading. Laws.fields_join proves law fields_join with it.
+# compares the reading. Laws.fields_join proves law fields_join with it, and
+# proofs/extract.bend (fields_fit) uses it for the fields an extraction
+# keeps.
 law fields_join:
   for +limits: TC.Limits
   for +fields: List<&2, String>

@@ -5,7 +5,10 @@
 # exactly that value, including the proofs stored in it that its IDs are not
 # all zero. PROOF.bend's Laws.roundtrip calls roundtrip, and
 # proofs/inverse.bend (law inverse) reuses flags_result, parent_result and
-# trace_result. trace_context.bend is imported as TC.
+# trace_result. At the end, tail_length and formatted_length prove law
+# formatted_length: the text has 55 characters. proofs/extract.bend reuses
+# roundtrip, tail_length and formatted_length for the known prefix of later
+# versions. trace_context.bend is imported as TC.
 #
 # The proof follows the parser forward over the formatted text. The prefix
 # "00-" and the "-" before the parent ID and before the flags are literal
@@ -24,6 +27,7 @@ import ../trace_context.bend as TC
 import ../src/digits.bend as Digits
 import ./digits.bend as DigitsProof
 import ./parser.bend as ParserProof
+import ./strings.bend as StringsProof
 
 # The last step of Parse.parent, as a function of the read of the two flag
 # digits: Parse.flags on its success.
@@ -172,3 +176,42 @@ def roundtrip(context):
           trace_result(_) == Done{TC.TraceParentV00{trace_id, parent_id, flags}} :
           Result<&2, &2, TC.Error, TC.TraceParentV00>}
       trace_valid(trace_id, parent_id, flags)
+
+# The text of a strict v00 value after its version, "-" ++ trace ++ "-" ++
+# parent ++ "-" ++ flags, has 53 characters: add the lengths of the pieces,
+# 1 + 32 + 1 + 16 + 1 + 2, from the innermost outwards. formatted_length adds
+# the two version digits, and proofs/extract.bend adds the two digits of a
+# later version.
+law tail_length:
+  for +trace_id: Digits.NonZero<32n>
+  for +parent_id: Digits.NonZero<16n>
+  for +flags: Digits.Digits(2n)
+  {String.length("-" ++ Digits.NonZero.to_string(32n, trace_id) ++ "-" ++ Digits.NonZero.to_string(16n, parent_id) ++
+    "-" ++ Digits.Digits.to_string(2n, flags)) == 53n : Nat}
+
+def tail_length(trace_id, parent_id, flags):
+  +trace = Digits.NonZero.to_string(32n, trace_id)
+  +parent = Digits.NonZero.to_string(16n, parent_id)
+  +flag_text = Digits.Digits.to_string(2n, flags)
+  f = StringsProof.joined_length("-", flag_text, 1n, 2n, {==}, DigitsProof.encoded_length(2n, flags))
+  p = StringsProof.joined_length(parent, "-" ++ flag_text, 16n, 3n,
+    DigitsProof.nonzero_encoded_length(16n, parent_id), f)
+  ps = StringsProof.joined_length("-", parent ++ "-" ++ flag_text, 1n, 19n, {==}, p)
+  t = StringsProof.joined_length(trace, "-" ++ parent ++ "-" ++ flag_text, 32n, 20n,
+    DigitsProof.nonzero_encoded_length(32n, trace_id), ps)
+  StringsProof.joined_length("-", trace ++ "-" ++ parent ++ "-" ++ flag_text, 1n, 52n, {==}, t)
+
+# Formatting any strict v00 value gives 55 characters: "00" and the 53 of
+# tail_length. It is law formatted_length of LAWS.bend, which PROOF.bend's
+# Laws.formatted_length proves by calling it; proofs/extract.bend uses it to
+# refuse a version 00 value followed by more characters.
+law formatted_length:
+  for context: TC.TraceParentV00
+  {String.length(TC.TraceParentV00.format(context)) == 55n : Nat}
+
+def formatted_length(context):
+  match context:
+    case TC.TraceParentV00{+trace_id, +parent_id, +flags}:
+      StringsProof.joined_length("00", "-" ++ Digits.NonZero.to_string(32n, trace_id) ++ "-" ++
+        Digits.NonZero.to_string(16n, parent_id) ++ "-" ++ Digits.Digits.to_string(2n, flags), 2n, 53n, {==},
+        tail_length(trace_id, parent_id, flags))

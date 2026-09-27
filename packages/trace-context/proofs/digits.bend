@@ -5,8 +5,10 @@
 # and NonZero<n> pairs such a sequence with a proof that it is not all zero.
 # This module proves that n digits always format as n characters, and that
 # NonZero.new accepts the digits of a nonzero sequence and keeps its proof.
-# Laws.formatted_length (PROOF.bend) adds up the field lengths with
-# encoded_length and nonzero_encoded_length. The constructor lemmas serve the
+# ContextProof.tail_length (proofs/context.bend, law formatted_length) adds up
+# the field lengths with encoded_length and nonzero_encoded_length, and
+# proofs/extract.bend measures the two digits of a later version with
+# encoded_length. The constructor lemmas serve the
 # parser proofs, since the parser checks the digits it read with
 # NonZero.new: new_valid in proofs/ids.bend (laws trace_id_accepts and
 # span_id_roundtrip), new_recovery in proofs/context.bend (law roundtrip).
@@ -22,7 +24,8 @@ import ../src/digits.bend as Digits
 
 # A sequence of n digits formats as exactly n characters, for every n and
 # every sequence. Induction on n: each digit adds one character.
-# Laws.formatted_length (PROOF.bend) uses it for the two flag digits.
+# ContextProof.tail_length uses it for the two flag digits, and
+# proofs/extract.bend for the two version digits of a later version.
 law encoded_length:
   for n: Nat
   for digits: Digits.Digits(n)
@@ -39,8 +42,8 @@ def encoded_length(n, digits):
           {==}
 
 # The same for a nonzero sequence: an ID of n digits formats as n
-# characters. Laws.formatted_length (PROOF.bend) uses it for the trace ID
-# (32 digits) and the parent ID (16 digits).
+# characters. ContextProof.tail_length uses it for the trace ID (32 digits)
+# and the parent ID (16 digits).
 law nonzero_encoded_length:
   for n: Nat
   for value: Digits.NonZero<n>
