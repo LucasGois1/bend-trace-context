@@ -16,12 +16,11 @@ no usable traceparent, injects a local operation into the fields of a
 message to send or forwards a received context unchanged, and gives a service
 its own operation for each message it receives, a child for each message it
 sends, and a lenient or strict outcome when an identifier cannot be
-generated. Browser generation and HTTP/Fetch propagation are not implemented
-yet. Native
-HTTP transport is separately qualified as a development harness;
-it does not add a Trace Context propagator or tracer. Pure JavaScript module
-consumption and a WebCrypto source are qualified separately below. No BendHub
-package has been published.
+generated. Over the native HTTP transport bend-net, a service built on the
+package's adapter passes the W3C Trace Context harness at its pinned commit.
+Browser generation and HTTP integration in JavaScript and in browsers are not
+implemented yet. Pure JavaScript module consumption and a WebCrypto source are
+qualified separately below. No BendHub package has been published.
 
 ## Try the codec
 
@@ -155,6 +154,15 @@ instead, and `TC.Restart{}` starts a new trace at a trust boundary.
 policies and a trust boundary, and the
 [consumer example](tests/consumer/main.bend) also sets its own entry.
 
+On the native HTTP transport bend-net, pinned as the `vendor/bend-net`
+submodule, `packages/trace-context/native_http.bend` takes these steps from a
+request's header map: `NativeHttp.continue_or_start(limits, headers, base,
+TC.Continue{}, TC.InheritSampled{}, TC.Lenient{})` for the service's
+operation, and `NativeHttp.send(limits, service, TC.InheritSampled{},
+TC.Lenient{}, headers)` for the header map of each request it sends. The
+[gateway example](packages/trace-context/examples/gateway.bend) is a complete
+service on it.
+
 Read the [API and error reference](packages/trace-context/README.md) for strict
 parsing semantics, typed values, generation rules and proof scope. See
 [versioning and migration policy](CHANGELOG.md) before updating a dependency pin.
@@ -167,6 +175,8 @@ parsing semantics, typed values, generation rules and proof scope. See
 ./scripts/test-installer.sh
 ./scripts/test-consumer.sh native
 ./scripts/test-consumer.sh node
+./scripts/qualify-native-http.sh
+./scripts/qualify-propagation.sh
 ```
 
 The consumer commands test the current **committed HEAD** in a separate fresh
@@ -177,8 +187,10 @@ clone; they do not test uncommitted edits. To select a source and revision, run
 Baseline gates cover proofs, independent protocol vectors, all 256 flag bytes,
 expected static rejections, deterministic generation from replayed tapes,
 real-source generation smoke checks, the tracestate, outgoing, extraction,
-injection and continue-or-start corpora, the examples, the exact README
-example above and a consumer outside the repository. Consumer logs and outputs are saved under
+injection, continue-or-start and native HTTP header corpora, the examples,
+the exact README example above and a consumer outside the repository. The
+two native HTTP scripts need the `vendor/bend-net` submodule: they qualify the
+transport, then propagation through it, including the W3C harness. Consumer logs and outputs are saved under
 `build/consumer-native/` or `build/consumer-node/`. CI exercises
 native macOS ARM64/Linux x86_64 and Node 22/24, recording exact runtime versions.
 Configuring a job is distinct from observing a successful run.
@@ -214,10 +226,13 @@ It explains the official Node loader, Bend HTML bundler and foreign-value/proof
 boundary. A JavaScript generation facade, browser generation and HTTP/Fetch
 propagation remain later deliverables.
 
-The [native HTTP transport guide](packages/trace-context/NATIVE-HTTP.md)
-documents the pinned `bend-net` route, native macOS/Linux checks and its scope
-boundary. Its W3C action/callback envelope and opaque header relay are transport
-fixtures; they do not implement or claim propagator conformance.
+The [native HTTP guide](packages/trace-context/NATIVE-HTTP.md) documents the
+pinned `bend-net` route and its native macOS/Linux checks. Its transport
+fixtures relay header values opaquely and claim nothing about Trace Context.
+Its propagation qualification builds a service on the package's
+[native HTTP adapter](packages/trace-context/README.md#native-http-integration)
+from a pinned checkout and runs the W3C Trace Context harness against it with
+`SPEC_LEVEL=2` and `STRICT_LEVEL=2`: 41 tests, none failed or skipped.
 
 ## Development
 

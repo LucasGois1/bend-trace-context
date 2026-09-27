@@ -7,6 +7,9 @@ const server = createServer((request, response) => {
   request.on('end', () => {
     const body = Buffer.concat(chunks).toString('utf8');
     console.log(`${request.method} ${request.url} ${body}`);
+    for (const name of ['traceparent', 'tracestate']) {
+      if (request.headers[name] !== undefined) console.log(`  ${name}: ${request.headers[name]}`);
+    }
     if (request.url === '/redirect') {
       response.writeHead(302, { location: '/redirected' });
       response.end();

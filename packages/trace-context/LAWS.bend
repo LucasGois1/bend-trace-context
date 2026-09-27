@@ -87,9 +87,11 @@
 #   13. Injection and forwarding       clear_carrier ... forward_idempotent
 #   14. Continuing or starting, and    continue_usable ...
 #       sending                        send_reports_generated
+#   15. Native HTTP headers            http_carrier ... http_send
 
 import Base
 import ./trace_context.bend as Trace
+import ./native_http.bend as NativeHttp
 import ./src/digits.bend as Digits
 
 # 1. Strict v00 codec
@@ -2866,3 +2868,181 @@ law send_reports_generated:
     Trace.Context.send_with(~Tape(), ~Trace.Source.tape, tape, limits, service, sampling, policy, carrier),
     done => IO.pure(Maybe<&2, Trace.LocalContext>, reported(policy, done)))) ==
     Emit{sent_child(tape, service, sampling)} : IO.OP<Maybe<&2, Trace.LocalContext>>}
+
+# 15. Native HTTP headers
+# =======================
+#
+# native_http.bend adapts the header maps of the native HTTP transport
+# bend-net to the package (ticket #12): a Base Map from each field name to its
+# values in arrival order. These laws state that the adapter adds no Trace
+# Context behavior of its own. The carrier it reads from a map keeps every
+# value of every name, the map it writes for a carrier holds every value of
+# every name, and its two shortcuts are the package's operations on that
+# carrier, so the laws of sections 12 to 14 say what they do. What Base's Map
+# stores, lists and looks up is Base's behavior, which Base proves nothing
+# about: http_carrier takes the map's list of entries as given, and
+# http_headers assumes the two facts about Map.set and Map.get that the
+# adapter relies on. The adapter's corpus, tests/NATIVE-HTTP.bend, and the
+# HTTP qualification exercise Base's side.
+
+# The values of the fields named exactly `name`, in order.
+def http_values.kept(same: Bool, value: String, rest: List<&2, String>) -> List<&2, String>:
+  match same:
+    case True{}:
+      Con{value, rest}
+    case False{}:
+      rest
+
+def http_values(+name: String, carrier: List<&2, Trace.Header>) -> List<&2, String>:
+  match carrier:
+    case Nil{}:
+      Nil{}
+    case Con{Trace.Header{field, value}, rest}:
+      http_values.kept(String.eq(field, name), value, http_values(name, rest))
+
+# The values of the map entries named exactly `name`, entry by entry.
+def entry_values.kept(same: Bool, values: List<&2, String>, rest: List<&2, String>) -> List<&2, String>:
+  match same:
+    case True{}:
+      List.append(&2, String, values, rest)
+    case False{}:
+      rest
+
+def entry_values(+name: String, entries: List<&2, Sigma<&2, &2, String, _ => List<&2, String>>>) ->
+  List<&2, String>:
+  match entries:
+    case Nil{}:
+      Nil{}
+    case Con{Tuple{key, values}, rest}:
+      entry_values.kept(String.eq(key, name), values, entry_values(name, rest))
+
+# LAW http_carrier
+#   Claim: the carrier that the adapter reads from a header map holds, under
+#     every name, exactly the values that the map's entries hold under it, in
+#     the same order: no value is dropped, reordered or added.
+#   Requirement: spec #1, "Preserve an ordered multi-value carrier" and "They
+#     retain repeated context fields ... and perform only necessary host
+#     translation"; W3C 3.2.1 and 3.3.1.
+#   Why: extraction can only refuse a repeated traceparent, or combine
+#     repeated tracestate fields in order, if the adapter hands it every field
+#     as it came.
+#   Reading: Map.to_list is Base's list of the map's entries; http_values and
+#     entry_values, defined above, select values by exact name.
+#   Proof: Laws.http_carrier, via proofs/http.bend.
+law http_carrier:
+  for headers: Map<&2, List<&2, String>>
+  for +name: String
+  {http_values(name, NativeHttp.carrier(headers)) == entry_values(name, Map.to_list(&2, List<&2, String>, headers)) :
+    List<&2, String>}
+
+# The values a map holds under `key`, none when it has no entry for it.
+def map_values(+headers: Map<&2, List<&2, String>>, key: String) -> List<&2, String>:
+  Pair.snd(Map<&2, List<&2, String>>, List<&2, String>, Map.get(List<&2, String>, Nil{}, headers, key))
+
+# LAW http_headers
+#   Claim: the map that the adapter writes for a carrier holds, under every
+#     name, exactly the carrier's values of that name, in the same order,
+#     provided Base's Map does what the adapter relies on: a list set under a
+#     key is found under it, and setting another key leaves it as it was.
+#   Requirement: spec #1, "They retain repeated context fields, replace old
+#     outgoing fields and perform only necessary host translation".
+#   Why: the fields that the package writes for a message to send, a
+#     repeated one included, reach bend-net as written and in order.
+#   Reading: `found` and `kept` state Base's Map contract, which Base does
+#     not prove. They are templates (`~`), so that a proof may use them at
+#     every field; map_values and http_values are defined above.
+#   Proof: Laws.http_headers, via proofs/http.bend.
+law http_headers:
+  for ~found: @headers: Map<&2, List<&2, String>> -> @key: String -> @values: List<&2, String> ->
+    {map_values(Map.set(&2, List<&2, String>, headers, key, values), key) == values : List<&2, String>}
+  for ~kept: @headers: Map<&2, List<&2, String>> -> @key: String -> @other: String -> @values: List<&2, String> ->
+    {String.eq(other, key) == False{} : Bool} ->
+    {map_values(Map.set(&2, List<&2, String>, headers, other, values), key) == map_values(headers, key) :
+      List<&2, String>}
+  for carrier: List<&2, Trace.Header>
+  for +name: String
+  {map_values(NativeHttp.headers(carrier), name) == http_values(name, carrier) : List<&2, String>}
+
+# LAW http_continue
+#   Claim: the adapter's continue-or-start is the package's, for every tape,
+#     on the extraction of the carrier that it reads from the request's
+#     header map.
+#   Requirement: ticket #12, "Use only package behavior in the
+#     service/adapter; do not reproduce parsing, normalization or generation
+#     rules".
+#   Why: the laws of sections 12 and 14 then say what a service built on the
+#     adapter does with each request.
+#   Proof: Laws.http_continue, via proofs/http.bend.
+law http_continue:
+  for tape: Tape()
+  for +limits: Trace.Limits
+  for headers: Map<&2, List<&2, String>>
+  for base: Maybe<&2, Trace.BaseContext>
+  for reception: Trace.Reception
+  for sampling: Trace.Sampling
+  for +policy: Trace.FailurePolicy
+  {Observe(TapeService(policy), NativeHttp.continue_or_start_with(~Tape(), ~Trace.Source.tape, tape, limits, headers,
+    base, reception, sampling, policy)) ==
+    Observe(TapeService(policy), Trace.Context.continue_or_start_with(~Tape(), ~Trace.Source.tape, tape,
+      Trace.Context.extract(limits, NativeHttp.carrier(headers), base), reception, sampling, policy)) :
+    IO.OP<TapeService(policy)>}
+
+# A request to send: the message sent with the header map of its carrier.
+def http_outbound(+sent: Trace.Sent) -> NativeHttp.Outbound:
+  NativeHttp.Outbound{sent, NativeHttp.headers(Trace.Sent.carrier(sent))}
+
+# The same for a strict result: a failure stays a failure.
+def http_strict(result: Result<&2, &2, Trace.GenerationError, Trace.Sent>) ->
+  Result<&2, &2, Trace.GenerationError, NativeHttp.Outbound>:
+  match result:
+    case Fail{error}:
+      Fail{error}
+    case Done{sent}:
+      Done{http_outbound(sent)}
+
+# A request to send under `policy`.
+def http_written(policy: Trace.FailurePolicy, result: Trace.FailurePolicy.result(policy, Trace.Sent)) ->
+  Trace.FailurePolicy.result(policy, NativeHttp.Outbound):
+  match policy:
+    case Trace.Lenient{}:
+      http_outbound(result)
+    case Trace.Strict{}:
+      http_strict(result)
+
+# The result a send through the adapter returns under `policy`, as a tape law
+# observes it.
+def TapeOutbound(policy: Trace.FailurePolicy) -> Type:
+  Tape() & Trace.FailurePolicy.result(policy, NativeHttp.Outbound)
+
+def http_written.done(+policy: Trace.FailurePolicy, done: TapeSent(policy)) -> TapeOutbound(policy):
+  (rest, result) = done
+  (rest, http_written(policy, result))
+
+# LAW http_send
+#   Claim: the adapter's send is the package's, for every tape, on the
+#     carrier of the request's own header map, followed by the header map of
+#     the carrier that the package gives back. The request's old context
+#     fields therefore go whatever the case of their names, and it carries
+#     what section 14's laws say: a new operation, the forwarded pair or no
+#     context.
+#   Requirement: ticket #12, as for http_continue; spec #1, "replace old
+#     outgoing fields".
+#   Why: a stale context in a reused request container never reaches the
+#     wire, and the adapter invents no context of its own.
+#   Reading: http_written and http_outbound, defined above, pair the message
+#     sent with NativeHttp.headers of its carrier, which http_headers
+#     describes.
+#   Proof: Laws.http_send, via proofs/http.bend.
+law http_send:
+  for tape: Tape()
+  for +limits: Trace.Limits
+  for service: Trace.Service
+  for sampling: Trace.Sampling
+  for +policy: Trace.FailurePolicy
+  for +headers: Map<&2, List<&2, String>>
+  {Observe(TapeOutbound(policy), NativeHttp.send_with(~Tape(), ~Trace.Source.tape, tape, limits, service, sampling,
+    policy, headers)) ==
+    Observe(TapeOutbound(policy), IO.bind(TapeSent(policy), TapeOutbound(policy),
+      Trace.Context.send_with(~Tape(), ~Trace.Source.tape, tape, limits, service, sampling, policy,
+        NativeHttp.carrier(headers)), done => IO.pure(TapeOutbound(policy), http_written.done(policy, done)))) :
+    IO.OP<TapeOutbound(policy)>}

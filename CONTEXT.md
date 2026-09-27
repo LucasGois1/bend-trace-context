@@ -95,6 +95,14 @@ Reading tracing information from an incoming message and interpreting its fields
 **Context injection**:
 Writing trace context information into the fields of an outgoing message.
 
+**Header map**:
+A transport's own grouping of a message's fields by name, such as bend-net's map from each name to its values in arrival order. A transport adapter turns it into a carrier and back.
+_Avoid_: Carrier
+
+**Transport adapter**:
+Code that translates between a transport's representation of message fields and the carrier, without deciding any Trace Context rule.
+_Avoid_: Propagator
+
 **Carrier**:
 The fields of a message in their order, each a name and a value, from which trace context is extracted and into which it is injected. Repeated fields stay separate unless the host joined them.
 _Avoid_: Header map

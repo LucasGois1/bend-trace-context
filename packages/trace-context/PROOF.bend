@@ -62,6 +62,7 @@
 #                                   extraction
 #   proofs/inject.bend              cleanup, injection and forwarding
 #   proofs/continue.bend            continuing or starting, and sending
+#   proofs/http.bend                native HTTP headers
 
 import Base
 import ./LAWS.bend as Laws
@@ -85,6 +86,7 @@ import ./proofs/emit.bend as EmitProof
 import ./proofs/extract.bend as ExtractProof
 import ./proofs/inject.bend as InjectProof
 import ./proofs/continue.bend as ContinueProof
+import ./proofs/http.bend as HttpProof
 
 # 1. Strict v00 codec
 # ===================
@@ -643,3 +645,23 @@ def Laws.send_untraced(tape, limits, error, received, sampling, policy, carrier)
 # (proofs/continue.bend).
 def Laws.send_reports_generated(tape, limits, service, sampling, policy, carrier):
   ContinueProof.send_reports_generated(tape, limits, service, sampling, policy, carrier)
+
+# 15. Native HTTP headers
+# =======================
+
+# The carrier keeps every value of every entry (proofs/http.bend).
+def Laws.http_carrier(headers, name):
+  HttpProof.http_carrier(headers, name)
+
+# The map of a carrier holds every value of every name, given Base's Map
+# contract (proofs/http.bend).
+def Laws.http_headers(found, kept, carrier, name):
+  HttpProof.http_headers(~found, ~kept, carrier, name)
+
+# The adapter's continue-or-start is the package's (proofs/http.bend).
+def Laws.http_continue(tape, limits, headers, base, reception, sampling, policy):
+  HttpProof.http_continue(tape, limits, headers, base, reception, sampling, policy)
+
+# The adapter's send is the package's, then the map (proofs/http.bend).
+def Laws.http_send(tape, limits, service, sampling, policy, headers):
+  HttpProof.http_send(tape, limits, service, sampling, policy, headers)

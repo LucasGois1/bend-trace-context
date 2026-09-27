@@ -1,0 +1,5 @@
+# The W3C Trace Context harness pinned at acab820 runs on aiohttp. Regenerate
+# requirements.txt with pip-tools:
+#   pip-compile --generate-hashes --allow-unsafe --no-emit-index-url \
+#     --output-file requirements.txt requirements.in
+aiohttp==3.14.3
