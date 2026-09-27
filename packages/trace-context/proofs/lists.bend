@@ -5,16 +5,18 @@
 # List.reverse, for lists of any element type `A`: appending is associative,
 # Nil{} is a right identity of appending, appending one element adds one to
 # the length, List.take keeps at most `n` elements, all of them when there
-# are no more, reversing twice gives the list back, and reversing a reversed
-# list onto another joins them (reverse_onto).
+# are no more, reversing twice gives the list back, reversing a reversed
+# list onto another joins them (reverse_onto), and reversing a joined list
+# reverses its parts in turn (reverse_go_append).
 # The tracestate proofs need them because the reading machine and
 # TC.Entries.unique grow their lists at the end, one entry at a time
 # (List.append(&2, TC.StateEntry, seen, Con{entry, Nil{}})), and because an
 # update keeps at most 31 other entries. Used by proofs/distinct.bend,
 # first.bend, merge.bend, normal.bend, update.bend, emit.bend and inject.bend,
 # and, for reversing, by proofs/extract.bend, whose field selection reverses
-# the values it collects, and proofs/inject.bend, whose carriers reverse the
-# fields they keep.
+# the values it collects, proofs/inject.bend, whose carriers reverse the
+# fields they keep, and proofs/http.bend, whose header carrier and map do
+# too.
 #
 # List.append, List.length and List.take recurse on their first list, so each
 # lemma is proved by induction on that list (and on `n` for List.take). In the
@@ -25,6 +27,24 @@
 
 import Base
 import ./bools.bend as BoolsProof
+
+# Reversing `a` followed by `b` onto `acc` reverses `a` onto `acc`, then `b`
+# onto that. Induction on `a`. Used by proofs/http.bend, whose carrier
+# collects each entry's values onto the fields gathered so far.
+law reverse_go_append:
+  for -A: Data
+  for a: List<&2, A>
+  for b: List<&2, A>
+  for acc: List<&2, A>
+  {List.reverse.go(&2, A, List.append(&2, A, a, b), acc) == List.reverse.go(&2, A, b, List.reverse.go(&2, A, a, acc)) :
+    List<&2, A>}
+
+def reverse_go_append(A, a, b, acc):
+  match a:
+    case Nil{}:
+      {==}
+    case Con{head, tail}:
+      reverse_go_append(A, tail, b, Con{head, acc})
 
 # List.append is associative: `a` followed by `b`, then `c`, is `a` followed
 # by `b` and `c`. Used by distinct.bend, first.bend, merge.bend, normal.bend

@@ -1,6 +1,7 @@
 #!/bin/sh
-# Run the codec, generation, tracestate, extraction, injection and
-# continue-or-start evidence gates on one explicitly selected backend.
+# Run the codec, generation, tracestate, extraction, injection,
+# continue-or-start and native HTTP header evidence gates on one explicitly
+# selected backend.
 set -eu
 
 repo_dir=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
@@ -14,7 +15,7 @@ cp tests/expected-codec.txt tests/expected-demo.txt tests/expected-generation.tx
   tests/expected-tracestate.txt tests/expected-tracestate-example.txt tests/expected-outgoing.txt \
   tests/expected-outgoing-example.txt tests/expected-extract.txt tests/expected-extract-example.txt \
   tests/expected-inject.txt tests/expected-inject-example.txt tests/expected-continue.txt \
-  tests/expected-continue-example.txt "$build_dir/"
+  tests/expected-continue-example.txt tests/expected-native-http.txt "$build_dir/"
 {
 echo "Package commit: $(git rev-parse HEAD)"
 echo "Platform: $(uname -s) $(uname -m)"
@@ -147,6 +148,9 @@ echo "PASS: direct injection and forwarding corpus"
 run_logged direct-continue ./bend packages/trace-context/tests/CONTINUE.bend
 compare_output tests/expected-continue.txt "$build_dir/direct-continue.txt"
 echo "PASS: direct continue-or-start and sending corpus"
+run_logged direct-native-http ./bend packages/trace-context/tests/NATIVE-HTTP.bend
+compare_output tests/expected-native-http.txt "$build_dir/direct-native-http.txt"
+echo "PASS: direct native HTTP header corpus"
 
 if [ "$mode" = node ]; then
   run_logged codec-compile ./bend packages/trace-context/tests/TEST.bend -o "$build_dir/codec.js"
@@ -184,6 +188,8 @@ if [ "$mode" = node ]; then
   run_logged continue-example-compile ./bend packages/trace-context/examples/continue.bend \
     -o "$build_dir/continue-example.js"
   run_logged continue-example node "$build_dir/continue-example.js"
+  run_logged native-http-compile ./bend packages/trace-context/tests/NATIVE-HTTP.bend -o "$build_dir/native-http.js"
+  run_logged native-http node "$build_dir/native-http.js"
 else
   run_logged codec-compile ./bend packages/trace-context/tests/TEST.bend -o "$build_dir/codec"
   run_logged codec "$build_dir/codec"
@@ -220,6 +226,8 @@ else
   run_logged continue-example-compile ./bend packages/trace-context/examples/continue.bend \
     -o "$build_dir/continue-example"
   run_logged continue-example "$build_dir/continue-example"
+  run_logged native-http-compile ./bend packages/trace-context/tests/NATIVE-HTTP.bend -o "$build_dir/native-http"
+  run_logged native-http "$build_dir/native-http"
 fi
 compare_output tests/expected-codec.txt "$build_dir/codec.txt"
 compare_output tests/expected-demo.txt "$build_dir/demo.txt"
@@ -234,6 +242,7 @@ compare_output tests/expected-extract-example.txt "$build_dir/extract-example.tx
 compare_output tests/expected-inject.txt "$build_dir/inject.txt"
 compare_output tests/expected-inject-example.txt "$build_dir/inject-example.txt"
 compare_output tests/expected-continue.txt "$build_dir/continue.txt"
+compare_output tests/expected-native-http.txt "$build_dir/native-http.txt"
 check_generated_example "$build_dir/generate.txt"
 check_continue_example "$build_dir/continue-example.txt"
-echo "PASS: proofs, protocol, tracestate, outgoing, extraction, injection and continue-or-start corpora, generation, construction rejections and examples ($mode)"
+echo "PASS: proofs, protocol, tracestate, outgoing, extraction, injection, continue-or-start and native HTTP header corpora, generation, construction rejections and examples ($mode)"

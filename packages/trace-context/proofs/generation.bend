@@ -33,7 +33,8 @@
 #   over Source.tape computes Draw.run, whatever function of the outcome the
 #   continuation emits; root_tape, child_tape and restart_tape apply it to
 #   the continuation of Draw.finished, and proofs/continue.bend to those of
-#   the operations of section 14.
+#   the operations of section 14. read_tape_same relates two continuations
+#   that agree on every outcome, for proofs/http.bend.
 #
 # The statements use Tape, TapeStep, TapeOutcome and Observe of LAWS.bend,
 # so each statement here is the statement of the law it proves.
@@ -1375,6 +1376,46 @@ def read_tape_outcome(A, f, g, same, fuel, current):
         same((tape, Fail{error})))
     case 1n+p Tuple{tape, TC.NeedWord{draw}}:
       read_tape_outcome(A, f, g, same, p, TC.Draw.fed_by(Laws.Tape(), TC.Tape.next(tape), draw))
+
+# Two continuations that emit functions `f` and `g` of the driver's outcome
+# make Draw.read over Source.tape emit the same whenever `f` and `g` agree on
+# every outcome (`same`). Induction on the fuel, as read_tape_outcome, whose
+# body it repeats: the tape is linear, so this cannot be two uses of
+# read_tape_outcome on the same step joined by Equal.trans. proofs/http.bend
+# uses it for an adapter that follows the package's operation with its own
+# translation.
+law read_tape_same:
+  for -A: Type
+  for -f: Laws.TapeOutcome() -> A
+  for -g: Laws.TapeOutcome() -> A
+  for same: @outcome: Laws.TapeOutcome() -> {f(outcome) == g(outcome) : A}
+  for +fuel: Nat
+  for current: Laws.TapeStep()
+  {TC.Draw.read(~Laws.Tape(), ~TC.Source.tape, fuel, current)(A, step => Emit{f(TC.Draw.outcome(Laws.Tape(), step))}) ==
+    TC.Draw.read(~Laws.Tape(), ~TC.Source.tape, fuel, current)(A, step => Emit{g(TC.Draw.outcome(Laws.Tape(), step))}) :
+    IO.OP<A>}
+
+def read_tape_same(A, f, g, same, fuel, current):
+  match fuel current:
+    case 0n Tuple{tape, TC.Created{context}}:
+      Equal.cong(A, IO.OP<A>, value => Emit{value}, f((tape, Done{context})), g((tape, Done{context})),
+        same((tape, Done{context})))
+    case 0n Tuple{tape, TC.Failed{error}}:
+      Equal.cong(A, IO.OP<A>, value => Emit{value}, f((tape, Fail{error})), g((tape, Fail{error})),
+        same((tape, Fail{error})))
+    case 0n Tuple{tape, TC.NeedWord{draw}}:
+      Equal.cong(A, IO.OP<A>, value => Emit{value},
+        f(TC.Draw.outcome(Laws.Tape(), (tape, TC.NeedWord{draw}))),
+        g(TC.Draw.outcome(Laws.Tape(), (tape, TC.NeedWord{draw}))),
+        same(TC.Draw.outcome(Laws.Tape(), (tape, TC.NeedWord{draw}))))
+    case 1n+p Tuple{tape, TC.Created{context}}:
+      Equal.cong(A, IO.OP<A>, value => Emit{value}, f((tape, Done{context})), g((tape, Done{context})),
+        same((tape, Done{context})))
+    case 1n+p Tuple{tape, TC.Failed{error}}:
+      Equal.cong(A, IO.OP<A>, value => Emit{value}, f((tape, Fail{error})), g((tape, Fail{error})),
+        same((tape, Fail{error})))
+    case 1n+p Tuple{tape, TC.NeedWord{draw}}:
+      read_tape_same(A, f, g, same, p, TC.Draw.fed_by(Laws.Tape(), TC.Tape.next(tape), draw))
 
 # Law root_tape: generating a root as an IO action over a tape source
 # (Context.root_with with Source.tape) produces Draw.outcome of the pure

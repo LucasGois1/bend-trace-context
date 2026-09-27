@@ -1,0 +1,4 @@
+OK: a received header map keeps every value
+OK: a carrier becomes a header map
+OK: the shortcuts are the package's operations on a header map
+OK: many values need no deep stack

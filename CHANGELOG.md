@@ -8,8 +8,9 @@ generated IDs, Level 2 tracestate parsing within validated limits, tracestate
 updates and emission within the output budget, context extraction from a
 received message's fields, participant injection and transparent forwarding
 into the fields of a message to send, the continue-or-start and sending
-operations of a service, and qualified JavaScript/entropy boundaries; it is
-not a published release.
+operations of a service, an adapter for the native HTTP transport bend-net
+qualified against the W3C Trace Context harness, and qualified
+JavaScript/entropy boundaries; it is not a published release.
 
 - Preserve the pure Bend codec, dependent ID representation, universal
   round-trip and fixed-length proofs, independent protocol corpus and
@@ -139,6 +140,24 @@ not a published release.
   operation performs and what its outcome gives, that a restart keeps
   nothing of a received context, and that a message reports a new operation
   exactly when one was generated for it. A runnable example is added.
+- Add the native HTTP adapter `packages/trace-context/native_http.bend` for
+  bend-net's header maps, a Base `Map` from each field name to its values in
+  arrival order. `NativeHttp.carrier` and `NativeHttp.headers` translate a
+  map to the package's carrier and back; `NativeHttp.continue_or_start` and
+  `NativeHttp.send` take a service's operation from a received request's
+  map and give each request to send a new child, returning an `Outbound`
+  with the `Sent` diagnostics and the header map to send. The `*_with`
+  variants take a caller's source. The adapter imports only `Base` and the
+  package, and decides no Trace Context rule: laws prove that its carrier
+  keeps every value of every name in order, that the map it writes for a
+  carrier does too given the contract of Base's `Map`, and that its
+  shortcuts are the package's operations on that carrier. Its translations
+  are loops, so a head of 64 KiB needs no deep stack. `scripts/qualify-propagation.sh`
+  builds a service and the new gateway example from a pinned checkout, runs
+  them over bend-net against an independent observer, and runs the W3C
+  harness at commit `acab820` with `SPEC_LEVEL=2` and `STRICT_LEVEL=2`: 41
+  tests, none failed or skipped. Native CI jobs run it on macOS ARM64 and
+  Linux x86_64.
 - Document the sources for developers new to Bend. Every law in `LAWS.bend`
   states its claim in words, the W3C or specification requirement it verifies,
   its motivation and how to read it; `PROOF.bend` explains how to read a Bend
@@ -160,7 +179,8 @@ not a published release.
   no-redirect behavior and the listener's header-size limit. This is a
   development transport fixture, not Trace Context propagation or a tracer.
 
-Browser generation and HTTP/Fetch propagation are planned under
+Browser generation and HTTP integration in JavaScript and in browsers are
+planned under
 [specification #1](https://github.com/LucasGois1/bend-trace-context/issues/1).
 
 **Migration within 0.1.0-dev:** `Field` gains `SpanIdField{}`, so
@@ -168,8 +188,8 @@ Browser generation and HTTP/Fetch propagation are planned under
 constructor, or every `ZeroId{...}` case of `Error`, without a default case
 must handle it. Context creation reports the new `ContextError` type; `Error`
 itself gains no constructor. Tracestate, limits, updates, extraction,
-injection, forwarding and continue-or-start add new types and functions only;
-no existing name or behavior changes.
+injection, forwarding, continue-or-start and the native HTTP adapter add new
+types and functions only; no existing name or behavior changes.
 
 ## Versioning and compatibility
 
@@ -179,15 +199,16 @@ or `0.1.0-dev` does not identify an immutable artifact. No registry release or
 version tag has been published by this baseline.
 
 The documented Bend entries are `packages/trace-context/trace_context.bend`,
-which performs no host effect of its own, and
+which performs no host effect of its own,
 `packages/trace-context/generation.bend`, which generates on the host's
-cryptographic source. Their documented types, constructors, functions and
+cryptographic source, and `packages/trace-context/native_http.bend`, which
+adapts the header maps of the native HTTP transport bend-net. Their documented types, constructors, functions and
 error behavior form the current API contract. Internal parsing, generation
 machine (`Draw`/`Step`), tracestate reading machine (`Scan`/`Member`),
 extraction steps (`Carrier`, `Text`, `Read`, `Extract`), forwarding steps
-(`Forward`), continue-or-start and sending steps (`Policy`, `Serve`, `Send`)
-and proof helpers are not compatibility promises, even where Bend makes their
-names importable.
+(`Forward`), continue-or-start and sending steps (`Policy`, `Serve`, `Send`),
+the native HTTP adapter's `Headers` steps and proof helpers are not
+compatibility promises, even where Bend makes their names importable.
 
 The additional JavaScript inspection and entropy entries and their error
 contracts are documented in the [qualification guide](packages/trace-context/JAVASCRIPT.md).

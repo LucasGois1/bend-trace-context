@@ -1,6 +1,7 @@
 import Base
 import ./deps/bend-trace-context/packages/trace-context/trace_context.bend as TC
 import ./deps/bend-trace-context/packages/trace-context/generation.bend as Generate
+import ./deps/bend-trace-context/packages/trace-context/native_http.bend as NativeHttp
 
 # Independent W3C example; this file belongs to the application, not the package.
 def show(result: Result<&2, &2, TC.Error, TC.TraceParentV00>) -> IO(Unit):
@@ -503,6 +504,50 @@ def strict_service(words: Words(), +extraction: TC.Extraction) -> IO(Unit):
       ~TC.Source.tape, words, extraction, TC.Continue{}, TC.InheritSampled{}, TC.Strict{})
     IO.print("strict service: " ++ refusal(Pair.snd(Words(), Result<&2, &2, TC.GenerationError, TC.Service>, done)))
 
+# A bend-net header map through the native HTTP adapter: the received
+# request's context is continued, and the request sent on gets a child in
+# place of a reused container's old context fields.
+def http_joined.rest(values: List<&2, String>) -> String:
+  match values:
+    case Nil{}:
+      ""
+    case Con{value, rest}:
+      "," ++ value ++ http_joined.rest(rest)
+
+def http_joined(values: List<&2, String>) -> String:
+  match values:
+    case Nil{}:
+      "none"
+    case Con{value, rest}:
+      value ++ http_joined.rest(rest)
+
+# The values a header map holds under `name`, joined by commas.
+def http_values(+headers: Map<&2, List<&2, String>>, name: String) -> String:
+  http_joined(Pair.snd(Map<&2, List<&2, String>>, List<&2, String>, Map.get(List<&2, String>, Nil{}, headers, name)))
+
+def http_request(outbound: NativeHttp.Outbound) -> String:
+  match outbound:
+    case NativeHttp.Outbound{sent, +headers}:
+      TC.Sent.show(sent) ++ " | traceparent " ++ http_values(headers, "traceparent") ++ " | tracestate " ++
+        http_values(headers, "tracestate") ++ " | TraceParent " ++ http_values(headers, "TraceParent") ++
+        " | accept " ++ http_values(headers, "accept")
+
+def http_adapter() -> IO(Unit):
+  +limits = TC.Limits.default()
+  +received = Map.set(&2, List<&2, String>, Map.set(&2, List<&2, String>, Map.new(&2, List<&2, String>),
+    "traceparent", ["00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"]), "tracestate",
+    ["rojo=00f067aa0ba902b7", "congo=t61rcWkgMzE"])
+  do IO<Unit>:
+    served : Words() & TC.Service <- NativeHttp.continue_or_start_with(~Words(), ~TC.Source.tape,
+      [Done{15755178}, Done{195625655}], limits, received, None{}, TC.Continue{}, TC.InheritSampled{}, TC.Lenient{})
+    +service : TC.Service = Pair.snd(Words(), TC.Service, served)
+    Unit <- IO.print("http service: " ++ service_line(service))
+    sent : Words() & NativeHttp.Outbound <- NativeHttp.send_with(~Words(), ~TC.Source.tape,
+      [Done{1402559551}, Done{1120766680}], limits, service, TC.InheritSampled{}, TC.Lenient{},
+      Map.set(&2, List<&2, String>, Map.set(&2, List<&2, String>, Map.new(&2, List<&2, String>), "TraceParent",
+        ["00-5b8efff798038103d269b633813fc60c-eee19b7ec3c1b174-01"]), "accept", ["application/json"]))
+    IO.print("http request: " ++ http_request(Pair.snd(Words(), NativeHttp.Outbound, sent)))
+
 def continuation() -> IO(Unit):
   +limits = TC.Limits.default()
   do IO<Unit>:
@@ -537,4 +582,5 @@ def main() -> IO(Unit):
     Unit <- outgoing()
     Unit <- extraction()
     Unit <- injection()
-    continuation()
+    Unit <- continuation()
+    http_adapter()

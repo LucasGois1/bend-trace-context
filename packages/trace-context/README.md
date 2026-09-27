@@ -9,11 +9,13 @@ tracestate and emit it within the output budget, the extraction of a received
 message's context from its fields, the injection and forwarding of a context
 into the fields of a message to send, and the operations that continue or
 start a service's own operation for each message it receives and give each
-message it sends a child of that operation. It has no external package
+message it sends a child of that operation, with an adapter for the header
+maps of the native HTTP transport bend-net. It has no external package
 dependencies beyond the compiler's bundled `Base`. The public entries are
 [trace_context.bend](trace_context.bend), which performs no host effect of its
-own, and [generation.bend](generation.bend), which adds the host's
-cryptographic source.
+own, [generation.bend](generation.bend), which adds the host's cryptographic
+source, and [native_http.bend](native_http.bend), which adapts bend-net's
+header maps.
 See the root [installation guide](../../README.md) to consume them from a pinned
 Git checkout.
 
@@ -833,6 +835,159 @@ sent: Forwarded after SourceFailure 5 entropy unavailable | Host: inventory.inte
 strict, without entropy: refused after SourceFailure 5 entropy unavailable
 ```
 
+## Native HTTP integration
+
+[native_http.bend](native_http.bend) connects the package to bend-net, the
+native HTTP transport that this repository pins as the `vendor/bend-net`
+submodule and [qualifies](NATIVE-HTTP.md). bend-net keeps the header fields of
+a request or response in a Base `Map` from each field name to its values in
+arrival order; its parser lowercases the names and trims the values. The
+adapter turns such a map into the package's carrier and back, and gives a
+service two shortcuts. It decides no Trace Context rule itself, and it
+imports only `Base` and the package, so it builds wherever the package
+builds; the service imports bend-net for the transport. Names below are
+qualified by the aliases `NativeHttp` for native_http.bend, `TC` for
+trace_context.bend and `Http` for bend-net's `http.bend`:
+
+```bend
+NativeHttp.HeaderMap() -> Data   # Map<&2, List<&2, String>>, as bend-net's Req and Res hold
+NativeHttp.carrier(headers: NativeHttp.HeaderMap()) -> List<&2, TC.Header>
+NativeHttp.headers(carrier: List<&2, TC.Header>) -> NativeHttp.HeaderMap()
+NativeHttp.continue_or_start(limits: TC.Limits, headers: NativeHttp.HeaderMap(), base: Maybe<&2, TC.BaseContext>,
+  reception: TC.Reception, sampling: TC.Sampling, policy: TC.FailurePolicy) ->
+  IO(TC.FailurePolicy.result(policy, TC.Service))
+NativeHttp.send(limits: TC.Limits, service: TC.Service, sampling: TC.Sampling, policy: TC.FailurePolicy,
+  headers: NativeHttp.HeaderMap()) -> IO(TC.FailurePolicy.result(policy, NativeHttp.Outbound))
+NativeHttp.Outbound{sent: TC.Sent, headers: NativeHttp.HeaderMap()}
+NativeHttp.Outbound.sent(outbound: NativeHttp.Outbound) -> TC.Sent
+NativeHttp.Outbound.headers(outbound: NativeHttp.Outbound) -> NativeHttp.HeaderMap()
+NativeHttp.continue_or_start_with(~S, ~read, source: S, limits: TC.Limits, headers: NativeHttp.HeaderMap(),
+  base: Maybe<&2, TC.BaseContext>, reception: TC.Reception, sampling: TC.Sampling, policy: TC.FailurePolicy) ->
+  IO(S & TC.FailurePolicy.result(policy, TC.Service))
+NativeHttp.send_with(~S, ~read, source: S, limits: TC.Limits, service: TC.Service, sampling: TC.Sampling,
+  policy: TC.FailurePolicy, headers: NativeHttp.HeaderMap()) ->
+  IO(S & TC.FailurePolicy.result(policy, NativeHttp.Outbound))
+```
+
+- `carrier` gives every value of every name, in arrival order within each
+  name, so that extraction refuses a repeated traceparent and combines
+  repeated tracestate fields in order. The order between different names is
+  the map's own, and no Trace Context rule depends on it.
+- `headers` builds a map from a carrier that holds, under each name, the
+  carrier's values of that name in order, as bend-net's `Http.add` would add
+  them one by one, with the names as the carrier spells them. bend-net writes
+  one header line per value.
+- Both are loops, so the thousands of values that a head of 64 KiB can hold
+  need no deep stack.
+- `continue_or_start` gives the service's operation for a received request
+  from the request's header map: `TC.Context.extract` of the map's carrier,
+  followed by [`Context.continue_or_start`](#continuing-or-starting-a-trace).
+- `send` gives one request to send a new child of the service's operation:
+  `Context.send` on the carrier of the request's own header map, followed by
+  the map of the carrier the package gives back. The request's old context
+  fields go, whatever the case of their names. The `Outbound` holds the
+  `TC.Sent` diagnostics and the header map to send the request with.
+- `continue_or_start_with` and `send_with` take a caller's source, as the
+  package's own operations do.
+
+A service handles each request in three steps:
+
+```bend
++service : TC.Service <- NativeHttp.continue_or_start(TC.Limits.default(), headers, None{}, TC.Continue{},
+  TC.InheritSampled{}, TC.Lenient{})
++outbound : NativeHttp.Outbound <- NativeHttp.send(TC.Limits.default(), service, TC.InheritSampled{},
+  TC.Lenient{}, Http.set(Http.empty(), "content-type", "application/json"))
+result : Result<&2, &2, Http.Err, Http.Res> <- Http.fetch.how("POST", url,
+  NativeHttp.Outbound.headers(outbound), body, 3000, Http.ModeManual{})
+```
+
+`continue_or_start` returns only the service. A service that also logs why
+it continued or started a trace, which spec #1's diagnostics distinguish
+(an absent or a rejected traceparent, a discarded state), extracts first and
+passes the extraction on, as the [gateway example](examples/gateway.bend)
+does:
+
+```bend
++extraction = TC.Context.extract(TC.Limits.default(), NativeHttp.carrier(headers), None{})
++service : TC.Service <- Generate.Context.continue_or_start(extraction, TC.Continue{}, TC.InheritSampled{},
+  TC.Lenient{})
+```
+
+and logs `TC.Extraction.show(extraction)` with the other diagnostics.
+
+Errors are handled at three levels:
+
+- Tracing never fails a request under `TC.Lenient{}`. Without entropy, the
+  request sent on forwards the received pair unchanged or carries no context
+  fields, and `TC.Sent.show` says which. Under `TC.Strict{}` both shortcuts
+  return `Fail{GenerationError}`, so that the service can refuse the request,
+  for example with a 503.
+- The transport reports its own failures: `Http.fetch.how` returns an
+  `Http.Err`, which the adapter plays no part in.
+- A service logs `TC.Service.show` and `TC.Sent.show`, which hold no received
+  value. Neither the package nor the adapter logs anything.
+
+Support boundaries:
+
+- The supported path is native Bend 2.0.27 on macOS ARM64 and Linux x86_64,
+  with bend-net at the pinned commit. bend-net's own JavaScript transport,
+  which runs on Bun, is not qualified. JavaScript HTTP integration belongs to
+  [#13](https://github.com/LucasGois1/bend-trace-context/issues/13) and the
+  browser to [#14](https://github.com/LucasGois1/bend-trace-context/issues/14).
+- An application that uses the adapter clones the repository with its
+  submodules: `git clone --recurse-submodules`, or
+  `git submodule update --init --recursive` in an existing checkout.
+- bend-net's server lowercases names and trims values before the package
+  sees them; extraction reads the rest. It refuses a request head over
+  64 KiB with 431 before any Trace Context code runs, whatever the package's
+  input budgets allow.
+- bend-net's client lowercases the names of the map it sends, so of two keys
+  that differ only in case it sends one, and it drops `host`, `connection`,
+  `content-length` and `transfer-encoding`, which it writes itself. The
+  context fields that the package writes have lowercase names already.
+- bend-net follows redirects by default. `Http.ModeManual{}` keeps each call a
+  single operation, so that a redirect is not sent with the same child.
+
+The gateway listens on `127.0.0.1:18777` and calls
+`http://127.0.0.1:18776/downstream`. From the repository root, build it and
+start an observer that prints what reaches downstream:
+
+```sh
+git submodule update --init --recursive
+./bend packages/trace-context/examples/gateway.bend -o build/gateway
+OBSERVER_PORT=18776 node tests/native/fixtures/observer.mjs
+```
+
+Then, in two more terminals, start `build/gateway` and send it a traced
+request and an untraced one:
+
+```sh
+curl -X POST http://127.0.0.1:18777/orders -H 'traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01' -H 'tracestate: congo=t61rcWkgMzE' -d '{"order":1}'
+curl -X POST http://127.0.0.1:18777/orders -d '{"order":2}'
+```
+
+The gateway logs its diagnostics, and the observer receives children of the
+client's operation and of a new root. Each run prints new span IDs:
+
+```text
+POST /orders: TraceParentAccepted, StateAccepted; Continued, downstream Fresh
+POST /orders: TraceParentAbsent, StateAbsent; Started, downstream Fresh
+```
+
+```text
+POST /downstream {"order":1}
+  traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-<new span ID>-01
+  tracestate: congo=t61rcWkgMzE
+POST /downstream {"order":2}
+  traceparent: 00-<new trace ID>-<new span ID>-02
+```
+
+`./scripts/qualify-propagation.sh` builds a service on the adapter from a
+pinned checkout and runs the
+[W3C Trace Context harness](https://github.com/w3c/trace-context/tree/acab820be9db7b3433668baa5cdd43f57f4c4be0/test)
+against it, together with the repository's own checks; the
+[native HTTP guide](NATIVE-HTTP.md) describes both.
+
 ## Parsing contract
 
 - Exactly 55 characters, version `00`, lowercase ASCII hexadecimal, and dashes
@@ -1020,6 +1175,16 @@ every value of their types, not over examples:
   reads no word. Stated on its own, a message reports a new operation
   exactly when one was generated for it, and that is the operation it
   reports, whatever the policy.
+- **Native HTTP headers:** the carrier that `NativeHttp.carrier` reads from a
+  header map holds, under every name, exactly the values that the map's
+  entries hold under it, in the same order, and the map that
+  `NativeHttp.headers` writes for a carrier holds, under every name, the
+  carrier's values of that name, given the contract of Base's `Map` as
+  hypotheses. For every tape,
+  `NativeHttp.continue_or_start_with` is the package's continue-or-start on
+  the extraction of that carrier, and `NativeHttp.send_with` is the package's
+  send on it followed by `NativeHttp.headers` of the carrier that the package
+  gives back, so the adapter adds no Trace Context behavior of its own.
 
 The generation laws quantify over tapes, that is, over every sequence of word
 results. The host source runs through the same driver with its effect in
@@ -1044,7 +1209,11 @@ performs. That sibling messages get different span IDs rests on the words
 the source gives: the corpus shows it for replayed words and the example and
 the consumer for the host's, but no law states it. The fields a message
 sends follow from these laws with those of injection, forwarding and
-cleanup.
+cleanup. What Base's `Map` stores, lists and looks up is Base's behavior,
+which Base proves nothing about: the native HTTP laws take the map's list of
+entries as given, and assume that a list set under a key is found under it
+and leaves the other keys as they were. The adapter's corpus and the HTTP
+qualification exercise Base's side.
 
 Auxiliary universal proofs cover hexadecimal and character decoding, encoded
 lengths, reading an encoded sequence while preserving its suffix, recovery of a
@@ -1128,6 +1297,34 @@ at a boundary, for a root, for a base, after a discarded state and for
 spec #1's 600-octet state. Each case checks how many words were left unread,
 and the diagnostics, truncation included, contain no received value.
 
+The [native HTTP header corpus](tests/NATIVE-HTTP.bend) reads received header
+maps with repeated traceparent and tracestate values, writes carriers with
+repeated and mixed-case names back into maps, and runs both shortcuts over
+replayed tapes: a continued request, a child sent in place of a reused
+container's old context fields, whatever the case of their names, the
+forwarded pair, the cleared fields and a strict failure.
+
+The [propagation qualification](../../scripts/qualify-propagation.sh) builds
+a service on the adapter and the gateway example from a pinned checkout of
+the repository, and runs them over the real bend-net transport. Its own
+checks, against an independent Node observer, cover:
+
+- sampled `0` and every combination of the sampled and random-trace-id flags;
+- roots, restarts and fan-out;
+- repeated injection into reused containers with stale context fields;
+- a discarded state, with diagnostics that hold no received value;
+- source failures for the service's operation and for each child, and
+  exhausted candidates, which forward the received pair or clear the
+  context;
+- strict refusals;
+- the gateway example.
+
+It then runs the W3C harness at commit `acab820` with `SPEC_LEVEL=2` and
+`STRICT_LEVEL=2`: `TraceContextTest`, `AdvancedTest` and `TraceContext2Test`,
+41 tests, of which none may fail, error or be skipped. Passing this finite
+harness shows interoperability in the scenarios it runs, not conformance to
+the whole W3C publication.
+
 The [generation corpus](tests/GENERATION.bend) replays tapes through the public
 operations: conversion vectors in decimal for the W3C example words, the digit
 order within a word, zero then valid candidates, eight zero candidates with no ninth read, a 48-word
@@ -1149,8 +1346,8 @@ The planned propagator targets the pinned
 [Level 2 Candidate Recommendation Draft](https://www.w3.org/TR/2024/CRD-trace-context-2-20240328/).
 The random-trace-id flag `0x02` still uses wire version `00`.
 
-This package does not yet implement browser generation or HTTP/browser
-integration. Its faithful formatter does not mask reserved bits of a parsed
+This package does not yet implement browser generation, or HTTP
+integration in JavaScript and in browsers. Its faithful formatter does not mask reserved bits of a parsed
 value; `LocalContext.to_traceparent` emits only known flags. There is no claim of
 complete W3C propagator conformance or a full OpenTelemetry SDK.
 
