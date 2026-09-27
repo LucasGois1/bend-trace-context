@@ -76,7 +76,7 @@
 #    3. Local contexts and flags       from_ids ... received_flags
 #    4. Children and restarts          sampling ... restart_accepts
 #    5. Identifiers from source words  trace_words ... words_unasserted
-#    6. Generation from a source       feed_failure ... generated_restart
+#    6. Generation from a source       feed_failure ... generation_drive
 #    7. Limits                         limits_bounds ... default_limits
 #    8. Tracestate keys and values     key_parse ... value_separators
 #    9. Tracestate states and lookups  state_valid, get_entry, get_absent
@@ -85,8 +85,8 @@
 #       emission
 #   12. Extraction                     extract_absent ... read_within_budgets
 #   13. Injection and forwarding       clear_carrier ... forward_idempotent
-#   14. Continuing or starting, and    continue_usable ...
-#       sending                        send_reports_generated
+#   14. Continuing or starting, and    continue_usable ... hosted_send
+#       sending
 #   15. Native HTTP headers            http_carrier ... http_send
 
 import Base
@@ -817,6 +817,61 @@ law generated_restart:
     Trace.TraceId.to_string(Trace.RemoteContext.trace_id(previous)) : String} &
   {Trace.TraceId.is_random(Trace.LocalContext.trace_id(created)) == True{} : Bool} &
   {Trace.LocalContext.is_sampled(created) == False{} : Bool}
+
+# The loop of a host that drives a generation itself, one word at a time,
+# as JavaScript code calling the package does with WebCrypto words: while
+# Generation.needs says the generation needs a word, feed it the tape's next
+# word; then take the generation's result. An empty tape gives the failure
+# that Source.tape gives, 1 tape-exhausted. `steps` bounds the loop, as Bend
+# requires for termination; generation_drive shows that the bound makes no
+# difference once it covers the generation's budget, so a loop without one
+# ends by itself.
+def host.loop(steps: Nat, needs: Bool, tape: Tape(), +generation: Trace.Generation) -> TapeOutcome():
+  match steps needs tape:
+    case 0n _ _:
+      (tape, Trace.Generation.result(generation))
+    case 1n+p False{} _:
+      (tape, Trace.Generation.result(generation))
+    case 1n+p True{} Nil{}:
+      +next = Trace.Generation.feed(generation, Fail{(1, "tape-exhausted")})
+      host.loop(p, Trace.Generation.needs(next), Nil{}, next)
+    case 1n+p True{} Con{word, rest}:
+      +next = Trace.Generation.feed(generation, word)
+      host.loop(p, Trace.Generation.needs(next), rest, next)
+
+def host(steps: Nat, tape: Tape(), +generation: Trace.Generation) -> TapeOutcome():
+  host.loop(steps, Trace.Generation.needs(generation), tape, generation)
+
+# The host's loop bounded by the generation's own budget.
+def host.drive(tape: Tape(), generation: Trace.Generation) -> TapeOutcome():
+  match generation:
+    case Trace.Generation{+fuel, step}:
+      host(fuel, tape, Trace.Generation{fuel, step})
+
+# LAW generation_drive
+#   Claim: a host that feeds a generation the next word of its source while
+#     Generation.needs says it needs one reads the same words, in order, and
+#     gets the same result as the pure driver Draw.run with the generation's
+#     budget, whatever bound its loop has beyond that budget: the loop ends
+#     by itself.
+#   Requirement: ticket #13, "without a second protocol implementation": a
+#     JavaScript host feeds WebCrypto words to the package's machine instead
+#     of generating identifiers itself; spec #1, "Allow an explicit caller
+#     provider".
+#   Why: with root_tape and its siblings, the generation a host drives is the
+#     IO operation that every other generation law describes, candidate
+#     rules, budgets and failures included.
+#   Reading: Generation{fuel, step} is a generation with `fuel` words of
+#     budget left; Generation.root, child and restart start with 48, 16 and
+#     48. host is defined above, and `extra` is any additional bound.
+#   Proof: Laws.generation_drive, via proofs/generation.bend.
+law generation_drive:
+  for fuel: Nat
+  for tape: Tape()
+  for step: Trace.Step
+  for extra: Nat
+  {host(Nat.add(fuel, extra), tape, Trace.Generation{fuel, step}) ==
+    Trace.Draw.outcome(Tape(), Trace.Draw.run(fuel, (tape, step))) : TapeOutcome()}
 
 # Tracestate
 # ----------
@@ -2868,6 +2923,69 @@ law send_reports_generated:
     Trace.Context.send_with(~Tape(), ~Trace.Source.tape, tape, limits, service, sampling, policy, carrier),
     done => IO.pure(Maybe<&2, Trace.LocalContext>, reported(policy, done)))) ==
     Emit{sent_child(tape, service, sampling)} : IO.OP<Maybe<&2, Trace.LocalContext>>}
+
+# What a host that drives a plan's generation itself makes of it, as
+# JavaScript code calling the package does: the host's loop of section 6
+# over the plan's generation (host.drive), ServicePlan.service or
+# SendPlan.sent of the result, and the policy as Policy.apply takes it, the
+# value itself under Lenient{} and Serve.strict or Send.strict of it under
+# Strict{}.
+def host_service.done(+policy: Trace.FailurePolicy, +plan: Trace.ServicePlan, outcome: TapeOutcome()) ->
+  TapeService(policy):
+  (rest, result) = outcome
+  (rest, Trace.Policy.apply(policy, Trace.Service, Trace.Serve.strict, Trace.ServicePlan.service(plan, result)))
+
+def host_service(+policy: Trace.FailurePolicy, tape: Tape(), +plan: Trace.ServicePlan) -> TapeService(policy):
+  host_service.done(policy, plan, host.drive(tape, Trace.ServicePlan.generation(plan)))
+
+def host_sent.done(+policy: Trace.FailurePolicy, +plan: Trace.SendPlan, outcome: TapeOutcome()) -> TapeSent(policy):
+  (rest, result) = outcome
+  (rest, Trace.Policy.apply(policy, Trace.Sent, Trace.Send.strict, Trace.SendPlan.sent(plan, result)))
+
+def host_sent(+policy: Trace.FailurePolicy, tape: Tape(), +plan: Trace.SendPlan) -> TapeSent(policy):
+  host_sent.done(policy, plan, host.drive(tape, Trace.SendPlan.generation(plan)))
+
+# LAW hosted_service
+#   Claim: for every tape, message, reception, sampling and policy, a host
+#     that takes the plan of ServicePlan.new, drives its generation itself
+#     and hands the result to ServicePlan.service gets the service that
+#     Context.continue_or_start_with gives, reading the same words.
+#   Requirement: ticket #13, "Deliver ready generation, extraction,
+#     injection, forwarding and failure handling through the shared facade
+#     without a second protocol implementation".
+#   Why: every law of this section then holds of a host that drives the
+#     plans itself. The JavaScript facade is such a host; that its code
+#     follows this path is tested, not proved.
+#   Reading: host_service is defined above.
+#   Proof: Laws.hosted_service, via proofs/continue.bend.
+law hosted_service:
+  for tape: Tape()
+  for +extraction: Trace.Extraction
+  for reception: Trace.Reception
+  for sampling: Trace.Sampling
+  for +policy: Trace.FailurePolicy
+  {Observe(TapeService(policy), Trace.Context.continue_or_start_with(~Tape(), ~Trace.Source.tape, tape, extraction,
+    reception, sampling, policy)) ==
+    Emit{host_service(policy, tape, Trace.ServicePlan.new(extraction, reception, sampling))} :
+    IO.OP<TapeService(policy)>}
+
+# LAW hosted_send
+#   Claim: as hosted_service, for a message sent: a host that takes the plan
+#     of SendPlan.new, drives its generation itself and hands the result to
+#     SendPlan.sent gets the message that Context.send_with gives, reading
+#     the same words, none for a service without an operation.
+#   Requirement and Why: as for hosted_service.
+#   Proof: Laws.hosted_send, via proofs/continue.bend.
+law hosted_send:
+  for tape: Tape()
+  for +limits: Trace.Limits
+  for service: Trace.Service
+  for sampling: Trace.Sampling
+  for +policy: Trace.FailurePolicy
+  for +carrier: List<&2, Trace.Header>
+  {Observe(TapeSent(policy), Trace.Context.send_with(~Tape(), ~Trace.Source.tape, tape, limits, service, sampling,
+    policy, carrier)) ==
+    Emit{host_sent(policy, tape, Trace.SendPlan.new(limits, service, sampling, carrier))} : IO.OP<TapeSent(policy)>}
 
 # 15. Native HTTP headers
 # =======================

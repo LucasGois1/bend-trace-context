@@ -9,8 +9,9 @@ updates and emission within the output budget, context extraction from a
 received message's fields, participant injection and transparent forwarding
 into the fields of a message to send, the continue-or-start and sending
 operations of a service, an adapter for the native HTTP transport bend-net
-qualified against the W3C Trace Context harness, and qualified
-JavaScript/entropy boundaries; it is not a published release.
+qualified against the W3C Trace Context harness, a JavaScript facade for Node
+with `node:http` integration qualified against the same harness, and
+qualified JavaScript/entropy boundaries; it is not a published release.
 
 - Preserve the pure Bend codec, dependent ID representation, universal
   round-trip and fixed-length proofs, independent protocol corpus and
@@ -158,6 +159,39 @@ JavaScript/entropy boundaries; it is not a published release.
   harness at commit `acab820` with `SPEC_LEVEL=2` and `STRICT_LEVEL=2`: 41
   tests, none failed or skipped. Native CI jobs run it on macOS ARM64 and
   Linux x86_64.
+- Add a JavaScript facade for Node 22 and 24, the `bend-trace-context`
+  package in `packages/trace-context`, installed from a pinned checkout with
+  `npm install` and run on the official Bend module loader, without Bun. It
+  mirrors the package's operations with plain JavaScript data:
+  - `extract`, `continueOrStart` and `send`;
+  - `inject`, `forward`, `clear` and `outgoing`;
+  - `getState`, `setState` and `removeState`;
+  - `root`, `child`, `restart` and `limits`;
+  - `rootFromIds`, `fromIds`, `childFromId` and `restartFromIds` for
+    identifiers that the application supplies.
+
+  The package's values stay behind frozen handles that only the facade
+  creates, named after the package's types, so copied or forged objects are
+  refused, and arguments are read once. It needs Node 22.18.0 or later, or
+  Node 24, whose type stripping runs the loader. Generation reads
+  WebCrypto words one at a time, and the policies follow the package: the
+  lenient path proceeds with diagnostics, and the strict one throws a
+  `GenerationError`. `bend-trace-context/node` reads received `node:http`
+  requests from their raw header lines and writes the headers of requests to
+  send; `fetch` takes the fields directly.
+- Give hosts that feed words themselves a pure form of the generating
+  operations in `trace_context.bend`: `Generation` with `needs`, `feed` and
+  `result`, and the plans `ServicePlan` and `SendPlan`, on which
+  `Context.continue_or_start_with` and `Context.send_with` now run. Prove 3
+  new laws, 115 in all: a host's loop reads the words that the pure driver
+  reads and gets its result, and a host that drives the plans gets what the
+  IO operations give, for every tape and under both policies.
+- `scripts/qualify-propagation.sh` takes a mode, `native` or `node`. The
+  `node` mode installs the facade from a pinned checkout into a Node service
+  and runs the same propagation checks, a JavaScript twin of the gateway
+  example and the W3C harness, 41 tests; Node CI jobs run it on Node 22 and
+  24. `scripts/test-consumer.sh node` also installs and runs the facade from
+  the pinned clone, with the root README's JavaScript example.
 - Document the sources for developers new to Bend. Every law in `LAWS.bend`
   states its claim in words, the W3C or specification requirement it verifies,
   its motivation and how to read it; `PROOF.bend` explains how to read a Bend
@@ -179,8 +213,7 @@ JavaScript/entropy boundaries; it is not a published release.
   no-redirect behavior and the listener's header-size limit. This is a
   development transport fixture, not Trace Context propagation or a tracer.
 
-Browser generation and HTTP integration in JavaScript and in browsers are
-planned under
+Browser generation and propagation are planned under
 [specification #1](https://github.com/LucasGois1/bend-trace-context/issues/1).
 
 **Migration within 0.1.0-dev:** `Field` gains `SpanIdField{}`, so
@@ -188,8 +221,12 @@ planned under
 constructor, or every `ZeroId{...}` case of `Error`, without a default case
 must handle it. Context creation reports the new `ContextError` type; `Error`
 itself gains no constructor. Tracestate, limits, updates, extraction,
-injection, forwarding, continue-or-start and the native HTTP adapter add new
-types and functions only; no existing name or behavior changes.
+injection, forwarding, continue-or-start, the native HTTP adapter and
+host-driven generation add new types and functions only; no public name or
+behavior changes. Internal helpers behind continue-or-start and sending
+changed, as internal helpers may. `scripts/qualify-propagation.sh` now takes
+the mode before the commit, and its evidence moved to
+`build/propagation-native/`.
 
 ## Versioning and compatibility
 

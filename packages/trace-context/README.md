@@ -10,12 +10,14 @@ message's context from its fields, the injection and forwarding of a context
 into the fields of a message to send, and the operations that continue or
 start a service's own operation for each message it receives and give each
 message it sends a child of that operation, with an adapter for the header
-maps of the native HTTP transport bend-net. It has no external package
-dependencies beyond the compiler's bundled `Base`. The public entries are
-[trace_context.bend](trace_context.bend), which performs no host effect of its
-own, [generation.bend](generation.bend), which adds the host's cryptographic
-source, and [native_http.bend](native_http.bend), which adapts bend-net's
-header maps.
+maps of the native HTTP transport bend-net and a JavaScript facade for Node.
+It has no external package dependencies beyond the compiler's bundled `Base`.
+The public entries are [trace_context.bend](trace_context.bend), which
+performs no host effect of its own, [generation.bend](generation.bend), which
+adds the host's cryptographic source, [native_http.bend](native_http.bend),
+which adapts bend-net's header maps, and the JavaScript modules of
+[javascript](javascript), which the [JavaScript guide](JAVASCRIPT.md)
+documents.
 See the root [installation guide](../../README.md) to consume them from a pinned
 Git checkout.
 
@@ -230,7 +232,9 @@ and `from_words` returns `None{}` for an all-zero candidate. Like parsing,
 `TraceId.from_words` makes no randomness assertion; add one with
 `TraceId.assert_random` only when the words are random. The `Draw`/`Step`
 machine that the operations share is stated in the laws but is internal, like
-the parsing helpers: it is not a compatibility contract.
+the parsing helpers: it is not a compatibility contract. A host that feeds
+words itself drives it through `Generation`, described in
+[Host-driven generation](#host-driven-generation).
 
 ## Tracestate
 
@@ -835,6 +839,62 @@ sent: Forwarded after SourceFailure 5 entropy unavailable | Host: inventory.inte
 strict, without entropy: refused after SourceFailure 5 entropy unavailable
 ```
 
+## Host-driven generation
+
+The operations above read their words from a source that they drive
+themselves: the host's, or one that a caller passes as a template. A host
+that cannot pass a source as a template feeds the words itself, as
+JavaScript code calling the package through the official loader does: the
+loader runs no IO operation and exports no definition that takes a
+template. The [JavaScript facade](JAVASCRIPT.md) is such a host. The package gives
+such a host a pure form of each generating operation. Names below are
+qualified by the alias `TC` for trace_context.bend:
+
+```bend
+TC.Generation.root() -> TC.Generation
+TC.Generation.child(parent: TC.Parent, sampling: TC.Sampling) -> TC.Generation
+TC.Generation.restart(previous: TC.RemoteContext) -> TC.Generation
+TC.Generation.needs(generation: TC.Generation) -> Bool
+TC.Generation.feed(generation: TC.Generation, word: Result<&1, &1, U32 & String, U32>) -> TC.Generation
+TC.Generation.result(generation: TC.Generation) -> Result<&2, &2, TC.GenerationError, TC.LocalContext>
+TC.ServicePlan.new(extraction: TC.Extraction, reception: TC.Reception, sampling: TC.Sampling) -> TC.ServicePlan
+TC.ServicePlan.generation(plan: TC.ServicePlan) -> TC.Generation
+TC.ServicePlan.service(plan: TC.ServicePlan, result: Result<&2, &2, TC.GenerationError, TC.LocalContext>) ->
+  TC.Service
+TC.SendPlan.new(limits: TC.Limits, service: TC.Service, sampling: TC.Sampling, carrier: List<&2, TC.Header>) ->
+  TC.SendPlan
+TC.SendPlan.generation(plan: TC.SendPlan) -> TC.Generation
+TC.SendPlan.sent(plan: TC.SendPlan, result: Result<&2, &2, TC.GenerationError, TC.LocalContext>) -> TC.Sent
+```
+
+- A `Generation` holds the machine's step with the words it may still read:
+  48 for a root or a restart and 16 for a child. Its fields are internal,
+  like the machine's, so a host builds one only with `Generation.root`,
+  `Generation.child` or `Generation.restart`. While `Generation.needs` says
+  it needs a word, the host reads one word result from its source and
+  passes it to `Generation.feed`; `Generation.result` then gives the
+  context or the `GenerationError`. A generation that has ended ignores
+  further words, and one whose budget is spent needs none.
+- `ServicePlan.new` decides what `Context.continue_or_start_with` does for a
+  message before it reads any word: which generation to drive, and what its
+  result makes of the service. `ServicePlan.service` gives that service,
+  before the policy applies.
+- `SendPlan.new` decides the same for a message to send. A service without an
+  operation has nothing to generate: its plan's generation has already
+  failed with the service's error, so the host reads no word, and
+  `SendPlan.sent` gives the fallback.
+- Under `Strict{}`, a host applies the policy as the operations do: a
+  service without an operation, or a message without a new one, becomes the
+  `GenerationError` that caused it.
+
+`Context.continue_or_start_with` and `Context.send_with` run on these plans
+themselves, and `Context.root_with` and its siblings on
+`Generation.run_with`. Law `generation_drive` shows that a host's loop reads
+the same words, in order, and gets the same result as the pure driver that
+the other generation laws describe. Laws `hosted_service` and `hosted_send`
+show that a host that drives the plans gets what the IO operations give, for
+every sequence of words.
+
 ## Native HTTP integration
 
 [native_http.bend](native_http.bend) connects the package to bend-net, the
@@ -931,9 +991,10 @@ Support boundaries:
 
 - The supported path is native Bend 2.0.27 on macOS ARM64 and Linux x86_64,
   with bend-net at the pinned commit. bend-net's own JavaScript transport,
-  which runs on Bun, is not qualified. JavaScript HTTP integration belongs to
-  [#13](https://github.com/LucasGois1/bend-trace-context/issues/13) and the
-  browser to [#14](https://github.com/LucasGois1/bend-trace-context/issues/14).
+  which runs on Bun, is not qualified. JavaScript applications on Node use
+  the [facade's `node:http` integration](JAVASCRIPT.md#node-http-integration)
+  instead, and the browser belongs to
+  [#14](https://github.com/LucasGois1/bend-trace-context/issues/14).
 - An application that uses the adapter clones the repository with its
   submodules: `git clone --recurse-submodules`, or
   `git submodule update --init --recursive` in an existing checkout.
@@ -1185,10 +1246,21 @@ every value of their types, not over examples:
   the extraction of that carrier, and `NativeHttp.send_with` is the package's
   send on it followed by `NativeHttp.headers` of the carrier that the package
   gives back, so the adapter adds no Trace Context behavior of its own.
+- **Host-driven generation:** for every generation and tape, a host that feeds
+  the next word while `Generation.needs` says so reads the same words and
+  gets the same result as the pure driver with the generation's budget,
+  whatever bound its loop has beyond that budget. For every tape, a host that
+  drives the plans of `ServicePlan.new` and `SendPlan.new` and applies the
+  policy gets the service and the message that `continue_or_start_with` and
+  `send_with` give, under both policies, so the laws of both operations hold
+  of that host path. The JavaScript facade follows it; its own code is
+  tested, not proved.
 
 The generation laws quantify over tapes, that is, over every sequence of word
 results. The host source runs through the same driver with its effect in
-`read`; that path is tested, not proved. The tracestate laws quantify over
+`read`, and the JavaScript facade feeds WebCrypto words to the host-driven
+form, whose loop and plans the laws cover; what a host source gives is
+tested, not proved. The tracestate laws quantify over
 every state, entry and limits, and over any optional whitespace around a
 normalized value. Whitespace and empty members between members, other inputs
 that are not normalized values, the character classes, the octet width of each
@@ -1304,10 +1376,12 @@ replayed tapes: a continued request, a child sent in place of a reused
 container's old context fields, whatever the case of their names, the
 forwarded pair, the cleared fields and a strict failure.
 
-The [propagation qualification](../../scripts/qualify-propagation.sh) builds
-a service on the adapter and the gateway example from a pinned checkout of
-the repository, and runs them over the real bend-net transport. Its own
-checks, against an independent Node observer, cover:
+The [propagation qualification](../../scripts/qualify-propagation.sh) takes a
+service and the gateway example from a pinned checkout of the repository, as
+an application would: in `native` mode it builds them on the adapter and
+runs them over the real bend-net transport, and in `node` mode it installs
+the [JavaScript facade](JAVASCRIPT.md) into a Node service and runs them over
+`node:http`. Its own checks, against an independent Node observer, cover:
 
 - sampled `0` and every combination of the sampled and random-trace-id flags;
 - roots, restarts and fan-out;
@@ -1319,9 +1393,9 @@ checks, against an independent Node observer, cover:
 - strict refusals;
 - the gateway example.
 
-It then runs the W3C harness at commit `acab820` with `SPEC_LEVEL=2` and
-`STRICT_LEVEL=2`: `TraceContextTest`, `AdvancedTest` and `TraceContext2Test`,
-41 tests, of which none may fail, error or be skipped. Passing this finite
+In both modes it then runs the W3C harness at commit `acab820` with
+`SPEC_LEVEL=2` and `STRICT_LEVEL=2`: `TraceContextTest`, `AdvancedTest` and
+`TraceContext2Test`, 41 tests, of which none may fail, error or be skipped. Passing this finite
 harness shows interoperability in the scenarios it runs, not conformance to
 the whole W3C publication.
 
@@ -1336,7 +1410,9 @@ The [smoke check](tests/SMOKE.bend), the
 [continue example](examples/continue.bend) generate on the real host source;
 they check only that the results are well formed and that generated IDs are
 new where they must be. The JavaScript suite runs a compiled
-root through WebCrypto with real host exceptions and counts the words read.
+root through WebCrypto with real host exceptions and counts the words read,
+and runs the facade's generations on deterministic sources, counting the
+words they read, and on actual WebCrypto exceptions.
 The [validation guide](../../README.md#validation) describes reproducible
 commands and the separate clean consumer.
 

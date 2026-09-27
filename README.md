@@ -18,9 +18,11 @@ its own operation for each message it receives, a child for each message it
 sends, and a lenient or strict outcome when an identifier cannot be
 generated. Over the native HTTP transport bend-net, a service built on the
 package's adapter passes the W3C Trace Context harness at its pinned commit.
-Browser generation and HTTP integration in JavaScript and in browsers are not
-implemented yet. Pure JavaScript module consumption and a WebCrypto source are
-qualified separately below. No BendHub package has been published.
+On Node 22 and 24, a JavaScript facade gives JavaScript applications the same
+operations, with WebCrypto as the identifier source and `node:http`
+integration, and a Node service built on it passes the same harness. Browser
+generation and propagation are not implemented yet. No BendHub or npm
+package has been published.
 
 ## Try the codec
 
@@ -167,6 +169,56 @@ Read the [API and error reference](packages/trace-context/README.md) for strict
 parsing semantics, typed values, generation rules and proof scope. See
 [versioning and migration policy](CHANGELOG.md) before updating a dependency pin.
 
+### From JavaScript
+
+The package's JavaScript facade runs on Node 22.18.0 or later, or Node 24,
+through the official Bend module loader. In the pinned checkout above, install the loader, then
+install the facade into your project as the `bend-trace-context` package:
+
+```sh
+./deps/bend-trace-context/scripts/setup-bend-source.sh
+npm install ./deps/bend-trace-context/packages/trace-context
+```
+
+Create `main.mjs` in your project:
+
+<!-- test:readme-javascript:start -->
+```js
+import * as TC from 'bend-trace-context';
+
+// The fields of a received request, in their order.
+const extraction = TC.extract([
+  ['traceparent', '00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01'],
+  ['tracestate', 'congo=t61rcWkgMzE'],
+]);
+// The service's own operation for the request, and a child of it for a
+// request that the service sends, with that request's own fields.
+const service = TC.continueOrStart(extraction);
+const sent = TC.send(service, [['content-type', 'application/json']]);
+console.log(extraction.show);
+console.log(service.show, service.outgoing.context.traceId);
+console.log(sent.show, sent.fields.map(([name]) => name).join(' '));
+```
+<!-- test:readme-javascript:end -->
+
+Then run
+`node --import ./deps/bend-trace-context/.tools/bend-source-2.0.27/bend2/main.ts main.mjs`.
+The service continues the received trace, and the request it sends carries a
+child of the service's operation with the received state. The span IDs are
+generated anew on each run, so the example prints only what does not change:
+
+```text
+TraceParentAccepted, StateAccepted
+Continued 4bf92f3577b34da6a3ce929d0e0e4736
+Fresh content-type traceparent tracestate
+```
+
+`bend-trace-context/node` reads the fields of a `node:http` request and
+writes the headers of one to send. The
+[JavaScript guide](packages/trace-context/JAVASCRIPT.md) documents the facade,
+its errors, its Node HTTP integration, its runtime requirements and the
+[gateway example](packages/trace-context/examples/gateway.mjs).
+
 ## Validation
 
 ```sh
@@ -175,8 +227,10 @@ parsing semantics, typed values, generation rules and proof scope. See
 ./scripts/test-installer.sh
 ./scripts/test-consumer.sh native
 ./scripts/test-consumer.sh node
+./scripts/qualify-js.sh node
 ./scripts/qualify-native-http.sh
-./scripts/qualify-propagation.sh
+./scripts/qualify-propagation.sh native
+./scripts/qualify-propagation.sh node
 ```
 
 The consumer commands test the current **committed HEAD** in a separate fresh
@@ -188,12 +242,15 @@ Baseline gates cover proofs, independent protocol vectors, all 256 flag bytes,
 expected static rejections, deterministic generation from replayed tapes,
 real-source generation smoke checks, the tracestate, outgoing, extraction,
 injection, continue-or-start and native HTTP header corpora, the examples,
-the exact README example above and a consumer outside the repository. The
-two native HTTP scripts need the `vendor/bend-net` submodule: they qualify the
-transport, then propagation through it, including the W3C harness. Consumer logs and outputs are saved under
-`build/consumer-native/` or `build/consumer-node/`. CI exercises
-native macOS ARM64/Linux x86_64 and Node 22/24, recording exact runtime versions.
-Configuring a job is distinct from observing a successful run.
+the exact README examples above and a consumer outside the repository; in
+`node` mode, the consumer also installs and runs the JavaScript facade. The
+native HTTP transport script and the `native` propagation mode need the
+`vendor/bend-net` submodule. Both propagation modes run the W3C harness: over
+bend-net natively, and over `node:http` through the JavaScript facade.
+Consumer logs and outputs are saved under `build/consumer-native/` or
+`build/consumer-node/`. CI exercises native macOS ARM64/Linux x86_64 and
+Node 22/24, recording exact runtime versions. Configuring a job is distinct
+from observing a successful run.
 
 The installer suite covers fresh/repeated installation, corrupt and interrupted
 downloads, and preservation of existing directories, files and symlinks. It
@@ -210,21 +267,26 @@ default branch. GitHub secret scanning and push protection are enabled.
 The universal fixed-length, `parse(format(context)) == Done{context}` and
 inverse laws of the strict codec are proved, as are the supplied-ID, context
 lifecycle, generation, limits, tracestate, emission, extraction, injection,
-forwarding, continue-or-start and sending laws listed in the
-[package reference](packages/trace-context/README.md#proofs). The generation
-laws cover every sequence of words replayed from a tape; the host source's
-path through the same driver is tested, and its quality is not proved.
+forwarding, continue-or-start, sending and host-driven generation laws listed
+in the [package reference](packages/trace-context/README.md#proofs). The
+generation laws cover every sequence of words replayed from a tape, including
+the loop of a host that feeds its own words, as the JavaScript facade does;
+the host source's path through the same driver is tested, and its quality is
+not proved.
 Neither these laws nor the finite corpus establish full W3C propagator
 conformance.
 
 ## JavaScript and browser consumers
 
-The [JavaScript qualification guide](packages/trace-context/JAVASCRIPT.md)
-provides executable Node and browser examples, an input-validating adapter over
-the real Bend codec, and a shared WebCrypto source with structured failures.
-It explains the official Node loader, Bend HTML bundler and foreign-value/proof
-boundary. A JavaScript generation facade, browser generation and HTTP/Fetch
-propagation remain later deliverables.
+The [JavaScript guide](packages/trace-context/JAVASCRIPT.md) documents the
+facade for Node: extraction, continue-or-start, sending, injection,
+forwarding, tracestate edits and generation with explicit failure policies,
+with `node:http` integration and a harness-qualified service. It also covers
+the input-validating codec adapter, the shared WebCrypto source with
+structured failures, the official Node loader, the Bend HTML bundler and the
+boundary between JavaScript values and the package's proof-carrying values.
+Browser generation and propagation remain in
+[#14](https://github.com/LucasGois1/bend-trace-context/issues/14).
 
 The [native HTTP guide](packages/trace-context/NATIVE-HTTP.md) documents the
 pinned `bend-net` route and its native macOS/Linux checks. Its transport

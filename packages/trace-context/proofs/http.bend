@@ -367,6 +367,14 @@ def written_same(policy, done):
     case TC.Strict{}:
       written_same.strict(done)
 
+# The tape with the first step of a generation, as Draw.read takes them.
+# http_send takes a child's step from its plan, since its law takes
+# `sampling` once.
+def generation_start(tape: Laws.Tape(), generation: TC.Generation) -> Laws.TapeStep():
+  match generation:
+    case TC.Generation{fuel, step}:
+      (tape, step)
+
 # Law http_send: by cases on the service. With an operation, both sides read
 # the same child's words and agree on every outcome (written_same,
 # GenerationProof.read_tape_same); without one, both emit the fallback at
@@ -388,14 +396,16 @@ law http_send:
 def http_send(tape, limits, service, sampling, policy, headers):
   match service:
     case TC.Operating{origin, +outgoing, +received}:
+      +plan : TC.SendPlan = TC.SendChild{TC.Generation.child(TC.LocalParent{TC.OutgoingContext.context(outgoing)}, sampling), limits,
+        outgoing, received, NativeHttp.carrier(headers)}
       GenerationProof.read_tape_same(Laws.TapeOutbound(policy),
         outcome => NativeHttp.Headers.written.done(Laws.Tape(), policy, TC.Policy.apply.done(Laws.Tape(), policy,
-          TC.Sent, TC.Send.strict, TC.Send.done(Laws.Tape(), limits, outgoing, received, NativeHttp.carrier(headers), outcome))),
+          TC.Sent, TC.Send.strict, TC.Send.finish(Laws.Tape(), plan, outcome))),
         outcome => Laws.http_written.done(policy, TC.Policy.apply.done(Laws.Tape(), policy, TC.Sent, TC.Send.strict,
-          TC.Send.done(Laws.Tape(), limits, outgoing, received, NativeHttp.carrier(headers), outcome))),
+          TC.Send.finish(Laws.Tape(), plan, outcome))),
         outcome => written_same(policy, TC.Policy.apply.done(Laws.Tape(), policy, TC.Sent, TC.Send.strict,
-          TC.Send.done(Laws.Tape(), limits, outgoing, received, NativeHttp.carrier(headers), outcome))),
-        16n, (tape, TC.Draw.child(TC.LocalParent{TC.OutgoingContext.context(outgoing)}, sampling)))
+          TC.Send.finish(Laws.Tape(), plan, outcome))),
+        16n, generation_start(tape, TC.SendPlan.generation(plan)))
     case TC.Untraced{+error, +received}:
       Equal.cong(Laws.TapeOutbound(policy), IO.OP<Laws.TapeOutbound(policy)>, outbound => Emit{outbound},
         NativeHttp.Headers.written.done(Laws.Tape(), policy, TC.Policy.apply.done(Laws.Tape(), policy, TC.Sent,

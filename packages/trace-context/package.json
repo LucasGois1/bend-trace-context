@@ -1,0 +1,15 @@
+{
+  "name": "bend-trace-context",
+  "version": "0.1.0-dev",
+  "description": "W3C Trace Context for Bend, with a JavaScript facade for Node",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": "^22.18.0 || ^24.0.0"
+  },
+  "exports": {
+    ".": "./javascript/index.mjs",
+    "./node": "./javascript/node.mjs"
+  }
+}

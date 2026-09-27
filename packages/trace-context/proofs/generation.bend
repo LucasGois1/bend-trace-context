@@ -1417,6 +1417,103 @@ def read_tape_same(A, f, g, same, fuel, current):
     case 1n+p Tuple{tape, TC.NeedWord{draw}}:
       read_tape_same(A, f, g, same, p, TC.Draw.fed_by(Laws.Tape(), TC.Tape.next(tape), draw))
 
+# Law generation_drive: induction on the budget, for every tape and step.
+# Neither loop reads a word once the step has ended or the budget is spent;
+# the host's loop, whose bound is the budget plus `extra`, then stops on
+# Generation.needs, and each word the budget allows is fed alike.
+law generation_drive:
+  for fuel: Nat
+  for tape: Laws.Tape()
+  for step: TC.Step
+  for extra: Nat
+  {Laws.host(Nat.add(fuel, extra), tape, TC.Generation{fuel, step}) ==
+    TC.Draw.outcome(Laws.Tape(), TC.Draw.run(fuel, (tape, step))) : Laws.TapeOutcome()}
+
+def generation_drive(fuel, tape, step, extra):
+  match fuel tape step extra:
+    case 0n _ TC.Created{context} 0n:
+      {==}
+    case 0n _ TC.Created{context} 1n+q:
+      {==}
+    case 0n _ TC.Failed{error} 0n:
+      {==}
+    case 0n _ TC.Failed{error} 1n+q:
+      {==}
+    case 0n _ TC.NeedWord{draw} 0n:
+      {==}
+    case 0n _ TC.NeedWord{draw} 1n+q:
+      {==}
+    case 1n+p _ TC.Created{context} _:
+      {==}
+    case 1n+p _ TC.Failed{error} _:
+      {==}
+    case 1n+p Nil{} TC.NeedWord{draw} _:
+      generation_drive(p, Nil{}, TC.Draw.feed(Fail{(1, "tape-exhausted")}, draw), extra)
+    case 1n+p Con{word, rest} TC.NeedWord{draw} _:
+      generation_drive(p, rest, TC.Draw.feed(word, draw), extra)
+
+# The IO driver over Source.tape emits, through any continuation that emits
+# a function `f` of the outcome, what `g` gives of the host's loop bounded
+# by the budget, whenever `f` and `g` agree on every outcome (`same`).
+# Induction on the budget, as read_tape_outcome; the tape is linear, so
+# this cannot join read_tape_outcome and generation_drive. Used by
+# run_hosted.
+law read_tape_host:
+  for -A: Type
+  for -f: Laws.TapeOutcome() -> A
+  for -g: Laws.TapeOutcome() -> A
+  for same: @outcome: Laws.TapeOutcome() -> {f(outcome) == g(outcome) : A}
+  for fuel: Nat
+  for tape: Laws.Tape()
+  for step: TC.Step
+  {TC.Draw.read(~Laws.Tape(), ~TC.Source.tape, fuel, (tape, step))(A,
+    current => Emit{f(TC.Draw.outcome(Laws.Tape(), current))}) ==
+    Emit{g(Laws.host(fuel, tape, TC.Generation{fuel, step}))} : IO.OP<A>}
+
+def read_tape_host(A, f, g, same, fuel, tape, step):
+  match fuel tape step:
+    case 0n _ TC.Created{context}:
+      Equal.cong(A, IO.OP<A>, value => Emit{value}, f((tape, Done{context})), g((tape, Done{context})),
+        same((tape, Done{context})))
+    case 0n _ TC.Failed{error}:
+      Equal.cong(A, IO.OP<A>, value => Emit{value}, f((tape, Fail{error})), g((tape, Fail{error})),
+        same((tape, Fail{error})))
+    case 0n _ TC.NeedWord{draw}:
+      Equal.cong(A, IO.OP<A>, value => Emit{value},
+        f(TC.Draw.outcome(Laws.Tape(), (tape, TC.NeedWord{draw}))),
+        g(TC.Draw.outcome(Laws.Tape(), (tape, TC.NeedWord{draw}))),
+        same(TC.Draw.outcome(Laws.Tape(), (tape, TC.NeedWord{draw}))))
+    case 1n+p _ TC.Created{context}:
+      Equal.cong(A, IO.OP<A>, value => Emit{value}, f((tape, Done{context})), g((tape, Done{context})),
+        same((tape, Done{context})))
+    case 1n+p _ TC.Failed{error}:
+      Equal.cong(A, IO.OP<A>, value => Emit{value}, f((tape, Fail{error})), g((tape, Fail{error})),
+        same((tape, Fail{error})))
+    case 1n+p Nil{} TC.NeedWord{draw}:
+      read_tape_host(A, f, g, same, p, Nil{}, TC.Draw.feed(Fail{(1, "tape-exhausted")}, draw))
+    case 1n+p Con{word, rest} TC.NeedWord{draw}:
+      read_tape_host(A, f, g, same, p, rest, TC.Draw.feed(word, draw))
+
+# Generation.run_with over Source.tape, followed by a continuation that
+# emits a function `f` of its outcome, emits what `g` gives of the host's
+# loop over the same generation (Laws.host.drive), whenever `f` and `g`
+# agree on every outcome. By read_tape_host on the generation's budget and
+# step. proofs/continue.bend uses it for the plans of section 14.
+law run_hosted:
+  for -A: Type
+  for -f: Laws.TapeOutcome() -> A
+  for -g: Laws.TapeOutcome() -> A
+  for same: @outcome: Laws.TapeOutcome() -> {f(outcome) == g(outcome) : A}
+  for tape: Laws.Tape()
+  for generation: TC.Generation
+  {TC.Generation.run_with(~Laws.Tape(), ~TC.Source.tape, tape, generation)(A, done => Emit{f(done)}) ==
+    Emit{g(Laws.host.drive(tape, generation))} : IO.OP<A>}
+
+def run_hosted(A, f, g, same, tape, generation):
+  match generation:
+    case TC.Generation{fuel, step}:
+      read_tape_host(A, f, g, same, fuel, tape, step)
+
 # Law root_tape: generating a root as an IO action over a tape source
 # (Context.root_with with Source.tape) produces Draw.outcome of the pure
 # driver Draw.run with the same budget of 48 words. Laws.root_tape returns

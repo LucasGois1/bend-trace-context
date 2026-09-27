@@ -1,5 +1,7 @@
 #!/bin/sh
 # Exercise a fresh pinned dependency checkout from an independent application.
+# In node mode, the application also installs the JavaScript facade from the
+# checkout and runs it on the checkout's own Bend module loader.
 set -eu
 
 repo_dir=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
@@ -44,44 +46,56 @@ mkdir -p "$test_dir/deps" "$test_dir/package-cache" "$test_dir/build"
 run_logged clone git clone --quiet --no-local --no-checkout "$source_repo" "$dependency"
 run_logged checkout git -C "$dependency" checkout --quiet --detach "$revision"
 [ "$(git -C "$dependency" rev-parse HEAD)" = "$revision" ]
-# The README program comes from the exact dependency revision being exercised.
+# The README programs come from the exact dependency revision being exercised.
 # A missing, duplicate or malformed marked fence must fail, not skip the check.
-# shellcheck disable=SC2016 # $0 belongs to awk, not the shell.
-run_logged readme-extract awk '
-  /^<!-- test:readme-consumer:start -->$/ {
-    if (state != 0) { invalid = 1; exit 1 }
-    state = 1
-    next
-  }
-  /^<!-- test:readme-consumer:end -->$/ {
-    if (state != 3) { invalid = 1; exit 1 }
-    state = 4
-    next
-  }
-  state == 1 {
-    if ($0 != "```bend") { invalid = 1; exit 1 }
-    state = 2
-    next
-  }
-  state == 2 {
-    if ($0 == "```") { state = 3; next }
-    print
-    lines++
-    next
-  }
-  state == 3 { invalid = 1; exit 1 }
-  END {
-    if (invalid || state != 4 || !lines) {
-      print "Expected exactly one marked Bend consumer example in README.md." > "/dev/stderr"
-      exit 1
+extract_example() {
+  marker=$1
+  fence=$2
+  # shellcheck disable=SC2016 # $0 belongs to awk, not the shell.
+  run_logged "$marker-extract" awk -v marker="$marker" -v fence="$fence" '
+    $0 == "<!-- test:" marker ":start -->" {
+      if (state != 0) { invalid = 1; exit 1 }
+      state = 1
+      next
     }
-  }
-' "$dependency/README.md"
-cp "$evidence_dir/readme-extract.stdout" "$test_dir/readme.bend"
+    $0 == "<!-- test:" marker ":end -->" {
+      if (state != 3) { invalid = 1; exit 1 }
+      state = 4
+      next
+    }
+    state == 1 {
+      if ($0 != "```" fence) { invalid = 1; exit 1 }
+      state = 2
+      next
+    }
+    state == 2 {
+      if ($0 == "```") { state = 3; next }
+      print
+      lines++
+      next
+    }
+    state == 3 { invalid = 1; exit 1 }
+    END {
+      if (invalid || state != 4 || !lines) {
+        print "Expected exactly one marked " marker " example in README.md." > "/dev/stderr"
+        exit 1
+      }
+    }
+  ' "$dependency/README.md"
+}
+extract_example readme-consumer bend
+cp "$evidence_dir/readme-consumer-extract.stdout" "$test_dir/readme.bend"
 # Independent fixtures and expectations are test inputs, never package internals.
 cp "$repo_dir/tests/consumer/main.bend" "$test_dir/consumer.bend"
 cp "$repo_dir/tests/consumer/expected.txt" "$evidence_dir/consumer.expected"
 cp "$repo_dir/tests/readme/expected.txt" "$evidence_dir/readme.expected"
+if [ "$mode" = node ]; then
+  extract_example readme-javascript js
+  cp "$evidence_dir/readme-javascript-extract.stdout" "$test_dir/readme-javascript.mjs"
+  cp "$repo_dir/tests/consumer/facade.mjs" "$test_dir/facade.mjs"
+  cp "$repo_dir/tests/consumer/facade-expected.txt" "$evidence_dir/facade.expected"
+  cp "$repo_dir/tests/readme/javascript-expected.txt" "$evidence_dir/readme-javascript.expected"
+fi
 [ ! -e "$dependency/.tools" ] || { echo "Fresh checkout inherited ignored tools." >&2; exit 1; }
 export BEND_LIB="$test_dir/package-cache"
 export BEND_NO_TELEMETRY=1
@@ -117,3 +131,17 @@ for program in consumer readme; do
   run_logged "$program-compiled-diff" diff -u "$evidence_dir/$program.expected" "$evidence_dir/$program-compiled.stdout"
   echo "PASS: independent pinned $program ($mode)"
 done
+if [ "$mode" = node ]; then
+  # The application installs the facade from the checkout as a package, as
+  # the root README shows, and runs on the checkout's own module loader.
+  run_logged loader "$dependency/scripts/setup-bend-source.sh"
+  printf '{"name": "bend-consumer", "private": true, "type": "module"}\n' > package.json
+  run_logged facade-install npm install --offline --ignore-scripts --no-audit --no-fund \
+    "$dependency/packages/trace-context"
+  run_logged loader-commit git -C "$dependency/.tools/bend-source-2.0.27" rev-parse HEAD
+  for program in facade readme-javascript; do
+    run_logged "$program" node --import "$dependency/.tools/bend-source-2.0.27/bend2/main.ts" "$program.mjs"
+    run_logged "$program-diff" diff -u "$evidence_dir/$program.expected" "$evidence_dir/$program.stdout"
+    echo "PASS: independent pinned $program (JavaScript facade on Node)"
+  done
+fi

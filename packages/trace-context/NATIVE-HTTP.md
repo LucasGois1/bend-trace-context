@@ -71,13 +71,19 @@ production tracing API.
 
 [native_http.bend](native_http.bend) adapts bend-net's header maps to the
 package, as the [package reference](README.md#native-http-integration)
-documents. `./scripts/qualify-propagation.sh` qualifies that path end to end,
-from the exact commit given, or `HEAD` by default, in three steps:
+documents. `./scripts/qualify-propagation.sh native` qualifies that path end
+to end, from the exact commit given, or `HEAD` by default, in three steps.
+`./scripts/qualify-propagation.sh node` qualifies the
+[JavaScript facade](JAVASCRIPT.md) on `node:http` with the same checks and
+the same harness run; only the first step differs.
 
-1. It clones that commit, with the pinned bend-net checkout, and builds
+1. It clones that commit. Natively, it builds
    [the propagation service](../../tests/propagation/service.bend) and the
-   [gateway example](examples/gateway.bend) natively from the clone, as an
-   application builds them.
+   [gateway example](examples/gateway.bend) from the clone, with the pinned
+   bend-net checkout, as an application builds them. In Node, it installs
+   the clone's own Bend module loader and the facade from the clone into
+   [the Node propagation service](../../tests/propagation/service.mjs), and
+   runs the [gateway example](examples/gateway.mjs) from the clone.
 2. It runs the repository's own checks,
    [propagation.mjs](../../tests/propagation/propagation.mjs) and
    [gateway.mjs](../../tests/propagation/gateway.mjs), against an independent
@@ -112,7 +118,7 @@ request. Its other routes serve the repository's checks:
 | --- | --- |
 | `/test/restart` | The service restarts the trace, as at a trust boundary |
 | `/test/stale` | Each request starts from the received request's context fields and `x-request-id`, and each later one reuses the previous one's fields |
-| `/test/unavailable` | The entropy source always fails, so the service has no operation and the requests carry the lenient fallback; they start from the copied fields too |
+| `/test/unavailable` | The entropy source always fails, so the service has no operation and the requests carry the lenient fallback; they start from the copied fields too. The native service's source fails with `5 entropy unavailable`, and the Node service's WebCrypto is unavailable, `1 unavailable` |
 | `/test/unavailable/strict` | The same source under the strict policy, which refuses the request with 503 |
 | `/test/unavailable/send` | The service's operation comes from the host source, and each child from the failing one, so each request carries an operating service's fallback |
 | `/test/unavailable/send/strict` | The same under the strict policy: the request is refused with 503 before any request is sent |
@@ -122,16 +128,18 @@ The harness runs as published, with no test excluded. Its 41 tests found no
 disagreement with spec #1; the package's extraction and tracestate corpora
 already use the harness's inputs.
 
-Run it on macOS ARM64 or Linux x86_64 with the transport's requirements,
-Python 3.13 or later with `venv`, and network access to GitHub for the
-harness and to PyPI for aiohttp:
+Run it natively on macOS ARM64 or Linux x86_64 with the transport's
+requirements, Python 3.13 or later with `venv`, and network access to GitHub
+for the harness and to PyPI for aiohttp:
 
 ```sh
 git submodule update --init --recursive
 ./scripts/setup-bend.sh
-./scripts/qualify-propagation.sh
+./scripts/qualify-propagation.sh native
 ```
 
-Evidence is written under `build/propagation/`: the environment, including
-the Python and aiohttp versions, the compile logs, both TAP reports, and the
-harness output.
+The Node mode needs Node 22.18.0 or later, or Node 24, instead of the
+transport, the Bend binary and the submodule: `./scripts/qualify-propagation.sh node`. Evidence is written under
+`build/propagation-native/` or `build/propagation-node/`: the environment,
+including the Python and aiohttp versions, the compile or install logs, both
+TAP reports, and the harness output.
