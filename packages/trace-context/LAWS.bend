@@ -84,6 +84,7 @@
 #   11. Tracestate updates and         set_entries ... emit_accepted
 #       emission
 #   12. Extraction                     extract_absent ... read_within_budgets
+#   13. Injection and forwarding       clear_carrier ... forward_idempotent
 
 import Base
 import ./trace_context.bend as Trace
@@ -325,9 +326,8 @@ law emitted_traceparent:
 #   Why: this is the core promise of propagation: the next service continues
 #     exactly the operation that sent the request.
 #   Scope: stated for the traceparent value, through the codec and the context
-#     conversions. The same law over whole header carriers belongs to
-#     injection (#10), which builds the carriers that extraction (section 12)
-#     reads.
+#     conversions. inject_extracted (section 13) states it over the whole
+#     carrier that injection writes and extraction (section 12) reads.
 #   Proof: Laws.emitted_projection, by case analysis on both flags.
 law emitted_projection:
   for context: Trace.LocalContext
@@ -1011,8 +1011,8 @@ def keys_distinct(entries: List<&2, Trace.StateEntry>) -> Bool:
 #     operations preserve grammar, uniqueness, count bounds and unrelated-entry
 #     order".
 #   Why: every operation on states, parsing, editing and emitting (section
-#     11) and injection (#10), can rely on these invariants without checking
-#     them again.
+#     11) and injection (section 13), can rely on these invariants without
+#     checking them again.
 #   Reading: keys_distinct is this file's own definition. The package checks
 #     distinct keys differently, each key against the entries before it, and
 #     the proof shows the two agree.
@@ -1869,7 +1869,7 @@ def accepted(+limits: Trace.Limits, remote: Trace.RemoteContext, text: String, +
 #     accepted original header pair needed for transparent forwarding".
 #   Why: a valid traceparent is never lost to an invalid tracestate; the
 #     pair kept for forwarding is exactly what was accepted, and only a pair
-#     accepted whole can be forwarded (#10).
+#     accepted whole can be forwarded (section 13).
 #   Reading: `accepted` and `trimmed` are defined just above.
 #     RemoteContext.from_traceparent keeps the sampled and random-trace-id
 #     flags (received_flags) and drops the reserved bits.
@@ -1932,8 +1932,8 @@ law state_independent:
 #   Requirement: ticket #9, "Retain bounded original-pair information needed
 #     for eligible intact forwarding"; spec #1, "Default input budgets are 32
 #     KiB per traceparent value and 32 KiB for the combined tracestate value".
-#   Why: what is kept for forwarding (#10) is bounded by the configuration,
-#     whatever the message held.
+#   Why: what is kept for forwarding (section 13) is bounded by the
+#     configuration, whatever the message held.
 #   Reading: `extracted` says that the message's traceparent was accepted as
 #     `incoming`, and `kept` that the incoming context kept `pair`.
 #   Proof: Laws.received_bounds, via proofs/extract.bend.
@@ -2015,14 +2015,26 @@ def later_version(+version: Digits.Digits(2n)) -> Bool:
   Bool.and(Bool.not(String.eq(Digits.Digits.to_string(2n, version), "00")),
     Bool.not(String.eq(Digits.Digits.to_string(2n, version), "ff")))
 
+# Whether the text has no control character other than a horizontal tab,
+# which no field value may hold (RFC 9110, section 5.5): the characters
+# Trace.Text.is_control names, U+0000 to U+0008, U+000A to U+001F and
+# U+007F.
+def clean(text: String) -> Bool:
+  match text:
+    case SNil{}:
+      True{}
+    case SCon{first, rest}:
+      Bool.and(Bool.not(Trace.Text.is_control(first)), clean(rest))
+
 # Whether `text` may follow the flags of a later version in these laws:
-# nothing, or a dash and characters other than a comma, a space or a tab.
+# nothing, or a dash and characters other than a comma, a space, a tab or a
+# control character.
 def unknown_fields(text: String) -> Bool:
   match text:
     case SNil{}:
       True{}
-    case SCon{+first, rest}:
-      Bool.and(Char.is_eq(first, '-'), plain(rest))
+    case SCon{+first, +rest}:
+      Bool.and(Char.is_eq(first, '-'), Bool.and(plain(rest), clean(rest)))
 
 # The text of a value of version `version` with the known fields of `known`,
 # from its first dash, followed by `unknown`.
@@ -2045,7 +2057,8 @@ def future(+version: Digits.Digits(2n), known: Trace.TraceParentV00, unknown: St
 #     above; String.drop(..., 2n) removes the version 00 from the text of
 #     `known`.
 #   Scope: unknown fields holding whitespace or other characters are covered
-#     by the corpus; a comma is refused (read_comma).
+#     by the corpus; a comma is refused (read_comma), and so is a control
+#     character, with ControlCharacter at its offset (corpus).
 #   Proof: Laws.read_future, via proofs/extract.bend.
 law read_future:
   for +limits: Trace.Limits
@@ -2137,3 +2150,282 @@ law read_within_budgets:
   for second_fits: {Nat.is_le(Trace.Utf8.length(value), Trace.Limits.traceparent_input(second)) == True{} : Bool}
   {Trace.TraceParent.read(first, value) == Trace.TraceParent.read(second, value) :
     Result<&2, &2, Trace.TraceParentError, Trace.TraceParentV00>}
+
+# 13. Injection and forwarding
+# ============================
+#
+# Context.inject writes the context of an operation of this participant into
+# the carrier of an outgoing message, and Context.clear removes the context
+# fields of a message sent without context (spec #1, "Participant
+# injection"). Context.forward sends a received context on unchanged (W3C
+# Level 2, section 3.4, "Unmodified header propagation"). All three remove
+# every old traceparent and tracestate field, whatever the ASCII case of its
+# name, and keep the other fields in their order. These laws state the
+# carriers written, the diagnostics apart from them, and what a receiver
+# extracts from them. The corpus, tests/INJECT.bend, covers names in every
+# case, empty and truncated states, all flags, a later version with unknown
+# fields, spec #1's 600-octet state, pairs built directly and carriers of
+# 100000 fields.
+
+# Whether a field name, with its ASCII letters in lowercase, is "traceparent"
+# or "tracestate".
+def context_name(+name: String) -> Bool:
+  Bool.or(String.eq(String.to_lower(name), "traceparent"), String.eq(String.to_lower(name), "tracestate"))
+
+# The fields of `carrier` that are not context fields, in their order.
+def unrelated(carrier: List<&2, Trace.Header>) -> List<&2, Trace.Header>:
+  match carrier:
+    case Nil{}:
+      Nil{}
+    case Con{+header, +rest}:
+      Bool.pick(List<&2, Trace.Header>, context_name(Trace.Header.name(header)), unrelated(rest),
+        Con{header, unrelated(rest)})
+
+# The context fields written for a traceparent value and a tracestate value,
+# with lowercase names: the tracestate field only when its value is not
+# empty.
+def written(traceparent: String, tracestate: String) -> List<&2, Trace.Header>:
+  match tracestate:
+    case SNil{}:
+      Con{Trace.Header{"traceparent", traceparent}, Nil{}}
+    case SCon{first, rest}:
+      Con{Trace.Header{"traceparent", traceparent}, Con{Trace.Header{"tracestate", SCon{first, rest}}, Nil{}}}
+
+# LAW clear_carrier
+#   Claim: cleanup removes every traceparent and tracestate field, whatever
+#     the case of its name, and keeps every other field in its order.
+#   Requirement: spec #1, "Provide explicit context-field cleanup for the
+#     no-context path, including differently cased old fields" and "preserve
+#     unrelated headers and their relative order".
+#   Why: a reused request container must not send a stale context, and
+#     tracing must not change the application's fields.
+#   Reading: unrelated is defined just above.
+#   Proof: Laws.clear_carrier, via proofs/inject.bend.
+law clear_carrier:
+  for +carrier: List<&2, Trace.Header>
+  {Trace.Context.clear(carrier) == unrelated(carrier) : List<&2, Trace.Header>}
+
+# LAW inject_carrier
+#   Claim: injection writes the carrier's other fields, in their order,
+#     followed by the emitted traceparent and, unless it is empty, the
+#     emitted tracestate, with lowercase names.
+#   Requirement: spec #1, "Replace all existing traceparent/tracestate
+#     occurrences, write lowercase names and preserve unrelated headers and
+#     their relative order. Omit empty tracestate"; W3C Level 2, sections
+#     3.2.1 and 3.3.1: names SHOULD be sent in lowercase.
+#   Why: exactly one context goes out and the application's fields are
+#     untouched. The laws of section 11 say what the emitted values are:
+#     version 00 with only the known flags (emit_traceparent), and the state
+#     truncated to the output budget (emit_tracestate).
+#   Reading: unrelated and written are defined above.
+#   Proof: Laws.inject_carrier, via proofs/inject.bend.
+law inject_carrier:
+  for +limits: Trace.Limits
+  for +outgoing: Trace.OutgoingContext
+  for +carrier: List<&2, Trace.Header>
+  {Trace.Injection.carrier(Trace.Context.inject(limits, outgoing, carrier)) ==
+    List.append(&2, Trace.Header, unrelated(carrier),
+      written(Trace.Emission.traceparent(Trace.OutgoingContext.emit(limits, outgoing)),
+        Trace.Emission.tracestate(Trace.OutgoingContext.emit(limits, outgoing)))) : List<&2, Trace.Header>}
+
+# LAW inject_dropped
+#   Claim: the keys an injection reports dropped are those of the emission:
+#     the diagnostics of truncation, kept apart from the carrier.
+#   Requirement: spec #1, "Diagnostic metadata is tested separately, not
+#     silently included in this equality".
+#   Why: a service learns which vendors' entries were not sent without
+#     reading the carrier.
+#   Proof: Laws.inject_dropped, via proofs/inject.bend.
+law inject_dropped:
+  for +limits: Trace.Limits
+  for +outgoing: Trace.OutgoingContext
+  for carrier: List<&2, Trace.Header>
+  {Trace.Injection.dropped(Trace.Context.inject(limits, outgoing, carrier)) ==
+    Trace.Emission.dropped(Trace.OutgoingContext.emit(limits, outgoing)) : List<&2, Trace.StateKey>}
+
+# LAW inject_idempotent
+#   Claim: injecting a context into the carrier that an injection of it
+#     wrote gives that carrier again.
+#   Requirement: spec #1, "Injection is idempotent on the resulting carrier
+#     for a fixed context/configuration and preserves unrelated fields and
+#     their relative order".
+#   Why: a client may inject into a container it reuses, retries a request
+#     with, or injected into already, without accumulating fields.
+#   Proof: Laws.inject_idempotent, via proofs/inject.bend, from
+#     inject_carrier.
+law inject_idempotent:
+  for +limits: Trace.Limits
+  for +outgoing: Trace.OutgoingContext
+  for +carrier: List<&2, Trace.Header>
+  {Trace.Injection.carrier(Trace.Context.inject(limits, outgoing,
+    Trace.Injection.carrier(Trace.Context.inject(limits, outgoing, carrier)))) ==
+    Trace.Injection.carrier(Trace.Context.inject(limits, outgoing, carrier)) : List<&2, Trace.Header>}
+
+# The remotely observable projection of a local context: its trace ID, with
+# its randomness assertion, its span ID and its sampled indication, as the
+# remote context a receiver would hold.
+def projection(+context: Trace.LocalContext) -> Trace.RemoteContext:
+  Trace.RemoteContext{Trace.LocalContext.trace_id(context), Trace.LocalContext.span_id(context),
+    Trace.LocalContext.is_sampled(context)}
+
+# The entries of the state of an incoming context, if there is one.
+def received_entries.of(incoming: Maybe<&2, Trace.IncomingContext>) -> List<&2, Trace.StateEntry>:
+  match incoming:
+    case None{}:
+      Nil{}
+    case Some{context}:
+      Trace.TraceState.entries(Trace.IncomingContext.state(context))
+
+# The entries of the state that an extraction's own context received; none
+# when the message's traceparent was not accepted.
+def received_entries(extraction: Trace.Extraction) -> List<&2, Trace.StateEntry>:
+  received_entries.of(Trace.Extraction.incoming(extraction))
+
+# The extraction of the carrier that an injection wrote, with the same
+# limits.
+def reinjected(+limits: Trace.Limits, outgoing: Trace.OutgoingContext, carrier: List<&2, Trace.Header>,
+  base: Maybe<&2, Trace.BaseContext>) -> Trace.Extraction:
+  Trace.Context.extract(limits, Trace.Injection.carrier(Trace.Context.inject(limits, outgoing, carrier)), base)
+
+# LAW inject_extracted
+#   Claim: a receiver that extracts, with the same limits, a carrier that an
+#     injection wrote accepts its traceparent, finds the projection of the
+#     injected local context as the sender's operation, and receives the
+#     entries of the injected state truncated to the output budget.
+#   Requirement: spec #1, "Extraction after participant injection recovers
+#     the normalized remotely observable projection of the local context,
+#     including emitted flags and truncated state. It does not promise
+#     original-wire equality across normalization".
+#   Why: this is the promise of propagation between two services that use
+#     the package: the next one continues exactly the operation that sent the
+#     request, with the state it sent.
+#   Reading: projection, received_entries and reinjected are defined just
+#     above; sender is defined in section 12. The base plays no part: the
+#     message's own context replaces it.
+#   Proof: Laws.inject_extracted, via proofs/inject.bend.
+law inject_extracted:
+  for +limits: Trace.Limits
+  for +outgoing: Trace.OutgoingContext
+  for +carrier: List<&2, Trace.Header>
+  for +base: Maybe<&2, Trace.BaseContext>
+  {Trace.Extraction.parent(reinjected(limits, outgoing, carrier, base)) == Trace.TraceParentAccepted{} :
+    Trace.TraceParentOutcome} &
+  {sender(reinjected(limits, outgoing, carrier, base)) == Some{projection(Trace.OutgoingContext.context(outgoing))} :
+    Maybe<&2, Trace.RemoteContext>} &
+  {received_entries(reinjected(limits, outgoing, carrier, base)) == Trace.TraceState.entries(
+    Trace.Truncation.kept(Trace.TraceState.truncate(limits, Trace.OutgoingContext.state(outgoing)))) :
+    List<&2, Trace.StateEntry>}
+
+# LAW forward_carrier
+#   Claim: when forwarding succeeds, it writes the carrier's other fields, in
+#     their order, followed by the received traceparent value and the
+#     received tracestate fields joined by commas, left out when empty:
+#     exactly the accepted text, with no normalization.
+#   Requirement: spec #1, "Forwarding preserves the accepted original
+#     context pair's field values without normalizing flags, downgrading
+#     versions or editing/truncating tracestate"; W3C Level 2, section 3.4,
+#     and section 3.3.2: tracestate "SHOULD be sent as a single field when
+#     possible".
+#   Why: a service that does not take part in a trace passes it on as the
+#     sender wrote it, a later version and reserved flag bits included.
+#   Reading: `kept` names the received pair of the incoming context, and
+#     `done` says that forwarding succeeded with `forwarded`.
+#   Proof: Laws.forward_carrier, via proofs/inject.bend.
+law forward_carrier:
+  for +limits: Trace.Limits
+  for +incoming: Trace.IncomingContext
+  for +carrier: List<&2, Trace.Header>
+  for +pair: Trace.ReceivedPair
+  for +forwarded: List<&2, Trace.Header>
+  for kept: {Trace.IncomingContext.received(incoming) == Some{pair} : Maybe<&2, Trace.ReceivedPair>}
+  for done: {Trace.Context.forward(limits, incoming, carrier) == Done{forwarded} :
+    Result<&2, &2, Trace.ForwardError, List<&2, Trace.Header>>}
+  {forwarded == List.append(&2, Trace.Header, unrelated(carrier), written(Trace.ReceivedPair.traceparent(pair),
+    String.join(Trace.ReceivedPair.tracestate(pair), ","))) : List<&2, Trace.Header>}
+
+# LAW forward_nothing
+#   Claim: a context that keeps no received pair is not forwarded: forwarding
+#     fails with NothingToForward.
+#   Requirement: spec #1: the convenience path "may forward only an entirely
+#     accepted original pair".
+#   Why: a context whose tracestate was discarded cannot be sent on
+#     unchanged, and sending its traceparent without that state would edit
+#     the pair (W3C 3.4).
+#   Proof: Laws.forward_nothing, via proofs/inject.bend.
+law forward_nothing:
+  for +limits: Trace.Limits
+  for +incoming: Trace.IncomingContext
+  for +carrier: List<&2, Trace.Header>
+  for none: {Trace.IncomingContext.received(incoming) == None{} : Maybe<&2, Trace.ReceivedPair>}
+  {Trace.Context.forward(limits, incoming, carrier) == Fail{Trace.NothingToForward{}} :
+    Result<&2, &2, Trace.ForwardError, List<&2, Trace.Header>>}
+
+# LAW forward_too_large
+#   Claim: a received pair whose tracestate fields, joined by commas, exceed
+#     the output budget is not forwarded: forwarding fails with
+#     ForwardTooLarge, whatever the rest.
+#   Requirement: spec #1, "If intact forwarding cannot meet bounds, return a
+#     diagnostic so the caller can create a child or handle the failure" and
+#     "Never edit or truncate a remote context's tracestate while retaining
+#     its traceparent unchanged", including its 600-byte example; W3C Level 2,
+#     section 3.4.
+#   Why: the caller learns that the pair cannot be sent whole, instead of
+#     having its state truncated under the sender's traceparent.
+#   Proof: Laws.forward_too_large, via proofs/inject.bend.
+law forward_too_large:
+  for +limits: Trace.Limits
+  for +incoming: Trace.IncomingContext
+  for +carrier: List<&2, Trace.Header>
+  for +pair: Trace.ReceivedPair
+  for kept: {Trace.IncomingContext.received(incoming) == Some{pair} : Maybe<&2, Trace.ReceivedPair>}
+  for larger: {Nat.is_le(Trace.Utf8.length(String.join(Trace.ReceivedPair.tracestate(pair), ",")),
+    Trace.Limits.tracestate_output(limits)) == False{} : Bool}
+  {Trace.Context.forward(limits, incoming, carrier) == Fail{Trace.ForwardTooLarge{}} :
+    Result<&2, &2, Trace.ForwardError, List<&2, Trace.Header>>}
+
+# LAW forward_extracted
+#   Claim: the received pair of a context that extraction accepted is
+#     forwarded, with the same limits, whenever its tracestate fits the output
+#     budget: the checks that refuse a pair built directly always pass for
+#     it.
+#   Requirement: ticket #10, "Forward accepted fields without downgrade, flag
+#     normalization or state edits; diagnose an intact pair that cannot fit
+#     the limits".
+#   Why: with forward_too_large, the output budget is the only reason an
+#     extracted context cannot be forwarded.
+#   Reading: `extracted` says that extracting `received` accepted its
+#     traceparent as `incoming`, and `kept` that the pair was kept.
+#   Proof: Laws.forward_extracted, via proofs/inject.bend.
+law forward_extracted:
+  for +limits: Trace.Limits
+  for +received: List<&2, Trace.Header>
+  for +base: Maybe<&2, Trace.BaseContext>
+  for +incoming: Trace.IncomingContext
+  for +pair: Trace.ReceivedPair
+  for +carrier: List<&2, Trace.Header>
+  for extracted: {Trace.Extraction.incoming(Trace.Context.extract(limits, received, base)) == Some{incoming} :
+    Maybe<&2, Trace.IncomingContext>}
+  for kept: {Trace.IncomingContext.received(incoming) == Some{pair} : Maybe<&2, Trace.ReceivedPair>}
+  for fits: {Nat.is_le(Trace.Utf8.length(String.join(Trace.ReceivedPair.tracestate(pair), ",")),
+    Trace.Limits.tracestate_output(limits)) == True{} : Bool}
+  {Trace.Context.forward(limits, incoming, carrier) == Done{List.append(&2, Trace.Header, unrelated(carrier),
+    written(Trace.ReceivedPair.traceparent(pair), String.join(Trace.ReceivedPair.tracestate(pair), ",")))} :
+    Result<&2, &2, Trace.ForwardError, List<&2, Trace.Header>>}
+
+# LAW forward_idempotent
+#   Claim: forwarding a context into the carrier that a forwarding of it
+#     wrote gives that carrier again.
+#   Requirement: ticket #10, "Prove carrier idempotence"; spec #1, as for
+#     inject_idempotent, on the forwarding path.
+#   Why: a proxy may forward into a container it reuses without accumulating
+#     fields.
+#   Proof: Laws.forward_idempotent, via proofs/inject.bend.
+law forward_idempotent:
+  for +limits: Trace.Limits
+  for +incoming: Trace.IncomingContext
+  for +carrier: List<&2, Trace.Header>
+  for +forwarded: List<&2, Trace.Header>
+  for done: {Trace.Context.forward(limits, incoming, carrier) == Done{forwarded} :
+    Result<&2, &2, Trace.ForwardError, List<&2, Trace.Header>>}
+  {Trace.Context.forward(limits, incoming, forwarded) == Done{forwarded} :
+    Result<&2, &2, Trace.ForwardError, List<&2, Trace.Header>>}

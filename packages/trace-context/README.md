@@ -5,10 +5,10 @@ strict v00 codec for Bend 2.0.27, validated trace and span IDs, root, child
 and restarted local contexts, either from IDs the caller supplies or from IDs
 generated on a cryptographic source, a bounded Level 2 `tracestate` parser
 with validated limits, the operations that update a local operation's
-tracestate and emit it within the output budget, and the extraction of a
-received message's context from its fields. It has no external package
-dependencies beyond the
-compiler's bundled `Base`. The public entries are
+tracestate and emit it within the output budget, the extraction of a received
+message's context from its fields, and the injection and forwarding of a
+context into the fields of a message to send. It has no external package
+dependencies beyond the compiler's bundled `Base`. The public entries are
 [trace_context.bend](trace_context.bend), which performs no host effect of its
 own, and [generation.bend](generation.bend), which adds the host's
 cryptographic source.
@@ -113,8 +113,9 @@ bits are not part of a remote context. The strict codec rejects versions `01`
 to `fe`, which [extraction](#extracting-context) reads by their known prefix.
 `LocalContext.to_traceparent` gives the participating
 representation: version `00` and flags `00` to `03`, with every reserved bit
-zero. Header injection and transparent forwarding of the original header pair
-belong to [#10](https://github.com/LucasGois1/bend-trace-context/issues/10).
+zero. [Injection](#injecting-and-forwarding-context) writes that
+representation into a message, and forwarding sends a received value
+unchanged.
 
 `RemoteContext` and `LocalContext` are separate types, so a received context
 cannot be passed where a local one is expected (the
@@ -262,10 +263,9 @@ traceparent has been accepted: the standard gives tracestate no meaning
 without a valid traceparent, and [extraction](#extracting-context) applies
 that rule itself. `parse` reads one combined value. `format` returns
 the normalized value: the entries in order, as `key=value`, joined by commas
-without optional whitespace. The empty state formats as `""`, which header
-injection will omit
-([#10](https://github.com/LucasGois1/bend-trace-context/issues/10)). `get`
-takes a validated key: the application parses its own key once with
+without optional whitespace. The empty state formats as `""`, which
+[injection](#injecting-and-forwarding-context) does not write. `get` takes a
+validated key: the application parses its own key once with
 `StateKey.parse`, as it does its IDs.
 
 The [tracestate example](examples/tracestate.bend) reads two received fields,
@@ -447,8 +447,8 @@ a child operation first, so the new traceparent identifies its own
 operation. An outgoing context holds a local context, so a `RemoteContext`
 cannot be passed to it; a local context built with `Context.from_ids` must
 carry the IDs of the caller's own operation, which the package cannot check.
-Forwarding a received pair unchanged belongs to
-[#10](https://github.com/LucasGois1/bend-trace-context/issues/10).
+[Forwarding](#injecting-and-forwarding-context) sends a received pair
+unchanged, and refuses when it cannot.
 
 The [outgoing example](examples/outgoing.bend) continues a received trace with
 a child operation, puts its own entry first and emits both fields, then shows
@@ -528,8 +528,14 @@ Extraction follows these rules:
   - version `ff` is refused with `ForbiddenVersion` (section 3.2.2.1);
   - versions `01` to `fe` are read by their known prefix: the trace ID, parent
     ID and flags of version 00, followed by the end of the value or by a dash
-    and fields that are not read, whatever they hold other than a comma
-    (sections 3.2.4 and 4.1.2);
+    and fields that are not read, whatever they hold other than a comma or a
+    control character (sections 3.2.4 and 4.1.2);
+  - a control character other than a tab in those fields, which no field
+    value may hold (RFC 9110, section 5.5), is refused with
+    `ControlCharacter{offset}`. A carriage return or a line feed would end the
+    field, so a value forwarded unchanged could add fields to the message;
+    this is a second small departure from W3C's advice not to look at unknown
+    fields;
   - any other problem is reported with the codec's `Error`, its offset
     counted from the first character after the whitespace.
 - An accepted value gives an incoming context, which replaces the base. Its
@@ -575,9 +581,9 @@ one, and sends the received state with the child in an `OutgoingContext`.
 `BaseContext.parent` and `BaseContext.state` give the same for a base. The
 continue-or-start operation of
 [#11](https://github.com/LucasGois1/bend-trace-context/issues/11) will do this
-for a message and its base. The received pair is what transparent forwarding
-sends unchanged ([#10](https://github.com/LucasGois1/bend-trace-context/issues/10));
-it is `None{}` when the tracestate was discarded. Only the pairs that
+for a message and its base. The received pair is what
+[forwarding](#injecting-and-forwarding-context) sends unchanged; it is
+`None{}` when the tracestate was discarded. Only the pairs that
 extraction keeps are known to be accepted and within the input budgets: as
 with the contexts, Bend constructors are not private, and an
 `IncomingContext` or `ReceivedPair` built directly carries no such
@@ -606,6 +612,80 @@ child tracestate: fw529a3039=cHJpbWFyeQ,congo=t61rcWkgMzE,rojo=00f067aa0ba902b7
 later version: TraceParentAccepted, StateAbsent, parent 00f067aa0ba902b7
 invalid request: TraceParentRejected InvalidTraceParent ZeroTraceId, StateIgnored
 kept base: 00-5b8efff798038103d269b633813fc60c-eee19b7ec3c1b174-00
+```
+
+## Injecting and forwarding context
+
+A service writes a context into the carrier of a message it sends in one of
+two ways: as a participant, it injects an operation of its own; as an
+intermediary that takes no part in the trace, it forwards a received context
+unchanged. Names below are qualified by the alias `TC` for trace_context.bend:
+
+```bend
+TC.Context.inject(limits: TC.Limits, outgoing: TC.OutgoingContext, carrier: List<&2, TC.Header>) -> TC.Injection
+TC.Context.clear(carrier: List<&2, TC.Header>) -> List<&2, TC.Header>
+TC.Context.forward(limits: TC.Limits, incoming: TC.IncomingContext, carrier: List<&2, TC.Header>) ->
+  Result<&2, &2, TC.ForwardError, List<&2, TC.Header>>
+TC.Injection.carrier(injection: TC.Injection) -> List<&2, TC.Header>
+TC.Injection.dropped(injection: TC.Injection) -> List<&2, TC.StateKey>
+TC.ForwardError.show(error: TC.ForwardError) -> String
+```
+
+All three remove every `traceparent` and `tracestate` field of the carrier,
+whatever the ASCII case of its name, keep the other fields in their order, and
+add their own fields at the end with lowercase names (W3C Level 2, sections
+3.2.1 and 3.3.1). Injecting or forwarding the same context into the carrier
+it wrote gives that carrier again, so a reused container or a retried request
+does not accumulate fields.
+
+- `inject` writes what the outgoing context emits: the participating
+  traceparent, version `00` with only the sampled and random-trace-id flags,
+  and the state truncated to the output budget, left out when it is empty.
+  `Injection.dropped` gives the keys that truncation removed, apart from the
+  carrier. A receiver that extracts the carrier with the same limits
+  continues exactly the injected operation, with the truncated state.
+- `clear` removes the context fields alone, for a message sent without
+  context.
+- `forward` writes the received pair of an incoming context as it came: the
+  traceparent value, whatever its version, reserved flag bits and unknown
+  fields, and the tracestate fields joined into one field by commas, as W3C
+  section 3.3.2 recommends, byte for byte; the tracestate field is left out
+  when that joined value is empty, as injection leaves out an empty state.
+  It never normalizes flags, downgrades a version or edits the tracestate
+  (section 3.4). When the pair cannot be sent whole, it fails and writes
+  nothing.
+
+| `ForwardError` | Meaning |
+| --- | --- |
+| `NothingToForward{}` | The context keeps no received pair: its tracestate was discarded when it was extracted |
+| `ForwardTooLarge{}` | The tracestate fields, joined by commas, exceed the tracestate output budget |
+| `InvalidForwardParent{error}` | The traceparent value is not one that `TraceParent.read` accepts |
+| `InvalidForwardState{error}` | The tracestate fields are not ones that `TraceState.parse_fields` accepts |
+
+The last two refuse only a pair built directly: the pair of a context that
+extraction accepted passes them under the same limits, so the output budget is
+the only reason it is refused. A received tracestate within the 32 KiB input
+budget may exceed the 512-octet default output budget. A service that cannot
+forward such a pair, or that changes the state it passes on, continues the
+trace with a child operation of its own and injects it instead: the child's
+traceparent lets its state be truncated. Limits with a larger output budget
+forward the pair whole.
+
+The [injection example](examples/inject.bend) continues a handled request with
+a child and injects it into a reused container, forwards a later version with
+every flag bit set, clears a message sent without context, and continues a
+request whose state is too large to forward. From the repository root:
+
+```sh
+./bend packages/trace-context/examples/inject.bend
+```
+
+```text
+sent on: Host: inventory.internal | Content-Type: application/json | traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-53995c3f42cd8ad8-01 | tracestate: fw529a3039=cHJpbWFyeQ,congo=t61rcWkgMzE,rojo=00f067aa0ba902b7
+relayed: Host: billing.internal | traceparent: cc-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-ff-future | tracestate: congo=t61rcWkgMzE,rojo=00f067aa0ba902b7
+without context: Host: metrics.internal
+not forwarded: ForwardTooLarge
+continued instead: 00-4bf92f3577b34da6a3ce929d0e0e4736-b7ad6b7169203331-01, dropped b
 ```
 
 ## Parsing contract
@@ -638,6 +718,7 @@ them rather than parsing the human-readable result of `Error.show`:
 | `ZeroId{TraceIdField{}}` | A trace ID is all zero |
 | `ZeroId{ParentIdField{}}` | The parent ID is all zero |
 | `ZeroId{SpanIdField{}}` | A supplied span ID is all zero |
+| `ControlCharacter{offset}` | A control character other than a tab in the unknown fields of a later version, reported by `TraceParent.read` only |
 
 Creating a context from valid IDs can only fail with a `ContextError`:
 `ReusedSpanId{}` when a child uses its parent's span ID, and `ReusedTraceId{}`
@@ -646,7 +727,8 @@ when a restart uses the received trace ID.
 These are the strict codec's errors. [Extraction](#extracting-context)
 applies a participant's policy on top of them: `TraceParent.read` reads
 versions `01` to `fe` by their known prefix where the strict codec reports
-`UnsupportedVersion`.
+`UnsupportedVersion`, and refuses a control character in the fields after that
+prefix with `ControlCharacter{offset}`, which the strict codec never reports.
 
 ## Representation
 
@@ -758,6 +840,21 @@ every value of their types, not over examples:
   value over the traceparent budget, which otherwise changes nothing. Field
   names are selected by a statement written with Base's ASCII lowercase,
   independently of the package's comparison.
+- **Injection:** cleanup keeps exactly the fields that are not context fields,
+  in their order. Injection writes those fields followed by the emitted
+  traceparent and, unless it is empty, the emitted tracestate; it reports the
+  emission's dropped keys apart and gives the same carrier when repeated. A
+  receiver that extracts an injected carrier with the same limits accepts its
+  traceparent, finds the injected local context's trace ID with its
+  randomness assertion, span ID and sampled indication as the sender's
+  operation, and receives the entries of the truncated state.
+- **Forwarding:** a successful forwarding writes the other fields followed by
+  the received traceparent value and the received tracestate fields joined by
+  commas, left out when empty. A context without a received pair is refused
+  with `NothingToForward{}`, and a pair whose joined tracestate exceeds the
+  output budget with `ForwardTooLarge{}`. The pair of a context that
+  extraction accepted is forwarded whenever it fits, and forwarding into the
+  carrier written gives that carrier again.
 
 The generation laws quantify over tapes, that is, over every sequence of word
 results. The host source runs through the same driver with its effect in
@@ -770,9 +867,12 @@ by laws. Truncation is stated as spec #1's procedure itself: while over the
 budget, the rightmost entry larger than 128 octets goes, or the rightmost
 entry when none is, and removal stops as soon as the value fits. The
 extraction laws quantify over every carrier, base, limits and value; the
-offsets in diagnostics, whitespace or other characters inside unknown fields,
-names with non-ASCII letters and exact budget boundaries are covered by the
-corpus.
+offsets in diagnostics, whitespace, control characters and other characters
+inside unknown fields, names with non-ASCII letters and exact budget
+boundaries are covered by the corpus. The injection and forwarding laws quantify over every carrier,
+outgoing and incoming context, base and limits; the texts written for
+particular contexts, lookalike names, pairs built directly and exact budget
+boundaries are covered by the corpus.
 
 Auxiliary universal proofs cover hexadecimal and character decoding, encoded
 lengths, reading an encoded sequence while preserving its suffix, recovery of a
@@ -822,11 +922,25 @@ harness for field names, repeated fields, versions, IDs, flags and
 whitespace. It checks the precedence of a message's context over the base,
 repeated traceparent fields apart and joined by a host, the combination,
 discard and neglect of tracestate fields, strict version 00, `ff` and later
-versions with and without unknown fields, the exact traceparent budget with
+versions with and without unknown fields, control characters in those fields
+at each edge of their range, the exact traceparent budget with
 one-, two- and three-octet characters and a mebibyte refused without being
 read, the tracestate budget with its joining commas, a carrier of 100000
 fields, incoming and base contexts and their parents and states, and
 diagnostics that never contain the received values.
+
+The [injection corpus](tests/INJECT.bend) cleans and injects into carriers
+with old context fields in every case, lookalike names and unrelated fields,
+for roots, children of a context with every flag bit set, empty and truncated
+states, and repeated injection. It forwards a later version with unknown
+fields, every flag bit set and whitespace around it, whose three tracestate
+fields, one of them empty, are joined as they came; a version 00 with
+reserved flag bits; empty and discarded states; joined tracestates of 512 and
+513 octets; spec #1's 600-octet state under the default and a larger output
+budget; and pairs built directly that forwarding must refuse, a line break
+in a later version's unknown fields among them. It extracts again the
+carriers of three injections and of a forwarding, and it handles carriers of
+100000 fields and values of 32 KiB.
 
 The [generation corpus](tests/GENERATION.bend) replays tapes through the public
 operations: conversion vectors in decimal for the W3C example words, the digit
@@ -847,9 +961,8 @@ The planned propagator targets the pinned
 [Level 2 Candidate Recommendation Draft](https://www.w3.org/TR/2024/CRD-trace-context-2-20240328/).
 The random-trace-id flag `0x02` still uses wire version `00`.
 
-This package does not yet implement header injection, transparent
-forwarding, the continue-or-start operation, browser generation or
-HTTP/browser integration. Its faithful formatter does not mask reserved bits of a parsed
+This package does not yet implement the continue-or-start operation, browser
+generation or HTTP/browser integration. Its faithful formatter does not mask reserved bits of a parsed
 value; `LocalContext.to_traceparent` emits only known flags. There is no claim of
 complete W3C propagator conformance or a full OpenTelemetry SDK.
 

@@ -99,6 +99,12 @@ Writing trace context information into the fields of an outgoing message.
 The fields of a message in their order, each a name and a value, from which trace context is extracted and into which it is injected. Repeated fields stay separate unless the host joined them.
 _Avoid_: Header map
 
+**Context field**:
+A traceparent or tracestate field of a carrier, whatever the ASCII case of its name. The other fields of the carrier are its unrelated fields.
+
+**Context cleanup**:
+Removing the context fields of a carrier for a message sent without trace context.
+
 **Incoming context**:
 A remote context extracted from a message, together with the tracestate received with it and, unless that tracestate was refused, the received pair.
 _Avoid_: Local context

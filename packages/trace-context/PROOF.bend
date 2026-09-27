@@ -60,6 +60,7 @@
 #   proofs/emit.bend                sizes, truncation and emission
 #   proofs/extract.bend             field selection, traceparent reading and
 #                                   extraction
+#   proofs/inject.bend              cleanup, injection and forwarding
 
 import Base
 import ./LAWS.bend as Laws
@@ -81,6 +82,7 @@ import ./proofs/first.bend as FirstProof
 import ./proofs/update.bend as UpdateProof
 import ./proofs/emit.bend as EmitProof
 import ./proofs/extract.bend as ExtractProof
+import ./proofs/inject.bend as InjectProof
 
 # 1. Strict v00 codec
 # ===================
@@ -151,17 +153,10 @@ def Laws.emitted_traceparent(context):
     case Trace.LocalContext{Trace.TraceId{trace_id, True{}}, Trace.SpanId{span_id}, True{}}:
       {==}
 
-# By computation in each of the four combinations of sampled and random.
+# The remote context read back is the local context's own fields
+# (proofs/context.bend, by cases on both flags).
 def Laws.emitted_projection(context):
-  match context:
-    case Trace.LocalContext{Trace.TraceId{trace_id, False{}}, Trace.SpanId{span_id}, False{}}:
-      ({==}, ({==}, {==}))
-    case Trace.LocalContext{Trace.TraceId{trace_id, False{}}, Trace.SpanId{span_id}, True{}}:
-      ({==}, ({==}, {==}))
-    case Trace.LocalContext{Trace.TraceId{trace_id, True{}}, Trace.SpanId{span_id}, False{}}:
-      ({==}, ({==}, {==}))
-    case Trace.LocalContext{Trace.TraceId{trace_id, True{}}, Trace.SpanId{span_id}, True{}}:
-      ({==}, ({==}, {==}))
+  ContextProof.emitted_fields(context)
 
 # By computation once the flag byte is split into its two digits.
 def Laws.received_flags(traceparent):
@@ -566,3 +561,48 @@ def Laws.read_over_budget(limits, value, larger):
 # Within either budget, the value is read the same way.
 def Laws.read_within_budgets(first, second, value, first_fits, second_fits):
   ExtractProof.read_within_budgets(first, second, value, first_fits, second_fits)
+
+# 13. Injection and forwarding
+# ============================
+
+# The loop keeps exactly the fields Laws.unrelated keeps (proofs/inject.bend).
+def Laws.clear_carrier(carrier):
+  InjectProof.clear_carrier(carrier)
+
+# The kept fields are followed by the emission's fields.
+def Laws.inject_carrier(limits, outgoing, carrier):
+  InjectProof.inject_carrier(limits, outgoing, carrier)
+
+# By computation once the emission is split into its fields.
+def Laws.inject_dropped(limits, outgoing, carrier):
+  InjectProof.inject_dropped(limits, outgoing, carrier)
+
+# The second injection keeps the same fields and adds the same ones.
+def Laws.inject_idempotent(limits, outgoing, carrier):
+  InjectProof.inject_idempotent(limits, outgoing, carrier)
+
+# A receiver selects the written fields, reads the traceparent back and
+# parses the emitted state.
+def Laws.inject_extracted(limits, outgoing, carrier, base):
+  InjectProof.inject_extracted(limits, outgoing, carrier, base)
+
+# A success writes the received fields after the unrelated ones.
+def Laws.forward_carrier(limits, incoming, carrier, pair, forwarded, kept, done):
+  InjectProof.forward_carrier(limits, incoming, carrier, pair, forwarded, kept, done)
+
+# Without a received pair, forwarding refuses at once.
+def Laws.forward_nothing(limits, incoming, carrier, none):
+  InjectProof.forward_nothing(limits, incoming, carrier, none)
+
+# The budget check comes first and refuses the pair.
+def Laws.forward_too_large(limits, incoming, carrier, pair, kept, larger):
+  InjectProof.forward_too_large(limits, incoming, carrier, pair, kept, larger)
+
+# The pair of an extracted context reads back, so only its size can refuse it.
+def Laws.forward_extracted(limits, received, base, incoming, pair, carrier, extracted, kept, fits):
+  InjectProof.forward_extracted(limits, received, base, incoming, pair, carrier, extracted, kept, fits)
+
+# The checks never depend on the carrier, and the second forwarding keeps the
+# same fields.
+def Laws.forward_idempotent(limits, incoming, carrier, forwarded, done):
+  InjectProof.forward_idempotent(limits, incoming, carrier, forwarded, done)

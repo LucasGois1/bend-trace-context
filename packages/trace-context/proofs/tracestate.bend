@@ -752,8 +752,9 @@ def left_take(text, need, budget):
 # The measure agrees with the length: Utf8.left of `text` against `budget`
 # gives Some exactly when Utf8.length(text) <= budget. Parsing measures with
 # Utf8.left and the laws use Utf8.length, so over_budget, within_budgets,
-# proofs/merge.bend (parse_scan) and, for the traceparent budget,
-# proofs/extract.bend (read_fits, read_over_budget) go through it.
+# proofs/merge.bend (parse_scan), proofs/inject.bend (fields_within) and, for
+# the traceparent budget, proofs/extract.bend (read_fits, read_over_budget)
+# go through it.
 law within:
   for +text: String
   for budget: Nat
@@ -1007,7 +1008,8 @@ def fields_scan(fields):
 
 # Measuring repeated fields is measuring their comma-joined text, so the
 # commas that join them count toward the budget: Utf8.left_fields equals
-# Utf8.left of String.join(fields, ","). fields_join uses it.
+# Utf8.left of String.join(fields, ","). fields_join and proofs/inject.bend
+# (fields_within) use it.
 law fields_left:
   for fields: List<&2, String>
   for budget: Nat

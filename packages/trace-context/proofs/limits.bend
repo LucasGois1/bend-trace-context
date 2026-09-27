@@ -5,7 +5,8 @@
 # succeeds exactly when they hold, keeping the budgets it was given.
 # PROOF.bend proves the laws limits_bounds, limits_new and limits_fields of
 # LAWS.bend with bounds, new_accepts and new_view; output_within_input reads
-# the third rule for proofs/emit.bend.
+# the third rule for proofs/emit.bend, and proofs/extract.bend reads the
+# first from bounds.
 #
 # bounds splits the evidence stored in every Limits value with the Bool.and
 # lemmas of proofs/bools.bend. Limits.new passes the result of its check to
@@ -22,7 +23,9 @@ import ./nats.bend as NatsProof
 # Every Limits value has a traceparent input budget of at least 55, an
 # output budget of at least 512 and an input budget no smaller than its
 # output budget: the three rules that its evidence field proves, one
-# equation each. PROOF.bend proves the law limits_bounds with it.
+# equation each. PROOF.bend proves the law limits_bounds with it, and
+# proofs/extract.bend (formatted_fits) reads the first rule for the
+# traceparent an injection writes.
 law bounds:
   for limits: TC.Limits
   {Nat.is_ge(TC.Limits.traceparent_input(limits), 55n) == True{} : Bool} &

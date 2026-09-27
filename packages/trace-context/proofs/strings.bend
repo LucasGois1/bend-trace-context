@@ -16,9 +16,11 @@
 # IDs, proofs/generation.bend. proofs/distinct.bend uses the equality lemmas
 # for tracestate lookups, and proofs/extract.bend eq_cons for field names;
 # proofs/ids.bend, merge.bend, normal.bend and extract.bend use append_nil
-# and string_assoc; proofs/tracestate.bend uses reverse_twice; and
+# and string_assoc; proofs/tracestate.bend uses reverse_twice;
 # proofs/extract.bend uses reverse_onto, reverse_append, take_append and
-# drop_append for the whitespace and the known prefix of a traceparent.
+# drop_append for the whitespace and the known prefix of a traceparent; and
+# proofs/inject.bend uses reverse_twice and reverse_append for the joined
+# tracestate of a forwarded pair.
 #
 # Strategy: the facts about `++` and reversal are inductions on the first
 # string. The equality lemmas follow proofs/chars.bend: EqView is Unit for a
@@ -70,8 +72,9 @@ def joined_length(a, b, n, m, a_length, b_length):
 
 # Appending the empty string changes nothing. `++` recurses on its left
 # operand, so this needs an induction on a. Used by proofs/ids.bend
-# (id_end_step, id_roundtrip) and NormalProof.roundtrip (proofs/normal.bend),
-# which view a text as that text followed by an empty rest.
+# (id_end_step, id_roundtrip), NormalProof.roundtrip (proofs/normal.bend) and
+# proofs/extract.bend (trimmed_plain, format_solid, formatted_fits,
+# read_formatted), which view a text as that text followed by an empty rest.
 law append_nil:
   for a: String
   {a ++ "" == a : String}
@@ -250,7 +253,8 @@ def eq_sound(a, b, same):
 # reversing that gives acc reversed followed by text. With acc = "" it is
 # String.reverse(String.reverse(text)) == text. Induction on text, with the
 # accumulator growing. Used by proofs/tracestate.bend (read_entry_text,
-# restore_reversed), whose reading machine keeps a value reversed.
+# restore_reversed), whose reading machine keeps a value reversed, and
+# proofs/inject.bend (joined_law), which joins tracestate fields reversed.
 law reverse_twice:
   for text: String
   for acc: String
@@ -395,7 +399,8 @@ def reverse_onto(text, acc):
 
 # Reversing a concatenation onto `acc` reverses its first part onto `acc`,
 # then its second part onto that. Induction on the first part.
-# proofs/extract.bend uses it for the whitespace at the end of a value.
+# proofs/extract.bend uses it for the whitespace at the end of a value, and
+# proofs/inject.bend (joined_go) at each comma of a joined tracestate.
 law reverse_append:
   for a: String
   for b: String

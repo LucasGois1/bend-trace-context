@@ -10,10 +10,11 @@ root, child and restarted local contexts from validated IDs that the caller
 supplies or from IDs generated on the host's cryptographic source, natively and
 in Bend programs compiled to Node, parses, queries and formats Level 2
 `tracestate` within validated limits, updates the state a local operation
-sends and emits it within the output budget, and extracts the context of a
+sends and emits it within the output budget, extracts the context of a
 received message from its fields, keeping a base context when the message has
-no usable traceparent. Header injection, transparent forwarding, browser
-generation and HTTP/Fetch propagation are not implemented yet. Native
+no usable traceparent, and injects a local operation into the fields of a
+message to send or forwards a received context unchanged. Browser generation
+and HTTP/Fetch propagation are not implemented yet. Native
 HTTP transport is separately qualified as a development harness;
 it does not add a Trace Context propagator or tracer. Pure JavaScript module
 consumption and a WebCrypto source are qualified separately below. No BendHub
@@ -130,7 +131,12 @@ up its own entry and prints the state's normalized value. To send state, pair
 it with a local operation in a `TC.OutgoingContext`, set your entry and emit both
 fields with `TC.OutgoingContext.emit`; the
 [outgoing example](packages/trace-context/examples/outgoing.bend) continues a
-received trace this way.
+received trace this way. To send the fields, pass the outgoing context and the
+fields of the message to `TC.Context.inject(limits, outgoing, fields)`, whose
+carrier replaces any old context fields; to relay a request unchanged, pass
+its incoming context to `TC.Context.forward(limits, incoming, fields)`, which
+refuses a pair it cannot send whole. The
+[injection example](packages/trace-context/examples/inject.bend) does both.
 
 Read the [API and error reference](packages/trace-context/README.md) for strict
 parsing semantics, typed values, generation rules and proof scope. See
@@ -153,7 +159,7 @@ clone; they do not test uncommitted edits. To select a source and revision, run
 
 Baseline gates cover proofs, independent protocol vectors, all 256 flag bytes,
 expected static rejections, deterministic generation from replayed tapes,
-real-source generation smoke checks, the tracestate, outgoing and extraction corpora, the examples, the
+real-source generation smoke checks, the tracestate, outgoing, extraction and injection corpora, the examples, the
 exact README example above and a consumer outside the repository. Consumer logs and outputs are saved under
 `build/consumer-native/` or `build/consumer-node/`. CI exercises
 native macOS ARM64/Linux x86_64 and Node 22/24, recording exact runtime versions.
@@ -173,7 +179,7 @@ default branch. GitHub secret scanning and push protection are enabled.
 
 The universal fixed-length, `parse(format(context)) == Done{context}` and
 inverse laws of the strict codec are proved, as are the supplied-ID, context
-lifecycle, generation, limits, tracestate, emission and extraction laws listed in the
+lifecycle, generation, limits, tracestate, emission, extraction, injection and forwarding laws listed in the
 [package reference](packages/trace-context/README.md#proofs). The generation
 laws cover every sequence of words replayed from a tape; the host source's
 path through the same driver is tested, and its quality is not proved.

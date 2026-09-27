@@ -27,15 +27,24 @@
 #                        they agree, and extract_read follows an accepted
 #                        message through Extract.state.
 #   Reading a            Plain texts, without a comma, a space or a tab, pass
-#   traceparent value    the whitespace and comma steps unchanged. The v00
-#                        and later-version laws then follow the version rules
-#                        to the strict codec, whose round trip
+#   traceparent value    the whitespace and comma steps unchanged, and clean
+#                        unknown fields, without a control character, pass
+#                        the check of a later version's fields (clean_go).
+#                        The v00 and later-version laws then follow the
+#                        version rules to the strict codec, whose round trip
 #                        (ContextProof.roundtrip) reads the known fields back;
-#                        read_v00_exact uses law inverse instead.
+#                        read_v00_exact uses law inverse instead. The text of
+#                        a v00 value is 55 octets (formatted_width), so every
+#                        budget reads it back (read_formatted), which
+#                        proofs/inject.bend uses for an injected carrier.
 #   The tracestate and   The traceparent outcome and the sender's operation
 #   the kept pair        never depend on the tracestate fields
-#                        (state_independent), and views over every extraction
-#                        bound the pair it keeps (received_bounds).
+#                        (state_independent). Views over every extraction
+#                        show that the pair it keeps fits the input budgets
+#                        (received_bounds) and reads back under the same
+#                        limits, its value trimmed once being trimmed for good
+#                        (trim_twice, read_trimmed), which proofs/inject.bend
+#                        uses to forward it (extracted_view).
 #
 # As elsewhere, a step lemma receives a value the proof must match on (a
 # Bool, a Result) as a parameter, with an equation saying what it is, and
@@ -57,13 +66,16 @@ import ./parser.bend as ParserProof
 import ./context.bend as ContextProof
 import ./inverse.bend as InverseProof
 import ./tracestate.bend as StateProof
+import ./limits.bend as LimitsProof
+import ./emit.bend as EmitProof
 
 # Selecting fields
 # ================
 
 # The package's comparison of a field name, Carrier.named, is the comparison
 # of Laws.named: the name with its ASCII letters lowered equals the lowercase
-# name sought. Induction on both strings.
+# name sought. Induction on both strings. proofs/inject.bend recognizes
+# context fields with it.
 law named_step:
   for +name: String
   for +text: String
@@ -149,7 +161,7 @@ def values(carrier, name):
   ListsProof.reverse_twice(String, Laws.named(name, carrier), Nil{})
 
 # Extraction is Extract.parents of the values Laws.named selects. Every
-# extraction law starts here.
+# extraction law starts here, and so do the receivers of proofs/inject.bend.
 law extract_named:
   for +limits: TC.Limits
   for +carrier: List<&2, TC.Header>
@@ -1146,10 +1158,11 @@ def unknown_plain(unknown, holds):
     case SNil{}:
       {==}
     case SCon{+first, +rest}:
-      %Equal.sym(Char, first, '-', CharsProof.char_sound(first, '-', BoolsProof.and_left(Char.is_eq(first, '-'), Laws.plain(rest),
-        holds))) :
+      %Equal.sym(Char, first, '-', CharsProof.char_sound(first, '-', BoolsProof.and_left(Char.is_eq(first, '-'),
+        Bool.and(Laws.plain(rest), Laws.clean(rest)), holds))) :
         {Laws.plain(SCon{_, rest}) == True{} : Bool}
-      BoolsProof.and_right(Char.is_eq(first, '-'), Laws.plain(rest), holds)
+      BoolsProof.and_left(Laws.plain(rest), Laws.clean(rest),
+        BoolsProof.and_right(Char.is_eq(first, '-'), Bool.and(Laws.plain(rest), Laws.clean(rest)), holds))
 
 # The text of a later version is plain: its version digits, the known fields
 # of a strict v00 value and plain unknown fields.
@@ -1204,9 +1217,30 @@ def unit_then(extension: Result<&2, &2, TC.Error, Unit>, known: TC.TraceParentV0
 def dash_result(read: Result<&2, &2, TC.Error, String>) -> Result<&2, &2, TC.Error, Unit>:
   do Result<&2, &2, TC.Error, Unit>:
     unknown : String <- read
-    return Unit{}
+    TC.Read.clean(TC.Text.control.go(unknown, 56n, None{}))
 
-# Unknown fields that pass Laws.unknown_fields are accepted after the flags.
+# The search of a text without control characters finds none, from any
+# offset. Induction on the text.
+law clean_go:
+  for +text: String
+  for +offset: Nat
+  for +holds: {Laws.clean(text) == True{} : Bool}
+  {TC.Text.control.go(text, offset, None{}) == None{} : Maybe<&2, Nat>}
+
+def clean_go(text, offset, holds):
+  match text:
+    case SNil{}:
+      {==}
+    case SCon{+head, +rest}:
+      %Equal.sym(Bool, TC.Text.is_control(head), False{}, BoolsProof.not_true(TC.Text.is_control(head),
+        BoolsProof.and_left(Bool.not(TC.Text.is_control(head)), Laws.clean(rest), holds))) :
+        {TC.Text.control.go(rest, 1n+offset, Bool.pick(Maybe<&2, Nat>, _, Some{offset}, None{})) == None{} :
+          Maybe<&2, Nat>}
+      clean_go(rest, 1n+offset, BoolsProof.and_right(Bool.not(TC.Text.is_control(head)), Laws.clean(rest), holds))
+
+# Unknown fields that pass Laws.unknown_fields are accepted after the flags:
+# the dash is there, and the fields after it hold no control character
+# (clean_go).
 law unknown_ok:
   for +unknown: String
   for +holds: {Laws.unknown_fields(unknown) == True{} : Bool}
@@ -1217,9 +1251,13 @@ def unknown_ok(unknown, holds):
     case SNil{}:
       {==}
     case SCon{+first, +rest}:
-      %Equal.sym(Bool, Char.is_eq(first, '-'), True{}, BoolsProof.and_left(Char.is_eq(first, '-'), Laws.plain(rest),
-        holds)) :
+      %Equal.sym(Bool, Char.is_eq(first, '-'), True{}, BoolsProof.and_left(Char.is_eq(first, '-'),
+        Bool.and(Laws.plain(rest), Laws.clean(rest)), holds)) :
         {dash_result(TC.Parse.separator_result(rest, _, 55n)) == Done{Unit{}} : Result<&2, &2, TC.Error, Unit>}
+      %Equal.sym(Maybe<&2, Nat>, TC.Text.control.go(rest, 56n, None{}), None{},
+        clean_go(rest, 56n, BoolsProof.and_right(Laws.plain(rest), Laws.clean(rest),
+          BoolsProof.and_right(Char.is_eq(first, '-'), Bool.and(Laws.plain(rest), Laws.clean(rest)), holds)))) :
+        {TC.Read.clean(_) == Done{Unit{}} : Result<&2, &2, TC.Error, Unit>}
       {==}
 
 # The first 55 characters of a later version's text are its known prefix:
@@ -1379,6 +1417,148 @@ def read_v00(limits, known, before, after, before_ows, after_ows, fits):
     Done{known}, v00_known(known)) :
     {TC.Read.invalid(_) == Done{known} : Result<&2, &2, TC.TraceParentError, TC.TraceParentV00>}
   {==}
+
+# A hexadecimal digit is one octet. By cases on the digit; each case
+# computes.
+law digit_width:
+  for digit: Hex.Digit
+  {TC.Utf8.width(Hex.Digit.to_char(digit)) == 1n : Nat}
+
+def digit_width(digit):
+  match digit:
+    case Hex.H0{}:
+      {==}
+    case Hex.H1{}:
+      {==}
+    case Hex.H2{}:
+      {==}
+    case Hex.H3{}:
+      {==}
+    case Hex.H4{}:
+      {==}
+    case Hex.H5{}:
+      {==}
+    case Hex.H6{}:
+      {==}
+    case Hex.H7{}:
+      {==}
+    case Hex.H8{}:
+      {==}
+    case Hex.H9{}:
+      {==}
+    case Hex.Ha{}:
+      {==}
+    case Hex.Hb{}:
+      {==}
+    case Hex.Hc{}:
+      {==}
+    case Hex.Hd{}:
+      {==}
+    case Hex.He{}:
+      {==}
+    case Hex.Hf{}:
+      {==}
+
+# A sequence of n digits is n octets. Induction on n, as
+# DigitsProof.encoded_length counts its characters.
+law digits_width:
+  for n: Nat
+  for digits: Digits.Digits(n)
+  {TC.Utf8.length(Digits.Digits.to_string(n, digits)) == n : Nat}
+
+def digits_width(n, digits):
+  match n:
+    case 0n:
+      {==}
+    case 1n+p:
+      match digits:
+        case Digits.DCon{head, tail}:
+          %Equal.sym(Nat, TC.Utf8.width(Hex.Digit.to_char(head)), 1n, digit_width(head)) :
+            {Nat.add(_, TC.Utf8.length(Digits.Digits.to_string(p, tail))) == 1n+p : Nat}
+          %digits_width(p, tail) : {Nat.add(1n, TC.Utf8.length(Digits.Digits.to_string(p, tail))) == 1n+_ : Nat}
+          {==}
+
+# The same for a nonzero sequence.
+law nonzero_width:
+  for n: Nat
+  for value: Digits.NonZero<n>
+  {TC.Utf8.length(Digits.NonZero.to_string(n, value)) == n : Nat}
+
+def nonzero_width(n, value):
+  match value:
+    case Digits.NonZero{digits, evidence}:
+      digits_width(n, digits)
+
+# When a is n octets and b is m, a ++ b is n + m (EmitProof.utf8_append), in
+# the form of StringsProof.joined_length, so that it chains.
+law joined_width:
+  for a: String
+  for +b: String
+  for n: Nat
+  for m: Nat
+  for a_width: {TC.Utf8.length(a) == n : Nat}
+  for b_width: {TC.Utf8.length(b) == m : Nat}
+  {TC.Utf8.length(a ++ b) == Nat.add(n, m) : Nat}
+
+def joined_width(a, b, n, m, a_width, b_width):
+  %b_width : {TC.Utf8.length(a ++ b) == Nat.add(n, _) : Nat}
+  %a_width : {TC.Utf8.length(a ++ b) == Nat.add(_, TC.Utf8.length(b)) : Nat}
+  EmitProof.utf8_append(a, b)
+
+# The text of a strict v00 value is 55 octets: its pieces added up from the
+# innermost outwards, as ContextProof.formatted_length counts characters.
+law formatted_width:
+  for known: TC.TraceParentV00
+  {TC.Utf8.length(TC.TraceParentV00.format(known)) == 55n : Nat}
+
+def formatted_width(known):
+  match known:
+    case TC.TraceParentV00{+trace_id, +parent_id, +flags}:
+      +trace = Digits.NonZero.to_string(32n, trace_id)
+      +parent = Digits.NonZero.to_string(16n, parent_id)
+      +flag_text = Digits.Digits.to_string(2n, flags)
+      f = joined_width("-", flag_text, 1n, 2n, {==}, digits_width(2n, flags))
+      p = joined_width(parent, "-" ++ flag_text, 16n, 3n, nonzero_width(16n, parent_id), f)
+      ps = joined_width("-", parent ++ "-" ++ flag_text, 1n, 19n, {==}, p)
+      t = joined_width(trace, "-" ++ parent ++ "-" ++ flag_text, 32n, 20n, nonzero_width(32n, trace_id), ps)
+      tail = joined_width("-", trace ++ "-" ++ parent ++ "-" ++ flag_text, 1n, 52n, {==}, t)
+      joined_width("00", "-" ++ trace ++ "-" ++ parent ++ "-" ++ flag_text, 2n, 53n, {==}, tail)
+
+# Every traceparent input budget admits the text of a strict v00 value: it
+# is 55 octets (formatted_width), and every budget is at least 55
+# (LimitsProof.bounds). Stated for the text followed by "", as
+# read_v00 takes it.
+law formatted_fits:
+  for +limits: TC.Limits
+  for +known: TC.TraceParentV00
+  {Nat.is_le(TC.Utf8.length(TC.TraceParentV00.format(known) ++ ""), TC.Limits.traceparent_input(limits)) == True{} :
+    Bool}
+
+def formatted_fits(limits, known):
+  %Equal.sym(String, TC.TraceParentV00.format(known) ++ "", TC.TraceParentV00.format(known),
+    StringsProof.append_nil(TC.TraceParentV00.format(known))) :
+    {Nat.is_le(TC.Utf8.length(_), TC.Limits.traceparent_input(limits)) == True{} : Bool}
+  %Equal.sym(Nat, TC.Utf8.length(TC.TraceParentV00.format(known)), 55n, formatted_width(known)) :
+    {Nat.is_le(_, TC.Limits.traceparent_input(limits)) == True{} : Bool}
+  %NatsProof.ge_le(TC.Limits.traceparent_input(limits), 55n) : {_ == True{} : Bool}
+  Pair.fst({Nat.is_ge(TC.Limits.traceparent_input(limits), 55n) == True{} : Bool},
+    {Nat.is_ge(TC.Limits.tracestate_output(limits), 512n) == True{} : Bool} &
+      {Nat.is_ge(TC.Limits.tracestate_input(limits), TC.Limits.tracestate_output(limits)) == True{} : Bool},
+    LimitsProof.bounds(limits))
+
+# The text of a strict v00 value reads as that value, under every limits:
+# read_v00 without whitespace around it. proofs/inject.bend reads the
+# traceparent of an injected carrier with it.
+law read_formatted:
+  for +limits: TC.Limits
+  for +known: TC.TraceParentV00
+  {TC.TraceParent.read(limits, TC.TraceParentV00.format(known)) == Done{known} :
+    Result<&2, &2, TC.TraceParentError, TC.TraceParentV00>}
+
+def read_formatted(limits, known):
+  %StringsProof.append_nil(TC.TraceParentV00.format(known)) :
+    {TC.TraceParent.read(limits, _) == Done{known} : Result<&2, &2, TC.TraceParentError, TC.TraceParentV00>}
+  read_v00(limits, known, "", "", {==}, {==}, formatted_fits(limits, known))
 
 # Law read_future: as read_v00, with future_plain for the text and
 # future_known for its known fields.
@@ -1866,11 +2046,19 @@ def state_independent(limits, first, second, base, same):
   parents_independent(limits, Laws.named("traceparent", first), Laws.named("tracestate", first),
     Laws.named("tracestate", second), base)
 
-# The received pair is bounded
-# ============================
+# The received pair is bounded and reads back
+# ============================================
+#
+# Extraction keeps the traceparent value without the whitespace around it,
+# and the tracestate fields only once they parsed. Removing the whitespace
+# again changes nothing (trim_twice), so the kept value reads as the received
+# one did (read_trimmed). The views below record, for every extraction, that
+# the pair it keeps fits the input budgets (law received_bounds) and reads
+# back under the same limits, which proofs/inject.bend uses for forwarding.
 
-# The view of a kept pair: Unit when there is none, and the two bounds of law
-# received_bounds when there is one.
+# The view of a kept pair: Unit when there is none, and, when there is one,
+# the two bounds of law received_bounds, and that its traceparent value reads
+# and its tracestate fields parse under `limits`.
 def PairView(+limits: TC.Limits, received: Maybe<&2, TC.ReceivedPair>) -> Type:
   match received:
     case None{}:
@@ -1879,7 +2067,11 @@ def PairView(+limits: TC.Limits, received: Maybe<&2, TC.ReceivedPair>) -> Type:
       {Nat.is_le(TC.Utf8.length(TC.ReceivedPair.traceparent(pair)), TC.Limits.traceparent_input(limits)) == True{} :
         Bool} &
       {Nat.is_le(TC.Utf8.length(String.join(TC.ReceivedPair.tracestate(pair), ",")), TC.Limits.tracestate_input(limits)) ==
-        True{} : Bool}
+        True{} : Bool} &
+      {Result.is_done(&2, &2, TC.TraceParentError, TC.TraceParentV00,
+        TC.TraceParent.read(limits, TC.ReceivedPair.traceparent(pair))) == True{} : Bool} &
+      {Result.is_done(&2, &2, TC.StateError, TC.TraceState,
+        TC.TraceState.parse_fields(limits, TC.ReceivedPair.tracestate(pair))) == True{} : Bool}
 
 # The view of an extraction's own context: Unit when there is none, and the
 # view of the pair it kept when there is one.
@@ -2015,6 +2207,174 @@ law read_fits_done:
 def read_fits_done(limits, value, known, read):
   read_fits_step(limits, value, known, Nat.is_le(TC.Utf8.length(value), TC.Limits.traceparent_input(limits)), {==}, read)
 
+# The step of start_end for a first character `head`, with `ows` standing
+# for whether it is whitespace and `later` the lemma for the rest: a kept
+# first character is not whitespace, so it starts the text that
+# Laws.ows_end leaves, and Laws.ows_start stops at it.
+law start_end_step:
+  for +head: Char
+  for +rest: String
+  for ows: Bool
+  for +evidence: {Bool.or(Char.is_eq(head, ' '), Char.is_eq(head, '\t')) == ows : Bool}
+  for later: {Laws.ows_start(Laws.ows_end(Laws.ows_start(rest))) == Laws.ows_end(Laws.ows_start(rest)) : String}
+  {Laws.ows_start(Laws.ows_end(Bool.pick(String, ows, Laws.ows_start(rest), SCon{head, rest}))) ==
+    Laws.ows_end(Bool.pick(String, ows, Laws.ows_start(rest), SCon{head, rest})) : String}
+
+def start_end_step(head, rest, ows, evidence, later):
+  match ows:
+    case True{}:
+      later
+    case False{}:
+      %Equal.sym(Bool, Bool.or(Char.is_eq(head, ' '), Char.is_eq(head, '\t')), False{}, evidence) :
+        {Laws.ows_start(Bool.pick(String, Bool.and(_, Laws.all_ows(rest)), SNil{}, SCon{head, Laws.ows_end(rest)})) ==
+          Bool.pick(String, Bool.and(_, Laws.all_ows(rest)), SNil{}, SCon{head, Laws.ows_end(rest)}) : String}
+      %Equal.sym(Bool, Bool.or(Char.is_eq(head, ' '), Char.is_eq(head, '\t')), False{}, evidence) :
+        {Bool.pick(String, _, Laws.ows_start(Laws.ows_end(rest)), SCon{head, Laws.ows_end(rest)}) ==
+          SCon{head, Laws.ows_end(rest)} : String}
+      {==}
+
+# Removing the whitespace at the end of a text without whitespace at its
+# start leaves none at its start. Induction on the text.
+law start_end:
+  for +text: String
+  {Laws.ows_start(Laws.ows_end(Laws.ows_start(text))) == Laws.ows_end(Laws.ows_start(text)) : String}
+
+def start_end(text):
+  match text:
+    case SNil{}:
+      {==}
+    case SCon{+head, +rest}:
+      start_end_step(head, rest, Bool.or(Char.is_eq(head, ' '), Char.is_eq(head, '\t')), {==}, start_end(rest))
+
+# The step of all_end for a first character `head`, with `all` standing for
+# whether the text is all whitespace and `later` the lemma for the rest.
+law all_end_step:
+  for +head: Char
+  for +rest: String
+  for all: Bool
+  for evidence: {Laws.all_ows(SCon{head, rest}) == all : Bool}
+  for later: {Laws.all_ows(Laws.ows_end(rest)) == Laws.all_ows(rest) : Bool}
+  {Laws.all_ows(Bool.pick(String, all, SNil{}, SCon{head, Laws.ows_end(rest)})) == Laws.all_ows(SCon{head, rest}) :
+    Bool}
+
+def all_end_step(head, rest, all, evidence, later):
+  match all:
+    case True{}:
+      Equal.sym(Bool, Laws.all_ows(SCon{head, rest}), True{}, evidence)
+    case False{}:
+      %Equal.sym(Bool, Laws.all_ows(Laws.ows_end(rest)), Laws.all_ows(rest), later) :
+        {Bool.and(Bool.or(Char.is_eq(head, ' '), Char.is_eq(head, '\t')), _) == Laws.all_ows(SCon{head, rest}) : Bool}
+      {==}
+
+# Removing the whitespace at the end keeps a text all whitespace exactly when
+# it was. Induction on the text.
+law all_end:
+  for +text: String
+  {Laws.all_ows(Laws.ows_end(text)) == Laws.all_ows(text) : Bool}
+
+def all_end(text):
+  match text:
+    case SNil{}:
+      {==}
+    case SCon{+head, +rest}:
+      all_end_step(head, rest, Laws.all_ows(SCon{head, rest}), {==}, all_end(rest))
+
+# The step of end_twice for a first character `head`, with `all` standing
+# for whether the text is all whitespace and `later` the lemma for the rest:
+# a kept first character stays kept, since the rest keeps its whitespace
+# status (all_end).
+law end_twice_step:
+  for +head: Char
+  for +rest: String
+  for all: Bool
+  for evidence: {Laws.all_ows(SCon{head, rest}) == all : Bool}
+  for later: {Laws.ows_end(Laws.ows_end(rest)) == Laws.ows_end(rest) : String}
+  {Laws.ows_end(Bool.pick(String, all, SNil{}, SCon{head, Laws.ows_end(rest)})) ==
+    Bool.pick(String, all, SNil{}, SCon{head, Laws.ows_end(rest)}) : String}
+
+def end_twice_step(head, rest, all, evidence, later):
+  match all:
+    case True{}:
+      {==}
+    case False{}:
+      %Equal.sym(String, Laws.ows_end(Laws.ows_end(rest)), Laws.ows_end(rest), later) :
+        {Bool.pick(String, Laws.all_ows(SCon{head, Laws.ows_end(rest)}), SNil{}, SCon{head, _}) ==
+          SCon{head, Laws.ows_end(rest)} : String}
+      %Equal.sym(Bool, Laws.all_ows(Laws.ows_end(rest)), Laws.all_ows(rest), all_end(rest)) :
+        {Bool.pick(String, Bool.and(Bool.or(Char.is_eq(head, ' '), Char.is_eq(head, '\t')), _), SNil{},
+          SCon{head, Laws.ows_end(rest)}) == SCon{head, Laws.ows_end(rest)} : String}
+      %Equal.sym(Bool, Laws.all_ows(SCon{head, rest}), False{}, evidence) :
+        {Bool.pick(String, _, SNil{}, SCon{head, Laws.ows_end(rest)}) == SCon{head, Laws.ows_end(rest)} : String}
+      {==}
+
+# Removing the whitespace at the end twice removes it once. Induction on the
+# text.
+law end_twice:
+  for +text: String
+  {Laws.ows_end(Laws.ows_end(text)) == Laws.ows_end(text) : String}
+
+def end_twice(text):
+  match text:
+    case SNil{}:
+      {==}
+    case SCon{+head, +rest}:
+      end_twice_step(head, rest, Laws.all_ows(SCon{head, rest}), {==}, end_twice(rest))
+
+# Removing the whitespace around a value twice removes it once: start_end,
+# then end_twice.
+law trimmed_twice:
+  for +text: String
+  {Laws.trimmed(Laws.trimmed(text)) == Laws.trimmed(text) : String}
+
+def trimmed_twice(text):
+  %Equal.sym(String, Laws.ows_start(Laws.ows_end(Laws.ows_start(text))), Laws.ows_end(Laws.ows_start(text)),
+    start_end(text)) :
+    {Laws.ows_end(_) == Laws.ows_end(Laws.ows_start(text)) : String}
+  end_twice(Laws.ows_start(text))
+
+# The same for the package's loops (trim_law).
+law trim_twice:
+  for +value: String
+  {TC.Text.trim_ows(TC.Text.trim_ows(value)) == TC.Text.trim_ows(value) : String}
+
+def trim_twice(value):
+  %Equal.sym(String, TC.Text.trim_ows(value), Laws.trimmed(value), trim_law(value)) :
+    {TC.Text.trim_ows(_) == _ : String}
+  %Equal.sym(String, TC.Text.trim_ows(Laws.trimmed(value)), Laws.trimmed(Laws.trimmed(value)),
+    trim_law(Laws.trimmed(value))) :
+    {_ == Laws.trimmed(value) : String}
+  trimmed_twice(value)
+
+# The value extraction keeps reads as the received value did: it fits the
+# budget too (trim_shorter), and both readings read it without
+# its whitespace (read_fits), which is the kept value itself
+# (trim_twice).
+law read_trimmed:
+  for +limits: TC.Limits
+  for +value: String
+  for +known: TC.TraceParentV00
+  for +read: {TC.TraceParent.read(limits, value) == Done{known} :
+    Result<&2, &2, TC.TraceParentError, TC.TraceParentV00>}
+  {TC.TraceParent.read(limits, TC.Text.trim_ows(value)) == Done{known} :
+    Result<&2, &2, TC.TraceParentError, TC.TraceParentV00>}
+
+def read_trimmed(limits, value, known, read):
+  +value_fits = read_fits_done(limits, value, known, read)
+  +kept_fits = NatsProof.le_trans(TC.Utf8.length(TC.Text.trim_ows(value)), TC.Utf8.length(value),
+    TC.Limits.traceparent_input(limits), trim_shorter(value), value_fits)
+  %Equal.sym(Result<&2, &2, TC.TraceParentError, TC.TraceParentV00>,
+    TC.TraceParent.read(limits, TC.Text.trim_ows(value)),
+    TC.Read.trimmed(TC.Text.trim_ows(TC.Text.trim_ows(value))),
+    read_fits(limits, TC.Text.trim_ows(value), kept_fits)) :
+    {_ == Done{known} : Result<&2, &2, TC.TraceParentError, TC.TraceParentV00>}
+  %Equal.sym(String, TC.Text.trim_ows(TC.Text.trim_ows(value)), TC.Text.trim_ows(value), trim_twice(value)) :
+    {TC.Read.trimmed(_) == Done{known} : Result<&2, &2, TC.TraceParentError, TC.TraceParentV00>}
+  Equal.trans(Result<&2, &2, TC.TraceParentError, TC.TraceParentV00>, TC.Read.trimmed(TC.Text.trim_ows(value)),
+    TC.TraceParent.read(limits, value), Done{known},
+    Equal.sym(Result<&2, &2, TC.TraceParentError, TC.TraceParentV00>, TC.TraceParent.read(limits, value),
+      TC.Read.trimmed(TC.Text.trim_ows(value)), read_fits(limits, value, value_fits)),
+    read)
+
 # The step of fields_fit, with `fits` standing for the budget check.
 law fields_fit_step:
   for +limits: TC.Limits
@@ -2057,49 +2417,60 @@ def fields_fit(limits, fields, state, parsed):
     TC.Limits.tracestate_input(limits)), {==}, parsed)
 
 # The view for an accepted message with parsed tracestate fields: a refused
-# state keeps no pair, and an accepted one keeps the fields, which fit.
+# state keeps no pair, and an accepted one keeps the fields, which fit and
+# parse.
 law parsed_view:
   for +limits: TC.Limits
   for +fields: List<&2, String>
   for remote: TC.RemoteContext
   for text: String
   for text_fits: {Nat.is_le(TC.Utf8.length(text), TC.Limits.traceparent_input(limits)) == True{} : Bool}
+  for text_reads: {Result.is_done(&2, &2, TC.TraceParentError, TC.TraceParentV00, TC.TraceParent.read(limits, text)) ==
+    True{} : Bool}
   for parsed: Result<&2, &2, TC.StateError, TC.TraceState>
-  for evidence: {TC.TraceState.parse_fields(limits, fields) == parsed : Result<&2, &2, TC.StateError, TC.TraceState>}
+  for +evidence: {TC.TraceState.parse_fields(limits, fields) == parsed : Result<&2, &2, TC.StateError, TC.TraceState>}
   IncomingView(limits, TC.Extraction.incoming(TC.Extract.parsed(parsed, remote, text, fields)))
 
-def parsed_view(limits, fields, remote, text, text_fits, parsed, evidence):
+def parsed_view(limits, fields, remote, text, text_fits, text_reads, parsed, evidence):
   match parsed:
     case Fail{error}:
       Unit{}
     case Done{state}:
-      (text_fits, fields_fit(limits, fields, state, evidence))
+      (text_fits, (fields_fit(limits, fields, state, evidence), (text_reads,
+        Equal.cong(Result<&2, &2, TC.StateError, TC.TraceState>, Bool,
+          result => Result.is_done(&2, &2, TC.StateError, TC.TraceState, result), TC.TraceState.parse_fields(limits, fields),
+          Done{state}, evidence))))
 
-# The view for an accepted message, given that the value it keeps fits.
+# The view for an accepted message, given that the value it keeps fits and
+# reads. Without tracestate fields, the empty list parses.
 law state_view:
   for +limits: TC.Limits
   for +fields: List<&2, String>
   for remote: TC.RemoteContext
   for text: String
   for text_fits: {Nat.is_le(TC.Utf8.length(text), TC.Limits.traceparent_input(limits)) == True{} : Bool}
+  for text_reads: {Result.is_done(&2, &2, TC.TraceParentError, TC.TraceParentV00, TC.TraceParent.read(limits, text)) ==
+    True{} : Bool}
   IncomingView(limits, TC.Extraction.incoming(TC.Extract.state(limits, fields, remote, text)))
 
-def state_view(limits, fields, remote, text, text_fits):
+def state_view(limits, fields, remote, text, text_fits, text_reads):
   match fields:
     case Nil{}:
-      (text_fits, NatsProof.zero_le(TC.Limits.tracestate_input(limits)))
+      (text_fits, (NatsProof.zero_le(TC.Limits.tracestate_input(limits)), (text_reads, {==})))
     case Con{field, rest}:
-      parsed_view(limits, Con{field, rest}, remote, text, text_fits,
+      parsed_view(limits, Con{field, rest}, remote, text, text_fits, text_reads,
         TC.TraceState.parse_fields(limits, Con{field, rest}), {==})
 
-# The view for a message with one traceparent value, given how it was read.
+# The view for a message with one traceparent value, given how it was read:
+# an accepted value keeps a value that fits (trim_shorter) and reads
+# (read_trimmed).
 law read_view:
   for +limits: TC.Limits
   for +value: String
   for +fields: List<&2, String>
   for base: Maybe<&2, TC.BaseContext>
   for read: Result<&2, &2, TC.TraceParentError, TC.TraceParentV00>
-  for evidence: {TC.TraceParent.read(limits, value) == read : Result<&2, &2, TC.TraceParentError, TC.TraceParentV00>}
+  for +evidence: {TC.TraceParent.read(limits, value) == read : Result<&2, &2, TC.TraceParentError, TC.TraceParentV00>}
   IncomingView(limits, TC.Extraction.incoming(TC.Extract.read(read, value, limits, fields, base)))
 
 def read_view(limits, value, fields, base, read, evidence):
@@ -2109,7 +2480,10 @@ def read_view(limits, value, fields, base, read, evidence):
     case Done{+known}:
       state_view(limits, fields, TC.RemoteContext.from_traceparent(known), TC.Text.trim_ows(value),
         NatsProof.le_trans(TC.Utf8.length(TC.Text.trim_ows(value)), TC.Utf8.length(value),
-          TC.Limits.traceparent_input(limits), trim_shorter(value), read_fits_done(limits, value, known, evidence)))
+          TC.Limits.traceparent_input(limits), trim_shorter(value), read_fits_done(limits, value, known, evidence)),
+        Equal.cong(Result<&2, &2, TC.TraceParentError, TC.TraceParentV00>, Bool,
+          result => Result.is_done(&2, &2, TC.TraceParentError, TC.TraceParentV00, result),
+          TC.TraceParent.read(limits, TC.Text.trim_ows(value)), Done{known}, read_trimmed(limits, value, known, evidence)))
 
 # The view for every extraction of selected field values.
 law incoming_view:
@@ -2128,8 +2502,43 @@ def incoming_view(limits, parents, fields, base):
     case Con{value, Con{next, more}}:
       Unit{}
 
-# Law received_bounds: `kept` and `extracted` turn the bounds into the view of
-# the extraction's own context, which incoming_view proves.
+# The view of the pair that the context of an extraction keeps: `kept` and
+# `extracted` turn it into the view of the extraction's own context, which
+# incoming_view proves. proofs/inject.bend forwards the pair with it.
+law extracted_view:
+  for +limits: TC.Limits
+  for +carrier: List<&2, TC.Header>
+  for +base: Maybe<&2, TC.BaseContext>
+  for +incoming: TC.IncomingContext
+  for +pair: TC.ReceivedPair
+  for extracted: {TC.Extraction.incoming(TC.Context.extract(limits, carrier, base)) == Some{incoming} :
+    Maybe<&2, TC.IncomingContext>}
+  for kept: {TC.IncomingContext.received(incoming) == Some{pair} : Maybe<&2, TC.ReceivedPair>}
+  PairView(limits, Some{pair})
+
+def extracted_view(limits, carrier, base, incoming, pair, extracted, kept):
+  %kept : PairView(limits, _)
+  %extracted : IncomingView(limits, _)
+  %Equal.sym(TC.Extraction, TC.Context.extract(limits, carrier, base), TC.Extract.parents(limits,
+    Laws.named("traceparent", carrier), Laws.named("tracestate", carrier), base), extract_named(limits, carrier, base)) :
+    IncomingView(limits, TC.Extraction.incoming(_))
+  incoming_view(limits, Laws.named("traceparent", carrier), Laws.named("tracestate", carrier), base)
+
+# The two bounds in the view of a kept pair.
+law pair_bounds:
+  for +limits: TC.Limits
+  for +pair: TC.ReceivedPair
+  for view: PairView(limits, Some{pair})
+  {Nat.is_le(TC.Utf8.length(TC.ReceivedPair.traceparent(pair)), TC.Limits.traceparent_input(limits)) == True{} : Bool} &
+  {Nat.is_le(TC.Utf8.length(String.join(TC.ReceivedPair.tracestate(pair), ",")), TC.Limits.tracestate_input(limits)) ==
+    True{} : Bool}
+
+def pair_bounds(limits, pair, view):
+  (traceparent_fits, rest) = view
+  (tracestate_fits, reads) = rest
+  (traceparent_fits, tracestate_fits)
+
+# Law received_bounds: the bounds of the view of the kept pair.
 law received_bounds:
   for +limits: TC.Limits
   for +carrier: List<&2, TC.Header>
@@ -2144,9 +2553,4 @@ law received_bounds:
     True{} : Bool}
 
 def received_bounds(limits, carrier, base, incoming, pair, extracted, kept):
-  %kept : PairView(limits, _)
-  %extracted : IncomingView(limits, _)
-  %Equal.sym(TC.Extraction, TC.Context.extract(limits, carrier, base), TC.Extract.parents(limits,
-    Laws.named("traceparent", carrier), Laws.named("tracestate", carrier), base), extract_named(limits, carrier, base)) :
-    IncomingView(limits, TC.Extraction.incoming(_))
-  incoming_view(limits, Laws.named("traceparent", carrier), Laws.named("tracestate", carrier), base)
+  pair_bounds(limits, pair, extracted_view(limits, carrier, base, incoming, pair, extracted, kept))
