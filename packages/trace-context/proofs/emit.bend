@@ -45,7 +45,8 @@ import ./order.bend as OrderProof
 
 # The UTF-8 octets of a concatenation are those of its parts added up.
 # Induction on the first text, with NatsProof.add_assoc to regroup the sum.
-# entry_size and entries_size use it at every `++` of Entries.format.
+# entry_size and entries_size use it at every `++` of Entries.format, and
+# proofs/extract.bend (joined_width) at every `++` of a traceparent value.
 law utf8_append:
   for a: String
   for +b: String
@@ -828,7 +829,8 @@ def emit_fits(limits, outgoing):
 
 # Law emit_accepted: the emitted value fits the output budget (emit_fits),
 # which fits the input budget (output_within_input, NatsProof.le_trans), so
-# parsing it gives back the state (NormalProof.roundtrip).
+# parsing it gives back the state (NormalProof.roundtrip). proofs/inject.bend
+# uses it for the state that a receiver of an injection reads.
 law emit_accepted:
   for +limits: TC.Limits
   for +outgoing: TC.OutgoingContext

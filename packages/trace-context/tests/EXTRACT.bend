@@ -349,9 +349,10 @@ def Test.ids() -> String:
 
 # Version 00 is read strictly, exactly 55 characters; version ff is
 # forbidden; any other version is read by its known prefix, which may be
-# followed by a dash and fields that are not read (W3C 3.2.2.1, 3.2.4 and
-# 4.1.2; the harness's test_traceparent_version_* tests). Offsets count from
-# the start of the value.
+# followed by a dash and fields that are not read, other than to refuse a
+# comma or a control character (W3C 3.2.2.1, 3.2.4 and 4.1.2; the harness's
+# test_traceparent_version_* tests; RFC 9110, section 5.5). Offsets count
+# from the start of the value.
 def Test.versions() -> IO(Unit):
   +known : String = "12345678901234567890123456789012-1234567890123456-01"
   do IO<Unit>:
@@ -367,6 +368,23 @@ def Test.versions() -> IO(Unit):
       "cc" ++ Test.ids() ++ "01-a b\tc", known)
     Unit <- Test.extract("a comma inside unknown fields makes repeated fields",
       [TC.Header{"traceparent", "cc" ++ Test.ids() ++ "01-a,b"}], "none", "rejected repeated", "absent")
+    Unit <- Test.refuses("a line break inside unknown fields, which would end the field when sent",
+      "cc" ++ Test.ids() ++ "01-x\r\ny: 1", "ControlCharacter at 57")
+    Unit <- Test.refuses("a null character inside unknown fields", "cc" ++ Test.ids() ++ "01-\u{0}",
+      "ControlCharacter at 56")
+    Unit <- Test.refuses("the control character before a tab", "cc" ++ Test.ids() ++ "01-a\u{8}",
+      "ControlCharacter at 57")
+    Unit <- Test.refuses("the control character after a tab", "cc" ++ Test.ids() ++ "01-a\tb\u{a}c",
+      "ControlCharacter at 59")
+    Unit <- Test.refuses("the control character before a space", "cc" ++ Test.ids() ++ "01-\u{1f}",
+      "ControlCharacter at 56")
+    Unit <- Test.refuses("delete inside unknown fields", "cc" ++ Test.ids() ++ "01-a-\u{7f}", "ControlCharacter at 58")
+    Unit <- Test.refuses("only the first control character is reported", "cc" ++ Test.ids() ++ "01-\u{1}\u{2}",
+      "ControlCharacter at 56")
+    Unit <- Test.extract("a comma comes before a control character",
+      [TC.Header{"traceparent", "cc" ++ Test.ids() ++ "01-,\r"}], "none", "rejected repeated", "absent")
+    Unit <- Test.accepts("a tilde and characters past delete are not control characters",
+      "cc" ++ Test.ids() ++ "01-~\u{80}\u{a0}", known)
     Unit <- Test.accepts("a future version keeps only the known flags", "cc" ++ Test.ids() ++ "ff",
       "12345678901234567890123456789012-1234567890123456-03")
     Unit <- Test.accepts("a future version with random-trace-id", "cc" ++ Test.ids() ++ "02",

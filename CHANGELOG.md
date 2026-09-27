@@ -6,8 +6,9 @@ Development toward the complete 0.1.0 Trace Context propagator. This version
 currently provides the strict v00 codec, contexts created from supplied or
 generated IDs, Level 2 tracestate parsing within validated limits, tracestate
 updates and emission within the output budget, context extraction from a
-received message's fields, and qualified JavaScript/entropy boundaries; it is
-not a published release.
+received message's fields, participant injection and transparent forwarding
+into the fields of a message to send, and qualified JavaScript/entropy
+boundaries; it is not a published release.
 
 - Preserve the pure Bend codec, dependent ID representation, universal
   round-trip and fixed-length proofs, independent protocol corpus and
@@ -85,17 +86,35 @@ not a published release.
   own input budget, without the optional whitespace around it, version 00
   exactly as the strict codec reads it, ff refused, and versions 01 to fe by
   their known prefix, followed by the end or a dash and fields that are not
-  read. An accepted message gives an `IncomingContext`: the sender's
-  operation, the state of its tracestate fields read in arrival order, and the
-  `ReceivedPair` of original fields when the whole pair was accepted, for
-  forwarding. Refused tracestate is discarded whole while the traceparent
-  stays accepted; without an accepted traceparent the base, a `BaseContext`,
-  is kept and the tracestate is not read. `TraceParentOutcome` and
+  read, other than to refuse a control character, which no field value may
+  hold (`ControlCharacter{offset}`). An accepted message gives an
+  `IncomingContext`: the sender's operation, the state of its tracestate
+  fields read in arrival order, and the `ReceivedPair` of original fields
+  when the whole pair was accepted, for forwarding. Refused tracestate is
+  discarded whole while the traceparent stays accepted; without an accepted
+  traceparent the base, a `BaseContext`, is kept and the tracestate is not
+  read. `TraceParentOutcome` and
   `StateOutcome` report absence, rejection, discard and neglect without
   received values. Laws prove how each version is read, the budget, comma and
   repetition rules, the kept base, the incoming context, the independence of
   the traceparent from the tracestate and the bounds of the kept pair. A
   runnable extraction example is added.
+- Inject and forward context into the fields of a message to send. All
+  three operations remove every traceparent and tracestate field, whatever
+  the ASCII case of its name, keep the other fields in their order and write
+  lowercase names. `Context.inject` writes an outgoing context's emission,
+  leaving out an empty tracestate, and `Injection` reports the keys that
+  truncation dropped apart from the carrier. `Context.clear` removes the
+  context fields of a message sent without context. `Context.forward` sends
+  the received pair of an incoming context as it came, whatever its version,
+  flags and unknown fields, with its tracestate fields joined into one
+  field; a pair that cannot be sent whole is refused with a `ForwardError`
+  (`NothingToForward`, `ForwardTooLarge`, `InvalidForwardParent` or
+  `InvalidForwardState`) and nothing is written. Laws prove the carriers
+  written, the dropped keys, idempotence, that a receiver of an injection
+  continues the injected operation with the truncated state, and that the
+  pair of an extracted context is refused only for the output budget. A
+  runnable injection example is added.
 - Document the sources for developers new to Bend. Every law in `LAWS.bend`
   states its claim in words, the W3C or specification requirement it verifies,
   its motivation and how to read it; `PROOF.bend` explains how to read a Bend

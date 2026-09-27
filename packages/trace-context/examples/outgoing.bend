@@ -12,7 +12,7 @@ import ../trace_context.bend as TC
 # holds a local context, which a RemoteContext is not; a local context built
 # with Context.from_ids must use the IDs of the caller's own operation, never
 # the received ones. A received pair that is not continued is forwarded as it
-# came (#10).
+# came, with Context.forward (examples/inject.bend).
 
 def keys.rest(keys: List<&2, TC.StateKey>) -> String:
   match keys:

@@ -7,10 +7,13 @@
 # entries, while TraceState.is_valid asks that the state with the new entry
 # have at most 32. add_succ and add_zero move a successor or a zero out of a
 # sum, and le_weaken and le_drop relax a bound; proofs/first.bend uses them
-# to count the entries of two joined states (count_step, merge_rest).
-# le_trans, le_refl, zero_le and ge_le compare numbers, add_assoc regroups a
-# sum and pred takes a successor off; proofs/update.bend, order.bend and
-# emit.bend use them to bound and measure tracestate updates and emission.
+# to count the entries of two joined states (count_step, merge_rest), and
+# proofs/order.bend le_drop. le_trans, le_refl, zero_le and ge_le compare
+# numbers, add_assoc regroups a sum and pred takes a successor off;
+# proofs/update.bend and emit.bend use them to bound and measure tracestate
+# updates and emission, proofs/limits.bend reads a rule of Limits with ge_le,
+# and proofs/extract.bend bounds the traceparent value that extraction keeps
+# and that injection writes.
 # le_add_left and add_le_left bound a sum and add_succ_ne refutes
 # n == n + (1 + k); proofs/extract.bend uses them to bound the traceparent
 # value kept by extraction and to refuse a v00 value followed by more
@@ -125,7 +128,8 @@ def le_drop(a, b, holds):
 # a successor on the left and zero on the right computes to
 # {False{} == True{}}, which BoolsProof.absurd refutes. proofs/update.bend
 # and proofs/emit.bend use it to bound the entries an update or a truncation
-# keeps by the 32 of a state, and emit.bend to compare the budgets.
+# keeps by the 32 of a state, emit.bend to compare the budgets, and
+# proofs/extract.bend to bound the traceparent value an extraction keeps.
 law le_trans:
   for a: Nat
   for b: Nat
@@ -149,8 +153,10 @@ def le_trans(a, b, c, ab, bc):
 
 # a >= b gives the same Bool as b <= a: both read Nat.cmp, which removes one
 # from each side until one of them is zero. By induction on both numbers.
-# proofs/emit.bend uses it to read the rule of Limits, input >= output, as a
-# bound on the emitted value.
+# proofs/limits.bend (output_within_input) uses it to read the rule of
+# Limits, input >= output, as a bound on the emitted value, and
+# proofs/extract.bend (formatted_fits) to read the rule on the traceparent
+# input budget, at least 55, as a bound on an injected value.
 law ge_le:
   for a: Nat
   for b: Nat

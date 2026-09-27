@@ -1,6 +1,6 @@
 #!/bin/sh
-# Run the codec, generation, tracestate and extraction evidence gates on one
-# explicitly selected backend.
+# Run the codec, generation, tracestate, extraction and injection evidence
+# gates on one explicitly selected backend.
 set -eu
 
 repo_dir=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
@@ -12,7 +12,8 @@ build_dir="$repo_dir/build/validation-$mode"
 mkdir -p "$build_dir"
 cp tests/expected-codec.txt tests/expected-demo.txt tests/expected-generation.txt tests/expected-smoke.txt \
   tests/expected-tracestate.txt tests/expected-tracestate-example.txt tests/expected-outgoing.txt \
-  tests/expected-outgoing-example.txt tests/expected-extract.txt tests/expected-extract-example.txt "$build_dir/"
+  tests/expected-outgoing-example.txt tests/expected-extract.txt tests/expected-extract-example.txt \
+  tests/expected-inject.txt tests/expected-inject-example.txt "$build_dir/"
 {
 echo "Package commit: $(git rev-parse HEAD)"
 echo "Platform: $(uname -s) $(uname -m)"
@@ -107,6 +108,9 @@ echo "PASS: direct outgoing tracestate corpus"
 run_logged direct-extract ./bend packages/trace-context/tests/EXTRACT.bend
 compare_output tests/expected-extract.txt "$build_dir/direct-extract.txt"
 echo "PASS: direct extraction corpus"
+run_logged direct-inject ./bend packages/trace-context/tests/INJECT.bend
+compare_output tests/expected-inject.txt "$build_dir/direct-inject.txt"
+echo "PASS: direct injection and forwarding corpus"
 
 if [ "$mode" = node ]; then
   run_logged codec-compile ./bend packages/trace-context/tests/TEST.bend -o "$build_dir/codec.js"
@@ -134,6 +138,11 @@ if [ "$mode" = node ]; then
   run_logged extract-example-compile ./bend packages/trace-context/examples/extract.bend \
     -o "$build_dir/extract-example.js"
   run_logged extract-example node "$build_dir/extract-example.js"
+  run_logged inject-compile ./bend packages/trace-context/tests/INJECT.bend -o "$build_dir/inject.js"
+  run_logged inject node "$build_dir/inject.js"
+  run_logged inject-example-compile ./bend packages/trace-context/examples/inject.bend \
+    -o "$build_dir/inject-example.js"
+  run_logged inject-example node "$build_dir/inject-example.js"
 else
   run_logged codec-compile ./bend packages/trace-context/tests/TEST.bend -o "$build_dir/codec"
   run_logged codec "$build_dir/codec"
@@ -160,6 +169,11 @@ else
   run_logged extract-example-compile ./bend packages/trace-context/examples/extract.bend \
     -o "$build_dir/extract-example"
   run_logged extract-example "$build_dir/extract-example"
+  run_logged inject-compile ./bend packages/trace-context/tests/INJECT.bend -o "$build_dir/inject"
+  run_logged inject "$build_dir/inject"
+  run_logged inject-example-compile ./bend packages/trace-context/examples/inject.bend \
+    -o "$build_dir/inject-example"
+  run_logged inject-example "$build_dir/inject-example"
 fi
 compare_output tests/expected-codec.txt "$build_dir/codec.txt"
 compare_output tests/expected-demo.txt "$build_dir/demo.txt"
@@ -171,5 +185,7 @@ compare_output tests/expected-outgoing.txt "$build_dir/outgoing.txt"
 compare_output tests/expected-outgoing-example.txt "$build_dir/outgoing-example.txt"
 compare_output tests/expected-extract.txt "$build_dir/extract.txt"
 compare_output tests/expected-extract-example.txt "$build_dir/extract-example.txt"
+compare_output tests/expected-inject.txt "$build_dir/inject.txt"
+compare_output tests/expected-inject-example.txt "$build_dir/inject-example.txt"
 check_generated_example "$build_dir/generate.txt"
-echo "PASS: proofs, protocol, tracestate, outgoing and extraction corpora, generation, construction rejections and examples ($mode)"
+echo "PASS: proofs, protocol, tracestate, outgoing, extraction and injection corpora, generation, construction rejections and examples ($mode)"

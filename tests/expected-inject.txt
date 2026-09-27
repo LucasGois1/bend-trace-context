@@ -1,0 +1,6 @@
+OK: explicit cleanup of context fields
+OK: participant injection
+OK: transparent forwarding
+OK: extraction after injection and after forwarding
+OK: large carriers and values
+OK: forwarding diagnostics

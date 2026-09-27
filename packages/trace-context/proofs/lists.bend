@@ -5,14 +5,16 @@
 # List.reverse, for lists of any element type `A`: appending is associative,
 # Nil{} is a right identity of appending, appending one element adds one to
 # the length, List.take keeps at most `n` elements, all of them when there
-# are no more, and reversing twice gives the list back.
+# are no more, reversing twice gives the list back, and reversing a reversed
+# list onto another joins them (reverse_onto).
 # The tracestate proofs need them because the reading machine and
 # TC.Entries.unique grow their lists at the end, one entry at a time
 # (List.append(&2, TC.StateEntry, seen, Con{entry, Nil{}})), and because an
 # update keeps at most 31 other entries. Used by proofs/distinct.bend,
-# first.bend, merge.bend, normal.bend, update.bend and emit.bend, and, for
-# reversing, by proofs/extract.bend, whose field selection reverses the
-# values it collects.
+# first.bend, merge.bend, normal.bend, update.bend, emit.bend and inject.bend,
+# and, for reversing, by proofs/extract.bend, whose field selection reverses
+# the values it collects, and proofs/inject.bend, whose carriers reverse the
+# fields they keep.
 #
 # List.append, List.length and List.take recurse on their first list, so each
 # lemma is proved by induction on that list (and on `n` for List.take). In the
@@ -46,7 +48,8 @@ def append_assoc(A, a, b, c):
 # Nil{} is a right identity of List.append: `list` followed by Nil{} is
 # `list`; the left identity holds by computation. Used by distinct.bend,
 # first.bend and merge.bend to drop an empty list at the end, such as the
-# Nil{} that `missing` gives for a dropped duplicate.
+# Nil{} that `missing` gives for a dropped duplicate, and by inject.bend for
+# the carrier of a cleanup, which adds no fields.
 law append_nil:
   for -A: Data
   for list: List<&2, A>
@@ -137,3 +140,24 @@ def reverse_twice(A, list, acc):
       {==}
     case Con{head, tail}:
       reverse_twice(A, tail, Con{head, acc})
+
+# Reversing a list reversed onto `acc`, onto `rest`, gives acc reversed
+# followed by the list and `rest`. With acc = Nil{} it is
+# List.reverse.go(List.reverse(list), rest) == List.append(list, rest).
+# Induction on the list, with the accumulator growing. Used by
+# proofs/inject.bend, whose carriers collect the fields they keep most recent
+# first and reverse them onto the fields they add.
+law reverse_onto:
+  for -A: Data
+  for list: List<&2, A>
+  for acc: List<&2, A>
+  for rest: List<&2, A>
+  {List.reverse.go(&2, A, List.reverse.go(&2, A, list, acc), rest) ==
+    List.reverse.go(&2, A, acc, List.append(&2, A, list, rest)) : List<&2, A>}
+
+def reverse_onto(A, list, acc, rest):
+  match list:
+    case Nil{}:
+      {==}
+    case Con{head, tail}:
+      reverse_onto(A, tail, Con{head, acc}, rest)

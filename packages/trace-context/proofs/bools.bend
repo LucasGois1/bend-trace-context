@@ -10,11 +10,12 @@
 # Morgan's law for a search, and pick_true settles a Bool.pick whose two answers
 # are True. The package's checks are chains of Bool.and (TraceState.is_valid,
 # TC.Entries.unique, the key and value grammars, the rules of Limits) and its
-# lookups are chains of Bool.or, so the proofs of the Limits, tracestate and
-# extraction laws use these lemmas throughout: proofs/limits.bend,
-# tracestate.bend, distinct.bend, merge.bend, normal.bend, first.bend,
-# order.bend, update.bend, emit.bend and extract.bend. proofs/strings.bend,
-# nats.bend and generation.bend use true_ne_false or absurd.
+# lookups are chains of Bool.or, so the proofs of the Limits, tracestate,
+# extraction and injection laws use these lemmas throughout:
+# proofs/limits.bend, tracestate.bend, distinct.bend, merge.bend, normal.bend,
+# first.bend, order.bend, update.bend, emit.bend, extract.bend and
+# inject.bend. proofs/strings.bend, lists.bend, nats.bend and generation.bend
+# use true_ne_false or absurd.
 #
 # Bool.and, Bool.or and Bool.not inspect only their first argument, so each
 # law is proved by cases on `a`, and a second argument `b` is erased (`-b`).
@@ -41,7 +42,10 @@ def BoolClash(value: Bool) -> Type:
 # Used here by absurd and or_right_false, and by StringsProof.distinct
 # (proofs/strings.bend), GenerationProof.ended_stays (proofs/generation.bend),
 # StateProof.read_over (proofs/tracestate.bend), OrderProof.trans_step
-# (proofs/order.bend) and EmitProof.empty_fits_step (proofs/emit.bend).
+# (proofs/order.bend), EmitProof.empty_fits_step (proofs/emit.bend),
+# NatsProof.add_succ_ne (proofs/nats.bend), proofs/extract.bend (within_over,
+# start_solid, read_v00_exact, done_ne_fail) and InjectProof.fits_over
+# (proofs/inject.bend).
 law true_ne_false:
   for clash: {True{} == False{} : Bool}
   Empty
@@ -53,9 +57,10 @@ def true_ne_false(clash):
 # From the impossible equation {False{} == True{}}, anything follows: absurd
 # proves any goal `A`, which the caller passes and which is erased. It closes
 # a case whose hypothesis computes to that clash, such as
-# {Nat.is_le(1n+n, 0n) == True{}}. Used by first.bend, merge.bend,
-# normal.bend, tracestate.bend, update.bend, order.bend and emit.bend, and
-# here by not_true and and_right.
+# {Nat.is_le(1n+n, 0n) == True{}}. Used by emit.bend, extract.bend,
+# first.bend, inject.bend, lists.bend, merge.bend, nats.bend, normal.bend,
+# order.bend, tracestate.bend and update.bend, and here by not_true and
+# and_right.
 def absurd(-A: Type, clash: {False{} == True{} : Bool}) -> A:
   Empty.absurd(A, true_ne_false(Equal.sym(Bool, False{}, True{}, clash)))
 
@@ -112,7 +117,8 @@ def and_right(a, b, both):
 # When Bool.or(a, b) is False, `a` is False. With or_right_false it splits a
 # lookup that returned False, such as TC.Entries.has_key or key_among, into
 # the comparison with the first entry's key and the lookup in the rest. Used
-# by distinct.bend, first.bend, update.bend and order.bend.
+# by distinct.bend, first.bend, update.bend and order.bend, and by
+# inject.bend for the name of a field that is not a context field.
 law or_left_false:
   for a: Bool
   for -b: Bool

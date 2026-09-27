@@ -8,7 +8,9 @@
 # trace_result. At the end, tail_length and formatted_length prove law
 # formatted_length: the text has 55 characters. proofs/extract.bend reuses
 # roundtrip, tail_length and formatted_length for the known prefix of later
-# versions. trace_context.bend is imported as TC.
+# versions. Last, emitted_remote reads back the remote context of what a
+# local context emits (law emitted_projection). trace_context.bend is
+# imported as TC.
 #
 # The proof follows the parser forward over the formatted text. The prefix
 # "00-" and the "-" before the parent ID and before the flags are literal
@@ -215,3 +217,46 @@ def formatted_length(context):
       StringsProof.joined_length("00", "-" ++ Digits.NonZero.to_string(32n, trace_id) ++ "-" ++
         Digits.NonZero.to_string(16n, parent_id) ++ "-" ++ Digits.Digits.to_string(2n, flags), 2n, 53n, {==},
         tail_length(trace_id, parent_id, flags))
+
+# A receiver of what a local context emits reads the remote context with the
+# same trace ID, randomness assertion included, the same span ID and the same
+# sampled indication. By cases on both flags; each case computes.
+# emitted_fields reads its fields for law emitted_projection, and
+# proofs/inject.bend (law inject_extracted) finds that remote context in an
+# injected carrier.
+law emitted_remote:
+  for context: TC.LocalContext
+  {TC.RemoteContext.from_traceparent(TC.LocalContext.to_traceparent(context)) ==
+    TC.RemoteContext{TC.LocalContext.trace_id(context), TC.LocalContext.span_id(context),
+      TC.LocalContext.is_sampled(context)} : TC.RemoteContext}
+
+def emitted_remote(context):
+  match context:
+    case TC.LocalContext{TC.TraceId{trace_id, False{}}, TC.SpanId{span_id}, False{}}:
+      {==}
+    case TC.LocalContext{TC.TraceId{trace_id, False{}}, TC.SpanId{span_id}, True{}}:
+      {==}
+    case TC.LocalContext{TC.TraceId{trace_id, True{}}, TC.SpanId{span_id}, False{}}:
+      {==}
+    case TC.LocalContext{TC.TraceId{trace_id, True{}}, TC.SpanId{span_id}, True{}}:
+      {==}
+
+# The fields of the remote context read back, one equation each
+# (Equal.cong). PROOF.bend proves law emitted_projection with it.
+law emitted_fields:
+  for +context: TC.LocalContext
+  {TC.RemoteContext.trace_id(TC.RemoteContext.from_traceparent(TC.LocalContext.to_traceparent(context))) ==
+    TC.LocalContext.trace_id(context) : TC.TraceId} &
+  {TC.RemoteContext.span_id(TC.RemoteContext.from_traceparent(TC.LocalContext.to_traceparent(context))) ==
+    TC.LocalContext.span_id(context) : TC.SpanId} &
+  {TC.RemoteContext.is_sampled(TC.RemoteContext.from_traceparent(TC.LocalContext.to_traceparent(context))) ==
+    TC.LocalContext.is_sampled(context) : Bool}
+
+def emitted_fields(context):
+  +remote = TC.RemoteContext.from_traceparent(TC.LocalContext.to_traceparent(context))
+  +projection : TC.RemoteContext = TC.RemoteContext{TC.LocalContext.trace_id(context), TC.LocalContext.span_id(context),
+    TC.LocalContext.is_sampled(context)}
+  +same = emitted_remote(context)
+  (Equal.cong(TC.RemoteContext, TC.TraceId, other => TC.RemoteContext.trace_id(other), remote, projection, same),
+    (Equal.cong(TC.RemoteContext, TC.SpanId, other => TC.RemoteContext.span_id(other), remote, projection, same),
+      Equal.cong(TC.RemoteContext, Bool, other => TC.RemoteContext.is_sampled(other), remote, projection, same)))

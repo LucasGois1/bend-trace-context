@@ -1,0 +1,5 @@
+sent on: Host: inventory.internal | Content-Type: application/json | traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-53995c3f42cd8ad8-01 | tracestate: fw529a3039=cHJpbWFyeQ,congo=t61rcWkgMzE,rojo=00f067aa0ba902b7
+relayed: Host: billing.internal | traceparent: cc-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-ff-future | tracestate: congo=t61rcWkgMzE,rojo=00f067aa0ba902b7
+without context: Host: metrics.internal
+not forwarded: ForwardTooLarge
+continued instead: 00-4bf92f3577b34da6a3ce929d0e0e4736-b7ad6b7169203331-01, dropped b

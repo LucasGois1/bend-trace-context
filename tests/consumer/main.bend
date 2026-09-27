@@ -315,6 +315,70 @@ def extraction() -> IO(Unit):
       [TC.Header{"traceparent", "ff-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"}],
       Some{TC.OutgoingBase{TC.OutgoingContext.new(TC.Context.root_from_ids(base_trace, base_span))}}))))
 
+# The service's outgoing requests: it forwards unchanged the context of a
+# request it only relays, a later version with every flag bit set and a field
+# the package does not read; it continues that trace with a child and injects
+# it into a request container it reuses, whose old context fields go whatever
+# the case of their names; it clears the context of a message sent without
+# one; and it learns why a context whose state was discarded is not
+# forwarded.
+def field(header: TC.Header) -> String:
+  match header:
+    case TC.Header{name, value}:
+      name ++ ": " ++ value
+
+def carrier.rest(fields: List<&2, TC.Header>) -> String:
+  match fields:
+    case Nil{}:
+      ""
+    case Con{header, rest}:
+      " | " ++ field(header) ++ carrier.rest(rest)
+
+def carrier(fields: List<&2, TC.Header>) -> String:
+  match fields:
+    case Nil{}:
+      "no fields"
+    case Con{header, rest}:
+      field(header) ++ carrier.rest(rest)
+
+def forwarded(result: Result<&2, &2, TC.ForwardError, List<&2, TC.Header>>) -> String:
+  match result:
+    case Fail{error}:
+      "refused: " ++ TC.ForwardError.show(error)
+    case Done{fields}:
+      carrier(fields)
+
+def injected(injection: TC.Injection) -> IO(Unit):
+  match injection:
+    case TC.Injection{fields, keys}:
+      do IO<Unit>:
+        Unit <- IO.print("injected: " ++ carrier(fields))
+        IO.print("injection dropped: " ++ dropped(keys))
+
+def injection() -> IO(Unit):
+  +limits = TC.Limits.default()
+  do IO<Unit>:
+    +relayed : TC.IncomingContext <- incoming(TC.IncomingContext, "relayed context", TC.Extraction.incoming(
+      TC.Context.extract(limits, [TC.Header{"traceparent",
+        "fe-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-ff-extension"},
+        TC.Header{"tracestate", "rojo=00f067aa0ba902b7"}, TC.Header{"tracestate", "congo=t61rcWkgMzE"}], None{})))
+    Unit <- IO.print("forwarded: " ++ forwarded(TC.Context.forward(limits, relayed,
+      [TC.Header{"Accept", "application/json"}])))
+    span : TC.SpanId <- span_id("53995c3f42cd8ad8")
+    child : TC.LocalContext <- local(TC.Context.child_from_id(TC.IncomingContext.parent(relayed), span,
+      TC.InheritSampled{}))
+    Unit <- injected(TC.Context.inject(limits, TC.OutgoingContext.with_state(child, TC.IncomingContext.state(relayed)),
+      [TC.Header{"Accept", "application/json"}, TC.Header{"TRACEPARENT", "stale"}, TC.Header{"X-Request-Id", "42"},
+        TC.Header{"TraceState", "old=1"}]))
+    Unit <- IO.print("cleared: " ++ carrier(TC.Context.clear([TC.Header{"Accept", "application/json"},
+      TC.Header{"traceparent", "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"},
+      TC.Header{"Tracestate", "rojo=00f067aa0ba902b7"}])))
+    discarded : TC.IncomingContext <- incoming(TC.IncomingContext, "context with a discarded state",
+      TC.Extraction.incoming(TC.Context.extract(limits,
+        [TC.Header{"traceparent", "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"},
+          TC.Header{"tracestate", "rojo"}], None{})))
+    IO.print("discarded state forwarded: " ++ forwarded(TC.Context.forward(limits, discarded, [])))
+
 def main() -> IO(Unit):
   do IO<Unit>:
     Unit <- show(TC.TraceParentV00.parse(
@@ -325,4 +389,5 @@ def main() -> IO(Unit):
     Unit <- generation()
     Unit <- tracestate()
     Unit <- outgoing()
-    extraction()
+    Unit <- extraction()
+    injection()

@@ -5,12 +5,13 @@
 # effect: the strict traceparent v00 codec, validated trace and span IDs, local
 # and remote contexts, the machine that turns source words into IDs, validated
 # limits, the Level 2 tracestate parser, tracestate updates and emission,
-# outgoing contexts, and the extraction of a received message's context.
-# generation.bend adds the host's cryptographic source on
-# top of it. The claims this code must satisfy are stated in LAWS.bend and
-# proved in PROOF.bend, beside this file. The tests in tests/*.bend here and
-# the repository's consumer in tests/consumer exercise it through the same
-# public names.
+# outgoing contexts, the extraction of a received message's context, and the
+# injection and forwarding of a context into an outgoing message's carrier.
+# generation.bend adds the host's cryptographic source on top of it. The
+# claims this code must satisfy are stated in LAWS.bend and proved in
+# PROOF.bend, beside this file. The tests in tests/*.bend here and the
+# repository's consumer in tests/consumer exercise it through the same public
+# names.
 #
 # The normative reference is W3C Trace Context Level 2, Candidate
 # Recommendation Draft of 2024-03-28 ("W3C" below, with section numbers). The
@@ -37,11 +38,14 @@
 #                                    state it sends, and its Emission
 #   Extraction                       Context.extract, TraceParent.read,
 #                                    incoming and base contexts, diagnostics
+#   Injection                        Context.inject and the Injection it
+#                                    writes, Context.clear
+#   Forwarding                       Context.forward, ForwardError
 #
 # The public names are documented in packages/trace-context/README.md. Names in
 # the Parse, Draw, Step, Tape, Scan, Member, Value, Budget, Utf8, Entries,
-# StateChar, Carrier, Text, Read and Extract namespaces are internal: Bend lets
-# any module import them, but they are not a compatibility contract.
+# StateChar, Carrier, Text, Read, Extract and Forward namespaces are internal:
+# Bend lets any module import them, but they are not a compatibility contract.
 #
 # Notes for readers new to Bend
 # -----------------------------
@@ -83,8 +87,8 @@ import ./src/digits.bend as Digits
 # =====
 #
 # The types of the codec, of the identifiers and contexts, and of the
-# generation machine. The limits, tracestate, outgoing and extraction types
-# are declared in their own sections below.
+# generation machine. The limits, tracestate, outgoing, extraction, injection
+# and forwarding types are declared in their own sections below.
 
 # The field that a ZeroId error names: the trace ID or parent ID of a
 # traceparent value, or a supplied span ID.
@@ -93,9 +97,10 @@ type Field is Data:
   ParentIdField{}
   SpanIdField{}
 
-# Why the strict codec, TraceId.parse or SpanId.parse refused a text. Offsets
-# count Bend characters (Unicode code points) from zero at the start of the
-# text, and the first problem in reading order is reported.
+# Why the strict codec, TraceId.parse, SpanId.parse or TraceParent.read
+# refused a text. Offsets count Bend characters (Unicode code points) from
+# zero at the start of the text, and the first problem in reading order is
+# reported.
 #   UnexpectedEnd{offset}        the text ends where a character is required
 #   InvalidHex{offset}           this character is not a lowercase hex digit
 #   ExpectedSeparator{offset}    this character should be "-"
@@ -106,6 +111,11 @@ type Field is Data:
 #                                versions 01 to fe by their known prefix)
 #   ZeroId{field}                the named ID is all zero, forbidden by W3C
 #                                3.2.2.3 and 3.2.2.4
+#   ControlCharacter{offset}     this character is a control character other
+#                                than a horizontal tab, which no field value
+#                                may hold (RFC 9110, section 5.5); only
+#                                TraceParent.read reports it, in the fields
+#                                of a later version that it does not read
 type Error is Data:
   UnexpectedEnd{offset: Nat}
   InvalidHex{offset: Nat}
@@ -114,6 +124,7 @@ type Error is Data:
   ForbiddenVersion{}
   UnsupportedVersion{version: String}
   ZeroId{field: Field}
+  ControlCharacter{offset: Nat}
 
 # Why creating a context from supplied IDs was refused: a child reused its
 # parent's span ID, or a restart reused the received trace ID.
@@ -932,6 +943,8 @@ def Error.show(error: Error) -> String:
       "ZeroParentId"
     case ZeroId{SpanIdField{}}:
       "ZeroSpanId"
+    case ControlCharacter{offset}:
+      "ControlCharacter at " ++ Nat.show(offset)
 
 # The name of a context creation error.
 def ContextError.show(error: ContextError) -> String:
@@ -1853,7 +1866,7 @@ def TraceState.truncate(limits: Limits, state: TraceState) -> Truncation:
 # truncated tracestate. The types rule out passing a RemoteContext here, but
 # not a local context built with the received IDs: Context.from_ids must only
 # be given the IDs of the caller's own operation. A received pair is
-# forwarded as it came (#10).
+# forwarded as it came, by Context.forward.
 
 # A local context and the state sent with it.
 type OutgoingContext is Data:
@@ -1861,8 +1874,8 @@ type OutgoingContext is Data:
 
 # The two header values an outgoing context emits, and the keys of the
 # entries that truncation to the output budget dropped, in their original
-# order. A context with no state emits the tracestate "", which injection
-# (#10) will handle.
+# order. A context with no state emits the tracestate "", which
+# Context.inject does not write.
 type Emission is Data:
   Emission{traceparent: String, tracestate: String, dropped: List<&2, StateKey>}
 
@@ -1950,7 +1963,7 @@ def Emission.dropped(emission: Emission) -> List<&2, StateKey>:
 # ff never, and versions 01 to fe by their known prefix (W3C 3.2.4 and
 # 4.1.2). A message whose traceparent is accepted gives an incoming context:
 # the sender's operation, the state received with it, and the original pair
-# of fields, kept so that the context can be forwarded unchanged (#10). A
+# of fields, kept so that Context.forward can send the context unchanged. A
 # message without a usable traceparent keeps the base context the caller
 # passes, and its tracestate is not read (W3C 3.3). Extraction reads text
 # only: it generates no identifier, performs no effect and never includes a
@@ -1980,10 +1993,11 @@ type TraceParentError is Data:
 # The original fields of an accepted message: its traceparent value, without
 # the optional whitespace around it, and its tracestate field values as they
 # came, in arrival order, none when it had no tracestate field. They are what
-# a context forwarded unchanged sends (#10). The input budgets bound the pairs
-# that extraction keeps (law received_bounds); a pair built directly with
-# this constructor carries no such guarantee, so forwarding checks what it
-# sends.
+# Context.forward sends. The input budgets bound the pairs that extraction
+# keeps (law received_bounds); a pair built directly with this constructor
+# carries no such guarantee, so forwarding checks what it sends. A pair that
+# extraction kept is refused only when it exceeds the output budget (law
+# forward_extracted).
 type ReceivedPair is Data:
   ReceivedPair{traceparent: String, tracestate: List<&2, String>}
 
@@ -1991,7 +2005,7 @@ type ReceivedPair is Data:
 # came with it, and the received pair when the whole pair was accepted. It is
 # not this participant's operation: a service continues it with a child
 # (Context.child_from_id with IncomingContext.parent), or forwards the
-# received pair unchanged (#10).
+# received pair unchanged (Context.forward).
 type IncomingContext is Data:
   IncomingContext{context: RemoteContext, state: TraceState, received: Maybe<&2, ReceivedPair>}
 
@@ -2140,6 +2154,26 @@ def Text.has_comma.go(text: String, found: Bool) -> Bool:
 def Text.has_comma(text: String) -> Bool:
   Text.has_comma.go(text, False{})
 
+# Whether a character is a control character other than a horizontal tab:
+# U+0000 to U+0008, U+000A to U+001F or U+007F. No field value may hold one
+# (RFC 9110, section 5.5); a carriage return or a line feed would end the
+# field.
+def Text.is_control(char: Char) -> Bool:
+  match char:
+    case Chr{+code}:
+      Bool.or(Bool.and(U32.is_lt(code, 32), Bool.not(U32.is_eq(code, 9))), U32.is_eq(code, 127))
+
+# The offset of the first control character of `text`, counted from
+# `offset`, unless `found` already holds one. This is a loop.
+def Text.control.go(text: String, +offset: Nat, found: Maybe<&2, Nat>) -> Maybe<&2, Nat>:
+  match text found:
+    case _ Some{at}:
+      Some{at}
+    case SNil{} None{}:
+      None{}
+    case SCon{char, rest} None{}:
+      Text.control.go(rest, 1n+offset, Bool.pick(Maybe<&2, Nat>, Text.is_control(char), Some{offset}, None{}))
+
 # Whether a value's version, from its two digits, is later than 00 and so
 # read by its known prefix (W3C 3.2.2.1 and 3.2.4): Done{False{}} for 00,
 # which the strict codec reads, Done{True{}} for 01 to fe, and a refusal for
@@ -2159,10 +2193,22 @@ def Read.is_later.parsed(parsed: Parsed<2n>) -> Result<&2, &2, Error, Bool>:
     case Parsed{digits, rest}:
       Read.is_later(digits)
 
+# The fields a later version does not know, once searched for a control
+# character: none, or the offset of the first.
+def Read.clean(found: Maybe<&2, Nat>) -> Result<&2, &2, Error, Unit>:
+  match found:
+    case None{}:
+      Done{Unit{}}
+    case Some{offset}:
+      Fail{ControlCharacter{offset}}
+
 # What may follow the flags of a later version: the end of the value, or a
 # dash that starts fields this version does not know. Those fields are not
 # read (W3C 3.2.4: "Vendors MUST NOT parse or assume anything about unknown
-# fields"); any other character at offset 55 is ExpectedSeparator.
+# fields"), except that a control character in them is refused with
+# ControlCharacter at its offset: no field value may hold one (RFC 9110,
+# section 5.5), and a value forwarded unchanged must not end a message's
+# field. Any other character than a dash at offset 55 is ExpectedSeparator.
 def Read.extension(rest: String) -> Result<&2, &2, Error, Unit>:
   match rest:
     case SNil{}:
@@ -2170,7 +2216,7 @@ def Read.extension(rest: String) -> Result<&2, &2, Error, Unit>:
     case SCon{char, tail}:
       do Result<&2, &2, Error, Unit>:
         unknown : String <- Parse.separator_result(tail, Char.is_eq(char, '-'), 55n)
-        return Unit{}
+        Read.clean(Text.control.go(unknown, 56n, None{}))
 
 # A later version is read by its known prefix (W3C 3.2.4 and 4.1.2): its first
 # 55 characters are read as version 00, which checks the trace ID, the parent
@@ -2243,7 +2289,9 @@ def Read.within(fits: Maybe<&2, Nat>, value: String) -> Result<&2, &2, TracePare
 #   - version ff is refused with ForbiddenVersion (W3C 3.2.2.1);
 #   - versions 01 to fe are read by their known prefix: the fields of version
 #     00, followed by the end of the value or by a dash and fields that are
-#     not read, whatever they hold other than a comma (W3C 3.2.4 and 4.1.2).
+#     not read, whatever they hold other than a comma or a control character,
+#     which is refused with ControlCharacter (W3C 3.2.4 and 4.1.2; RFC 9110,
+#     section 5.5).
 # RemoteContext.from_traceparent then keeps the sampled and random-trace-id
 # flags. Laws: read_v00, read_v00_exact, read_future, read_ff, read_comma,
 # read_over_budget and read_within_budgets.
@@ -2483,3 +2531,214 @@ def Extraction.show(extraction: Extraction) -> String:
   match extraction:
     case Extraction{context, parent, state}:
       TraceParentOutcome.show(parent) ++ ", " ++ StateOutcome.show(state)
+
+# Injection
+# =========
+#
+# Context.inject writes the context of an operation of this participant into
+# the carrier of an outgoing message (spec #1, "Participant injection"):
+# every old traceparent and tracestate field is removed, whatever the ASCII
+# case of its name, the other fields keep their order, and the emitted
+# fields are added at the end with lowercase names. An empty tracestate is
+# not written. Context.clear removes the context fields alone, for a message
+# sent without context. Neither generates an identifier.
+
+# The carrier an injection writes, and the keys of the entries that
+# truncation to the output budget dropped from the state, in their original
+# order: diagnostics, kept apart from the carrier.
+type Injection is Data:
+  Injection{carrier: List<&2, Header>, dropped: List<&2, StateKey>}
+
+# Whether a field name is traceparent or tracestate, without regard to ASCII
+# case.
+def Carrier.is_context(+name: String) -> Bool:
+  Bool.or(Carrier.named("traceparent", name), Carrier.named("tracestate", name))
+
+# `header` before `kept` unless it is a context field (`context_field`): one
+# step of Carrier.unrelated.go.
+def Carrier.keep_unrelated(context_field: Bool, header: Header, kept: List<&2, Header>) -> List<&2, Header>:
+  match context_field:
+    case True{}:
+      kept
+    case False{}:
+      Con{header, kept}
+
+# The unrelated fields, those that are not context fields, most recent first,
+# before `kept`. This is a loop, so a message with many fields needs no deep
+# stack.
+def Carrier.unrelated.go(carrier: List<&2, Header>, kept: List<&2, Header>) -> List<&2, Header>:
+  match carrier:
+    case Nil{}:
+      kept
+    case Con{+header, rest}:
+      Carrier.unrelated.go(rest, Carrier.keep_unrelated(Carrier.is_context(Header.name(header)), header, kept))
+
+# The carrier's unrelated fields, followed by `fields`: reversing the loop's
+# result onto `fields`, also a loop, puts them back in order.
+def Carrier.replace(carrier: List<&2, Header>, fields: List<&2, Header>) -> List<&2, Header>:
+  List.reverse.go(&2, Header, Carrier.unrelated.go(carrier, Nil{}), fields)
+
+# The context fields of a traceparent value and a tracestate value, with
+# lowercase names; the tracestate field is left out when its value is empty.
+def Carrier.context_fields(traceparent: String, +tracestate: String) -> List<&2, Header>:
+  Con{Header{"traceparent", traceparent}, Bool.pick(List<&2, Header>, String.is_empty(tracestate), Nil{},
+    Con{Header{"tracestate", tracestate}, Nil{}})}
+
+# Remove every traceparent and tracestate field, whatever the case of its
+# name, and keep the other fields in their order: the carrier of a message
+# sent without context (spec #1, "Provide explicit context-field cleanup for
+# the no-context path"). Law: clear_carrier.
+def Context.clear(carrier: List<&2, Header>) -> List<&2, Header>:
+  Carrier.replace(carrier, Nil{})
+
+# The injection of an emission into a carrier.
+def Injection.of(carrier: List<&2, Header>, emission: Emission) -> Injection:
+  match emission:
+    case Emission{traceparent, tracestate, dropped}:
+      Injection{Carrier.replace(carrier, Carrier.context_fields(traceparent, tracestate)), dropped}
+
+# Write an outgoing context into a carrier as a participant: the context
+# fields of the carrier are replaced by the emitted traceparent, version 00
+# with only the sampled and random-trace-id flags, and the emitted
+# tracestate, truncated to the output budget of `limits` and left out when
+# empty. The other fields keep their order, and injecting the same context
+# into the carrier written gives that carrier again. A receiver that extracts
+# the carrier with the same limits continues the injected operation with the
+# truncated state. Laws: inject_carrier, inject_dropped, inject_idempotent and
+# inject_extracted.
+def Context.inject(limits: Limits, outgoing: OutgoingContext, carrier: List<&2, Header>) -> Injection:
+  Injection.of(carrier, OutgoingContext.emit(limits, outgoing))
+
+# The carrier to send.
+def Injection.carrier(injection: Injection) -> List<&2, Header>:
+  match injection:
+    case Injection{carrier, dropped}:
+      carrier
+
+# The keys of the entries truncation dropped, in their original order; none
+# when the state fitted.
+def Injection.dropped(injection: Injection) -> List<&2, StateKey>:
+  match injection:
+    case Injection{carrier, dropped}:
+      dropped
+
+# Forwarding
+# ==========
+#
+# Context.forward sends a received context on unchanged, as a service that
+# does not take part in the trace does (W3C 3.4, "Unmodified header
+# propagation"): the traceparent value and the tracestate text of its
+# received pair, without normalizing flags, downgrading the version, or
+# editing or truncating the tracestate. The tracestate fields are joined into
+# one field (W3C 3.3.2: tracestate "SHOULD be sent as a single field when
+# possible"), and the old context fields of the carrier are replaced, as by
+# injection. When the pair cannot be sent whole within the limits, forwarding
+# refuses it: the caller may continue the trace with a child operation
+# instead, whose own traceparent lets its state be truncated (spec #1).
+
+# Why a received context could not be forwarded unchanged:
+#   NothingToForward{}            it keeps no received pair: its tracestate was
+#                                 discarded when it was extracted
+#   ForwardTooLarge{}             its tracestate fields, joined by commas,
+#                                 exceed the tracestate output budget
+#   InvalidForwardParent{error}   its traceparent value is not one that
+#                                 TraceParent.read accepts
+#   InvalidForwardState{error}    its tracestate fields are not ones that
+#                                 TraceState.parse_fields accepts
+# A pair that extraction keeps always passes the last two checks (law
+# forward_extracted); they refuse a pair built directly.
+type ForwardError is Data:
+  NothingToForward{}
+  ForwardTooLarge{}
+  InvalidForwardParent{error: TraceParentError}
+  InvalidForwardState{error: StateError}
+
+# The fields joined by commas, most recent character first, after `done`:
+# each field is reversed onto the comma before it. This is a loop.
+def Text.joined.go(fields: List<&2, String>, done: String) -> String:
+  match fields:
+    case Nil{}:
+      done
+    case Con{field, rest}:
+      Text.joined.go(rest, String.reverse.go(field, SCon{',', done}))
+
+# The fields joined by commas into one value, as String.join(fields, ",")
+# writes it. It is built by loops, so fields of any length need no deep
+# stack.
+def Text.joined(fields: List<&2, String>) -> String:
+  match fields:
+    case Nil{}:
+      SNil{}
+    case Con{field, rest}:
+      String.reverse(Text.joined.go(rest, String.reverse.go(field, SNil{})))
+
+# The carrier with its context fields replaced by a received pair: the
+# traceparent value, and the tracestate fields joined into one value, left
+# out when empty.
+def Forward.carrier(carrier: List<&2, Header>, traceparent: String, tracestate: List<&2, String>) -> List<&2, Header>:
+  Carrier.replace(carrier, Carrier.context_fields(traceparent, Text.joined(tracestate)))
+
+# The last check of a forwarded pair: its tracestate fields parse.
+def Forward.state(parsed: Result<&2, &2, StateError, TraceState>, carrier: List<&2, Header>, traceparent: String,
+  tracestate: List<&2, String>) -> Result<&2, &2, ForwardError, List<&2, Header>>:
+  match parsed:
+    case Fail{error}:
+      Fail{InvalidForwardState{error}}
+    case Done{state}:
+      Done{Forward.carrier(carrier, traceparent, tracestate)}
+
+# The second check of a forwarded pair: its traceparent value reads back.
+def Forward.parent(read: Result<&2, &2, TraceParentError, TraceParentV00>, +limits: Limits, carrier: List<&2, Header>,
+  traceparent: String, +tracestate: List<&2, String>) -> Result<&2, &2, ForwardError, List<&2, Header>>:
+  match read:
+    case Fail{error}:
+      Fail{InvalidForwardParent{error}}
+    case Done{known}:
+      Forward.state(TraceState.parse_fields(limits, tracestate), carrier, traceparent, tracestate)
+
+# The first check of a forwarded pair: its tracestate fields, joined by
+# commas, fit the output budget. Measuring stops past the budget.
+def Forward.fits(fits: Maybe<&2, Nat>, +limits: Limits, carrier: List<&2, Header>, +traceparent: String,
+  +tracestate: List<&2, String>) -> Result<&2, &2, ForwardError, List<&2, Header>>:
+  match fits:
+    case None{}:
+      Fail{ForwardTooLarge{}}
+    case Some{left}:
+      Forward.parent(TraceParent.read(limits, traceparent), limits, carrier, traceparent, tracestate)
+
+# Forward the received pair, if there is one.
+def Forward.pair(+limits: Limits, received: Maybe<&2, ReceivedPair>, carrier: List<&2, Header>) ->
+  Result<&2, &2, ForwardError, List<&2, Header>>:
+  match received:
+    case None{}:
+      Fail{NothingToForward{}}
+    case Some{ReceivedPair{+traceparent, +tracestate}}:
+      Forward.fits(Utf8.left_fields(tracestate, Some{Limits.tracestate_output(limits)}), limits, carrier, traceparent,
+        tracestate)
+
+# Forward a received context unchanged into a carrier: its context fields are
+# replaced by the traceparent value of the received pair and by its
+# tracestate fields joined into one field, and the other fields keep their
+# order. The pair must be there, its tracestate must fit the output budget of
+# `limits` whole, and both fields must read back under `limits`; otherwise
+# forwarding fails with a ForwardError and writes nothing, so a received
+# traceparent never travels with an edited or truncated tracestate (W3C 3.4).
+# The pair of a context that extraction accepted is refused only when its
+# tracestate exceeds the output budget, and forwarding again into the carrier
+# written gives that carrier again. Laws: forward_carrier, forward_nothing,
+# forward_too_large, forward_extracted and forward_idempotent.
+def Context.forward(+limits: Limits, incoming: IncomingContext, carrier: List<&2, Header>) ->
+  Result<&2, &2, ForwardError, List<&2, Header>>:
+  Forward.pair(limits, IncomingContext.received(incoming), carrier)
+
+# The name of a forwarding error; an invalid field adds its error.
+def ForwardError.show(error: ForwardError) -> String:
+  match error:
+    case NothingToForward{}:
+      "NothingToForward"
+    case ForwardTooLarge{}:
+      "ForwardTooLarge"
+    case InvalidForwardParent{reason}:
+      "InvalidForwardParent " ++ TraceParentError.show(reason)
+    case InvalidForwardState{reason}:
+      "InvalidForwardState " ++ StateError.show(reason)

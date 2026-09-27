@@ -33,3 +33,8 @@ extracted child: 00-0af7651916cd43dd8448eb211c80319c-53995c3f42cd8ad8-01
 repeated traceparent: TraceParentRejected RepeatedTraceParent, StateAbsent
 discarded state: TraceParentAccepted, StateDiscarded InvalidEntry 0 MissingEquals
 kept base: 00-5b8efff798038103d269b633813fc60c-eee19b7ec3c1b174-00
+forwarded: Accept: application/json | traceparent: fe-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-ff-extension | tracestate: rojo=00f067aa0ba902b7,congo=t61rcWkgMzE
+injected: Accept: application/json | X-Request-Id: 42 | traceparent: 00-0af7651916cd43dd8448eb211c80319c-53995c3f42cd8ad8-03 | tracestate: rojo=00f067aa0ba902b7,congo=t61rcWkgMzE
+injection dropped: none
+cleared: Accept: application/json
+discarded state forwarded: refused: NothingToForward
