@@ -85,6 +85,8 @@
 #       emission
 #   12. Extraction                     extract_absent ... read_within_budgets
 #   13. Injection and forwarding       clear_carrier ... forward_idempotent
+#   14. Continuing or starting, and    continue_usable ...
+#       sending                        send_reports_generated
 
 import Base
 import ./trace_context.bend as Trace
@@ -454,7 +456,7 @@ law child_accepts:
 #   Why: a restart that kept the received trace ID would be a continuation in
 #     disguise.
 #   Scope: discarding the previous tracestate belongs to the continue-or-start
-#     operation (#11).
+#     operation (law restart_received, section 14).
 #   Proof: Laws.restart, via proofs/lifecycle.bend.
 law restart:
   for previous: Trace.RemoteContext
@@ -2429,3 +2431,438 @@ law forward_idempotent:
     Result<&2, &2, Trace.ForwardError, List<&2, Trace.Header>>}
   {Trace.Context.forward(limits, incoming, forwarded) == Done{forwarded} :
     Result<&2, &2, Trace.ForwardError, List<&2, Trace.Header>>}
+
+# 14. Continuing or starting, and sending
+# =======================================
+#
+# Context.continue_or_start_with gives a service its own operation for a
+# received message, and Context.send_with gives each message it sends a
+# child of it (spec #1, "Context lifecycle and flags" and "Generation and
+# failure contracts"; ticket #11). Like the laws of section 6, these laws
+# quantify over every tape a replayed source returns, errors included, and
+# over both failure policies. Five of them state each operation's result:
+# the outcome of the one generation it performs, or the fallback of a
+# service without an operation, turned into a service or a message by the
+# rules defined below, which restate the ticket's rules on their own.
+# restart_keeps_nothing and send_reports_generated state properties the
+# ticket asks for without those rules: a restart keeps nothing of the
+# context it replaces, and a message reports a new operation only when one
+# was generated for it. With the laws of section 6, they give the
+# lifecycle: a usable context is continued by a child that keeps its trace,
+# without one a root starts the trace, a boundary restarts it, and each
+# message sent gets an operation of its own. The corpus, tests/CONTINUE.bend,
+# covers every case with literal tapes, including source failures and
+# exhausted candidates.
+
+# The result a service operation returns under `policy`, as a tape law
+# observes it: the unread rest of the tape with the service.
+def TapeService(policy: Trace.FailurePolicy) -> Type:
+  Tape() & Trace.FailurePolicy.result(policy, Trace.Service)
+
+# The same for a message sent.
+def TapeSent(policy: Trace.FailurePolicy) -> Type:
+  Tape() & Trace.FailurePolicy.result(policy, Trace.Sent)
+
+# A service under `policy`: itself with Lenient{}; with Strict{}, Done{} of it
+# when it has an operation, and Fail{} with the error when it has none.
+def service_by(policy: Trace.FailurePolicy, service: Trace.Service) ->
+  Trace.FailurePolicy.result(policy, Trace.Service):
+  match policy:
+    case Trace.Lenient{}:
+      service
+    case Trace.Strict{}:
+      match service:
+        case Trace.Operating{origin, outgoing, received}:
+          Done{Trace.Operating{origin, outgoing, received}}
+        case Trace.Untraced{error, received}:
+          Fail{error}
+
+# A message sent under `policy`: itself with Lenient{}; with Strict{}, Done{}
+# of it when it carries a new operation, and Fail{} with the error
+# otherwise.
+def sent_by(policy: Trace.FailurePolicy, sent: Trace.Sent) -> Trace.FailurePolicy.result(policy, Trace.Sent):
+  match policy:
+    case Trace.Lenient{}:
+      sent
+    case Trace.Strict{}:
+      match sent:
+        case Trace.Fresh{operation, injection}:
+          Done{Trace.Fresh{operation, injection}}
+        case Trace.Forwarded{carrier, error}:
+          Fail{error}
+        case Trace.NoContext{carrier, error, reason}:
+          Fail{error}
+
+# The service that continuing a context gives: the generated child with the
+# continued context's state, or no operation with the error. The message's
+# incoming context, `received`, is kept either way.
+def continued(state: Trace.TraceState, received: Maybe<&2, Trace.IncomingContext>,
+  result: Result<&2, &2, Trace.GenerationError, Trace.LocalContext>) -> Trace.Service:
+  match result:
+    case Fail{error}:
+      Trace.Untraced{error, received}
+    case Done{context}:
+      Trace.Operating{Trace.Continued{}, Trace.OutgoingContext.with_state(context, state), received}
+
+# A new trace's operation with the sampled indication `sampling` resolves
+# from the root default, not sampled.
+def fresh(sampling: Trace.Sampling, +context: Trace.LocalContext) -> Trace.LocalContext:
+  Trace.LocalContext{Trace.LocalContext.trace_id(context), Trace.LocalContext.span_id(context),
+    Trace.Sampling.resolve(sampling, False{})}
+
+# The service that a new trace gives: the generated operation of `fresh`
+# without state and without a received pair, or no operation with the error.
+def begun(origin: Trace.Origin, sampling: Trace.Sampling,
+  result: Result<&2, &2, Trace.GenerationError, Trace.LocalContext>) -> Trace.Service:
+  match result:
+    case Fail{error}:
+      Trace.Untraced{error, None{}}
+    case Done{context}:
+      Trace.Operating{origin, Trace.OutgoingContext.new(fresh(sampling, context)), None{}}
+
+# The observed result of continuing, from the generation's outcome.
+def continuing(+policy: Trace.FailurePolicy, state: Trace.TraceState, received: Maybe<&2, Trace.IncomingContext>,
+  outcome: TapeOutcome()) -> TapeService(policy):
+  (rest, result) = outcome
+  (rest, service_by(policy, continued(state, received, result)))
+
+# The observed result of a new trace, from the generation's outcome.
+def starting(+policy: Trace.FailurePolicy, origin: Trace.Origin, sampling: Trace.Sampling, outcome: TapeOutcome()) ->
+  TapeService(policy):
+  (rest, result) = outcome
+  (rest, service_by(policy, begun(origin, sampling, result)))
+
+# The context whose trace ID a restart must not reuse: the received context
+# of an incoming base, or the operation of an outgoing base as another
+# participant receives it (RemoteContext.from_traceparent of its
+# traceparent).
+def replaced(base: Trace.BaseContext) -> Trace.RemoteContext:
+  match base:
+    case Trace.IncomingBase{incoming}:
+      Trace.IncomingContext.context(incoming)
+    case Trace.OutgoingBase{outgoing}:
+      Trace.RemoteContext.from_traceparent(Trace.LocalContext.to_traceparent(Trace.OutgoingContext.context(outgoing)))
+
+# The fallback of a forwarding that was tried.
+def fallback.forwarded(result: Result<&2, &2, Trace.ForwardError, List<&2, Trace.Header>>,
+  error: Trace.GenerationError, carrier: List<&2, Trace.Header>) -> Trace.Sent:
+  match result:
+    case Done{forwarded}:
+      Trace.Forwarded{forwarded, error}
+    case Fail{reason}:
+      Trace.NoContext{Trace.Context.clear(carrier), error, Trace.ForwardFailed{reason}}
+
+# What a message carries when no operation could be generated (`error`): the
+# received pair forwarded unchanged, when the service keeps one and
+# Context.forward sends it, and no context fields otherwise.
+def fallback(+limits: Trace.Limits, received: Maybe<&2, Trace.IncomingContext>, error: Trace.GenerationError,
+  +carrier: List<&2, Trace.Header>) -> Trace.Sent:
+  match received:
+    case None{}:
+      Trace.NoContext{Trace.Context.clear(carrier), error, Trace.NothingKept{}}
+    case Some{incoming}:
+      fallback.forwarded(Trace.Context.forward(limits, incoming, carrier), error, carrier)
+
+# The message that a generated child of the service's operation gives: the
+# child, injected with the service's state, or the fallback.
+def child_sent(+limits: Trace.Limits, +outgoing: Trace.OutgoingContext, received: Maybe<&2, Trace.IncomingContext>,
+  +carrier: List<&2, Trace.Header>, result: Result<&2, &2, Trace.GenerationError, Trace.LocalContext>) ->
+  Trace.Sent:
+  match result:
+    case Fail{error}:
+      fallback(limits, received, error, carrier)
+    case Done{+operation}:
+      Trace.Fresh{operation, Trace.Context.inject(limits,
+        Trace.OutgoingContext.with_state(operation, Trace.OutgoingContext.state(outgoing)), carrier)}
+
+# The observed result of sending, from the generation's outcome.
+def sending(+policy: Trace.FailurePolicy, +limits: Trace.Limits, +outgoing: Trace.OutgoingContext,
+  received: Maybe<&2, Trace.IncomingContext>, +carrier: List<&2, Trace.Header>, outcome: TapeOutcome()) ->
+  TapeSent(policy):
+  (rest, result) = outcome
+  (rest, sent_by(policy, child_sent(limits, outgoing, received, carrier, result)))
+
+# The context that a generation's outcome created, if any.
+def generated.result(result: Result<&2, &2, Trace.GenerationError, Trace.LocalContext>) ->
+  Maybe<&2, Trace.LocalContext>:
+  match result:
+    case Fail{error}:
+      None{}
+    case Done{context}:
+      Some{context}
+
+def generated(outcome: TapeOutcome()) -> Maybe<&2, Trace.LocalContext>:
+  (rest, result) = outcome
+  generated.result(result)
+
+# The new operation that a message sent reports: the one it carries under
+# Lenient{}; under Strict{}, the one a success carries, and none for a
+# failure.
+def reported.strict(result: Result<&2, &2, Trace.GenerationError, Trace.Sent>) -> Maybe<&2, Trace.LocalContext>:
+  match result:
+    case Fail{error}:
+      None{}
+    case Done{sent}:
+      Trace.Sent.operation(sent)
+
+def reported.result(policy: Trace.FailurePolicy, result: Trace.FailurePolicy.result(policy, Trace.Sent)) ->
+  Maybe<&2, Trace.LocalContext>:
+  match policy:
+    case Trace.Lenient{}:
+      Trace.Sent.operation(result)
+    case Trace.Strict{}:
+      reported.strict(result)
+
+def reported(+policy: Trace.FailurePolicy, done: TapeSent(policy)) -> Maybe<&2, Trace.LocalContext>:
+  (rest, result) = done
+  reported.result(policy, result)
+
+# The operation that a message sent by `service` is to report: the child of
+# the service's operation that the tape generates, if one is generated, and
+# none for a service without an operation.
+def sent_child(tape: Tape(), service: Trace.Service, sampling: Trace.Sampling) -> Maybe<&2, Trace.LocalContext>:
+  match service:
+    case Trace.Operating{origin, outgoing, received}:
+      generated(Trace.Draw.outcome(Tape(), Trace.Draw.run(16n,
+        (tape, Trace.Draw.child(Trace.LocalParent{Trace.OutgoingContext.context(outgoing)}, sampling)))))
+    case Trace.Untraced{error, received}:
+      None{}
+
+# Whether a service keeps no received pair.
+def unkept(received: Maybe<&2, Trace.IncomingContext>) -> Bool:
+  match received:
+    case None{}:
+      True{}
+    case Some{incoming}:
+      False{}
+
+# Whether a list of entries is empty.
+def no_entries(entries: List<&2, Trace.StateEntry>) -> Bool:
+  match entries:
+    case Nil{}:
+      True{}
+    case Con{entry, rest}:
+      False{}
+
+# Whether a service keeps nothing of a received context: no received pair,
+# and an operation, if it has one, that sends no state.
+def keeps_nothing(service: Trace.Service) -> Bool:
+  match service:
+    case Trace.Operating{origin, outgoing, received}:
+      Bool.and(unkept(received), no_entries(Trace.TraceState.entries(Trace.OutgoingContext.state(outgoing))))
+    case Trace.Untraced{error, received}:
+      unkept(received)
+
+# The same for a result under `policy`; a strict failure keeps nothing.
+def kept_nothing.strict(result: Result<&2, &2, Trace.GenerationError, Trace.Service>) -> Bool:
+  match result:
+    case Fail{error}:
+      True{}
+    case Done{service}:
+      keeps_nothing(service)
+
+def kept_nothing.result(policy: Trace.FailurePolicy, result: Trace.FailurePolicy.result(policy, Trace.Service)) ->
+  Bool:
+  match policy:
+    case Trace.Lenient{}:
+      keeps_nothing(result)
+    case Trace.Strict{}:
+      kept_nothing.strict(result)
+
+def kept_nothing(+policy: Trace.FailurePolicy, done: TapeService(policy)) -> Bool:
+  (rest, result) = done
+  kept_nothing.result(policy, result)
+
+# LAW continue_usable
+#   Claim: when extraction keeps a usable context, the message's own or the
+#     base, continuing it generates a child of it, as Context.child_with
+#     does with at most 16 words. The service's operation is that child,
+#     with the context's state, and it keeps the message's incoming context
+#     for forwarding. When the child cannot be generated, a lenient service
+#     has no operation and says why, and a strict one fails with the error.
+#   Requirement: spec #1, "Continue-or-start creates a child when extraction
+#     or the retained base supplies a usable context" and "Never report a
+#     newly created operation after generation failed"; ticket #11,
+#     "Continue extraction/base context through a new child".
+#   Why: a traced request stays in its trace, and a failed generation never
+#     pretends to have created an operation.
+#   Reading: `usable` says that extraction keeps `base`. continuing,
+#     continued and service_by are defined above; with generated_child
+#     (section 6), the child keeps the trace ID with its randomness
+#     assertion, resolves sampled and never reuses the parent's span ID.
+#   Proof: Laws.continue_usable, via proofs/continue.bend.
+law continue_usable:
+  for tape: Tape()
+  for +extraction: Trace.Extraction
+  for +base: Trace.BaseContext
+  for +sampling: Trace.Sampling
+  for +policy: Trace.FailurePolicy
+  for usable: {Trace.Extraction.context(extraction) == Some{base} : Maybe<&2, Trace.BaseContext>}
+  {Observe(TapeService(policy), Trace.Context.continue_or_start_with(~Tape(), ~Trace.Source.tape, tape, extraction,
+    Trace.Continue{}, sampling, policy)) ==
+    Emit{continuing(policy, Trace.BaseContext.state(base), Trace.Extraction.incoming(extraction),
+      Trace.Draw.outcome(Tape(), Trace.Draw.run(16n, (tape, Trace.Draw.child(Trace.BaseContext.parent(base), sampling)))))} :
+    IO.OP<TapeService(policy)>}
+
+# LAW restart_usable
+#   Claim: at a trust boundary (Restart{}), the context that extraction
+#     keeps, the message's own or the base, is not continued: a new trace
+#     replaces it, as Context.restart_with does with at most 48 words, so its
+#     trace ID is not reused. Its state is discarded, the root defaults apply
+#     unless `sampling` sets sampled, and no received pair is kept, so that
+#     nothing crosses the boundary.
+#   Requirement: spec #1, "Explicit restart creates a new trace identity,
+#     discards previous tracestate and applies root defaults, including
+#     sampled 0, unless the caller explicitly supplies a new policy/state";
+#     ticket #11.
+#   Why: a trust boundary starts its own trace without disguising it as a
+#     continuation of the caller's.
+#   Reading: `usable` says that extraction keeps `base`, and `replaced`,
+#     defined above, is the context whose trace ID the new trace avoids; with
+#     generated_restart (section 6), the new trace ID differs from it.
+#   Proof: Laws.restart_usable, via proofs/continue.bend.
+law restart_usable:
+  for tape: Tape()
+  for +extraction: Trace.Extraction
+  for +base: Trace.BaseContext
+  for +sampling: Trace.Sampling
+  for +policy: Trace.FailurePolicy
+  for usable: {Trace.Extraction.context(extraction) == Some{base} : Maybe<&2, Trace.BaseContext>}
+  {Observe(TapeService(policy), Trace.Context.continue_or_start_with(~Tape(), ~Trace.Source.tape, tape, extraction,
+    Trace.Restart{}, sampling, policy)) ==
+    Emit{starting(policy, Trace.Restarted{}, sampling, Trace.Draw.outcome(Tape(),
+      Trace.Draw.run(48n, (tape, Trace.Draw.restart(replaced(base))))))} : IO.OP<TapeService(policy)>}
+
+# LAW start_unusable
+#   Claim: when extraction keeps no context, neither the message's nor a
+#     base, the service starts the trace with a root, as Context.root_with
+#     does with at most 48 words, whether it continues or restarts. The root
+#     takes its sampled indication from `sampling` over the root default, not
+#     sampled, and it has no state and no received pair.
+#   Requirement: spec #1, "and creates a root otherwise" and "New roots
+#     default to sampled 0".
+#   Why: an untraced request still gets an operation that later services can
+#     continue.
+#   Reading: `none` says that extraction keeps no context; starting, begun
+#     and fresh are defined above.
+#   Proof: Laws.start_unusable, via proofs/continue.bend.
+law start_unusable:
+  for tape: Tape()
+  for +extraction: Trace.Extraction
+  for reception: Trace.Reception
+  for +sampling: Trace.Sampling
+  for +policy: Trace.FailurePolicy
+  for none: {Trace.Extraction.context(extraction) == None{} : Maybe<&2, Trace.BaseContext>}
+  {Observe(TapeService(policy), Trace.Context.continue_or_start_with(~Tape(), ~Trace.Source.tape, tape, extraction,
+    reception, sampling, policy)) ==
+    Emit{starting(policy, Trace.Started{}, sampling, Trace.Draw.outcome(Tape(),
+      Trace.Draw.run(48n, (tape, Trace.Draw.root()))))} : IO.OP<TapeService(policy)>}
+
+# LAW restart_keeps_nothing
+#   Claim: at a trust boundary, whatever the message and the base, and
+#     whatever the words, the service keeps nothing of a received context:
+#     no received pair, and an operation that sends no state. A strict
+#     failure keeps nothing either.
+#   Requirement: spec #1, "Explicit restart ... discards previous
+#     tracestate"; ticket #11, "Explicit restart discards previous state".
+#   Why: this is the boundary's guarantee, stated without the rules of
+#     starting and begun: no received state or pair crosses it.
+#   Reading: kept_nothing and keeps_nothing, defined above, read the
+#     observed result through the service's constructors only.
+#   Proof: Laws.restart_keeps_nothing, via proofs/continue.bend.
+law restart_keeps_nothing:
+  for tape: Tape()
+  for +extraction: Trace.Extraction
+  for +sampling: Trace.Sampling
+  for +policy: Trace.FailurePolicy
+  {Observe(Bool, IO.bind(TapeService(policy), Bool, Trace.Context.continue_or_start_with(~Tape(), ~Trace.Source.tape,
+    tape, extraction, Trace.Restart{}, sampling, policy), done => IO.pure(Bool, kept_nothing(policy, done)))) ==
+    Emit{True{}} : IO.OP<Bool>}
+
+# LAW send_operating
+#   Claim: a message sent by a service with an operation gets a child of
+#     that operation, as Context.child_with does with at most 16 words,
+#     injected with the service's state into its carrier. When the child
+#     cannot be generated, no new operation is reported: the message
+#     forwards the received pair unchanged when the service keeps one that
+#     can be sent whole, and carries no context fields otherwise; a strict
+#     send fails with the error.
+#   Requirement: spec #1, "each distinct outgoing operation obtains its own
+#     child before injection" and "It may forward only an entirely accepted
+#     original pair that can be sent intact within bounds; otherwise clear
+#     outgoing context fields"; ticket #11, "Generate a distinct operation
+#     for each outgoing operation/fan-out branch" and "do not report a newly
+#     generated operation or retain stale output fields".
+#   Why: each request of a fan-out is an operation of its own, and a tracing
+#     failure leaves no stale or invented context in a request.
+#   Reading: sending, child_sent and fallback are defined above; with
+#     generated_child (section 6), the child keeps the service's trace and
+#     never reuses its span ID, and section 13's laws say what
+#     Context.inject, Context.forward and Context.clear write.
+#   Proof: Laws.send_operating, via proofs/continue.bend.
+law send_operating:
+  for tape: Tape()
+  for +limits: Trace.Limits
+  for origin: Trace.Origin
+  for +outgoing: Trace.OutgoingContext
+  for +received: Maybe<&2, Trace.IncomingContext>
+  for +sampling: Trace.Sampling
+  for +policy: Trace.FailurePolicy
+  for +carrier: List<&2, Trace.Header>
+  {Observe(TapeSent(policy), Trace.Context.send_with(~Tape(), ~Trace.Source.tape, tape, limits,
+    Trace.Operating{origin, outgoing, received}, sampling, policy, carrier)) ==
+    Emit{sending(policy, limits, outgoing, received, carrier, Trace.Draw.outcome(Tape(), Trace.Draw.run(16n,
+      (tape, Trace.Draw.child(Trace.LocalParent{Trace.OutgoingContext.context(outgoing)}, sampling)))))} :
+    IO.OP<TapeSent(policy)>}
+
+# LAW send_untraced
+#   Claim: a message sent by a service without an operation reads no word
+#     from the source and carries the fallback: the received pair forwarded
+#     unchanged when it can be, and no context fields otherwise; a strict
+#     send fails with the service's error.
+#   Requirement: as for send_operating; spec #1, "The convenience HTTP path
+#     normally lets the business operation proceed on generation failure,
+#     with explicit diagnostics".
+#   Why: a service whose operation could not be generated still sends its
+#     requests, without inventing a context.
+#   Reading: the tape comes back whole; sent_by and fallback are defined
+#     above.
+#   Proof: Laws.send_untraced, via proofs/continue.bend.
+law send_untraced:
+  for tape: Tape()
+  for +limits: Trace.Limits
+  for +error: Trace.GenerationError
+  for +received: Maybe<&2, Trace.IncomingContext>
+  for sampling: Trace.Sampling
+  for +policy: Trace.FailurePolicy
+  for +carrier: List<&2, Trace.Header>
+  {Observe(TapeSent(policy), Trace.Context.send_with(~Tape(), ~Trace.Source.tape, tape, limits,
+    Trace.Untraced{error, received}, sampling, policy, carrier)) ==
+    Emit{(tape, sent_by(policy, fallback(limits, received, error, carrier)))} : IO.OP<TapeSent(policy)>}
+
+# LAW send_reports_generated
+#   Claim: whatever the service, the words and the policy, a message sent
+#     reports a new operation exactly when one was generated for it, and it
+#     is that operation: the child of the service's operation that the tape
+#     generates. After a failed generation, or for a service without an
+#     operation, it reports none.
+#   Requirement: spec #1, "Never report a newly created operation after
+#     generation failed"; ticket #11, "do not report a newly generated
+#     operation".
+#   Why: this is the failure contract, stated without the rules of sending
+#     and fallback: an application never mistakes a fallback for a new
+#     operation.
+#   Reading: reported reads the observed result through Sent.operation, and
+#     sent_child and generated, defined above, give the generation's context.
+#   Proof: Laws.send_reports_generated, via proofs/continue.bend.
+law send_reports_generated:
+  for tape: Tape()
+  for +limits: Trace.Limits
+  for +service: Trace.Service
+  for +sampling: Trace.Sampling
+  for +policy: Trace.FailurePolicy
+  for +carrier: List<&2, Trace.Header>
+  {Observe(Maybe<&2, Trace.LocalContext>, IO.bind(TapeSent(policy), Maybe<&2, Trace.LocalContext>,
+    Trace.Context.send_with(~Tape(), ~Trace.Source.tape, tape, limits, service, sampling, policy, carrier),
+    done => IO.pure(Maybe<&2, Trace.LocalContext>, reported(policy, done)))) ==
+    Emit{sent_child(tape, service, sampling)} : IO.OP<Maybe<&2, Trace.LocalContext>>}

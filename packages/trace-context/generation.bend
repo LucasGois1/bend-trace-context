@@ -25,22 +25,37 @@ def Source.host(state: Unit) -> IO(Unit & Result<&1, &1, U32 & String, U32>):
     Entropy.read_u32(), word => IO.pure(Unit & Result<&1, &1, U32 & String, U32>, (state, word)))
 
 # The host source has no state to hand back.
-def on_host(action: IO(Unit & Result<&2, &2, TC.GenerationError, TC.LocalContext>)) ->
-  IO(Result<&2, &2, TC.GenerationError, TC.LocalContext>):
-  IO.bind(Unit & Result<&2, &2, TC.GenerationError, TC.LocalContext>,
-    Result<&2, &2, TC.GenerationError, TC.LocalContext>, action,
-    done => IO.pure(Result<&2, &2, TC.GenerationError, TC.LocalContext>,
-      Pair.snd(Unit, Result<&2, &2, TC.GenerationError, TC.LocalContext>, done)))
+def on_host(-A: Type, action: IO(Unit & A)) -> IO(A):
+  IO.bind(Unit & A, A, action, done => IO.pure(A, Pair.snd(Unit, A, done)))
 
 # Start a trace. The trace ID asserts random-trace-id and the root is not
 # sampled, so it is emitted with flags 02.
 def Context.root() -> IO(Result<&2, &2, TC.GenerationError, TC.LocalContext>):
-  on_host(TC.Context.root_with(~Unit, ~Source.host, Unit{}))
+  on_host(Result<&2, &2, TC.GenerationError, TC.LocalContext>, TC.Context.root_with(~Unit, ~Source.host, Unit{}))
 
 # Continue a remote or local parent with a new operation.
 def Context.child(parent: TC.Parent, sampling: TC.Sampling) -> IO(Result<&2, &2, TC.GenerationError, TC.LocalContext>):
-  on_host(TC.Context.child_with(~Unit, ~Source.host, Unit{}, parent, sampling))
+  on_host(Result<&2, &2, TC.GenerationError, TC.LocalContext>,
+    TC.Context.child_with(~Unit, ~Source.host, Unit{}, parent, sampling))
 
 # Start a new trace instead of continuing a received context.
 def Context.restart(previous: TC.RemoteContext) -> IO(Result<&2, &2, TC.GenerationError, TC.LocalContext>):
-  on_host(TC.Context.restart_with(~Unit, ~Source.host, Unit{}, previous))
+  on_host(Result<&2, &2, TC.GenerationError, TC.LocalContext>,
+    TC.Context.restart_with(~Unit, ~Source.host, Unit{}, previous))
+
+# Give a service its own operation for a received message: a child of the
+# context that extraction keeps, the message's or the base, a root without
+# one, or a new trace in its place at a trust boundary
+# (TC.Context.continue_or_start_with).
+def Context.continue_or_start(+extraction: TC.Extraction, reception: TC.Reception, sampling: TC.Sampling,
+  +policy: TC.FailurePolicy) -> IO(TC.FailurePolicy.result(policy, TC.Service)):
+  on_host(TC.FailurePolicy.result(policy, TC.Service),
+    TC.Context.continue_or_start_with(~Unit, ~Source.host, Unit{}, extraction, reception, sampling, policy))
+
+# Give one message that the service sends a new child of the service's
+# operation, or the fallback when none can be generated
+# (TC.Context.send_with).
+def Context.send(+limits: TC.Limits, service: TC.Service, sampling: TC.Sampling, +policy: TC.FailurePolicy,
+  +carrier: List<&2, TC.Header>) -> IO(TC.FailurePolicy.result(policy, TC.Sent)):
+  on_host(TC.FailurePolicy.result(policy, TC.Sent),
+    TC.Context.send_with(~Unit, ~Source.host, Unit{}, limits, service, sampling, policy, carrier))

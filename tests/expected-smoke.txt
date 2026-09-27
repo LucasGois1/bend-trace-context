@@ -1,1 +1,2 @@
 OK: real-source root, child and restart are well formed
+OK: real-source continue-or-start and send are well formed

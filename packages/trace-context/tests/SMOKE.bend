@@ -50,6 +50,43 @@ def Smoke.restart(+incoming: TC.RemoteContext, +restarted: TC.LocalContext) -> I
       Bool.not(TC.TraceId.is_eq(TC.LocalContext.trace_id(restarted), TC.RemoteContext.trace_id(incoming))))
     Smoke.assert("a generated restart is emitted with flags 02", String.eq(Smoke.flags(Smoke.text(restarted)), "02"))
 
+def Smoke.operation(+name: String, context: Maybe<&2, TC.LocalContext>) -> IO(TC.LocalContext):
+  match context:
+    case None{}:
+      IO.die(TC.LocalContext, 1, "FAIL: " ++ name ++ " has no operation")
+    case Some{operation}:
+      IO.pure(TC.LocalContext, operation)
+
+def Smoke.service_operation(outgoing: Maybe<&2, TC.OutgoingContext>) -> Maybe<&2, TC.LocalContext>:
+  match outgoing:
+    case None{}:
+      None{}
+    case Some{context}:
+      Some{TC.OutgoingContext.context(context)}
+
+# A service continuing a received request, and the request it sends on, on
+# the real source: the same trace, and an operation of their own each.
+def Smoke.served(+received: TC.RemoteContext, +service: TC.LocalContext, +sent: TC.LocalContext) -> IO(Unit):
+  do IO<Unit>:
+    Unit <- Smoke.assert("a continued service keeps the received trace ID",
+      TC.TraceId.is_eq(TC.LocalContext.trace_id(service), TC.RemoteContext.trace_id(received)))
+    Unit <- Smoke.assert("a continued service has its own span ID",
+      Bool.not(TC.SpanId.is_eq(TC.LocalContext.span_id(service), TC.RemoteContext.span_id(received))))
+    Unit <- Smoke.assert("a sent operation keeps the trace ID",
+      TC.TraceId.is_eq(TC.LocalContext.trace_id(sent), TC.LocalContext.trace_id(service)))
+    Smoke.assert("a sent operation has its own span ID",
+      Bool.not(TC.SpanId.is_eq(TC.LocalContext.span_id(sent), TC.LocalContext.span_id(service))))
+
+def Smoke.flow(+received: TC.RemoteContext) -> IO(Unit):
+  do IO<Unit>:
+    +service : TC.Service <- Generate.Context.continue_or_start(TC.Context.extract(TC.Limits.default(),
+      [TC.Header{"traceparent", "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"}], None{}), TC.Continue{},
+      TC.InheritSampled{}, TC.Lenient{})
+    operation : TC.LocalContext <- Smoke.operation("the service", Smoke.service_operation(TC.Service.outgoing(service)))
+    sent_on : TC.Sent <- Generate.Context.send(TC.Limits.default(), service, TC.InheritSampled{}, TC.Lenient{}, [])
+    sent : TC.LocalContext <- Smoke.operation("the outgoing request", TC.Sent.operation(sent_on))
+    Smoke.served(received, operation, sent)
+
 def main() -> IO(Unit):
   do IO<Unit>:
     root_result : Result<&2, &2, TC.GenerationError, TC.LocalContext> <- Generate.Context.root()
@@ -64,4 +101,6 @@ def main() -> IO(Unit):
     restart_result : Result<&2, &2, TC.GenerationError, TC.LocalContext> <- Generate.Context.restart(incoming)
     restarted : TC.LocalContext <- Smoke.valid(TC.LocalContext, "restart", restart_result)
     Unit <- Smoke.restart(incoming, restarted)
-    IO.print("OK: real-source root, child and restart are well formed")
+    Unit <- IO.print("OK: real-source root, child and restart are well formed")
+    Unit <- Smoke.flow(incoming)
+    IO.print("OK: real-source continue-or-start and send are well formed")

@@ -12,9 +12,12 @@ in Bend programs compiled to Node, parses, queries and formats Level 2
 `tracestate` within validated limits, updates the state a local operation
 sends and emits it within the output budget, extracts the context of a
 received message from its fields, keeping a base context when the message has
-no usable traceparent, and injects a local operation into the fields of a
-message to send or forwards a received context unchanged. Browser generation
-and HTTP/Fetch propagation are not implemented yet. Native
+no usable traceparent, injects a local operation into the fields of a
+message to send or forwards a received context unchanged, and gives a service
+its own operation for each message it receives, a child for each message it
+sends, and a lenient or strict outcome when an identifier cannot be
+generated. Browser generation and HTTP/Fetch propagation are not implemented
+yet. Native
 HTTP transport is separately qualified as a development harness;
 it does not add a Trace Context propagator or tracer. Pure JavaScript module
 consumption and a WebCrypto source are qualified separately below. No BendHub
@@ -138,6 +141,20 @@ its incoming context to `TC.Context.forward(limits, incoming, fields)`, which
 refuses a pair it cannot send whole. The
 [injection example](packages/trace-context/examples/inject.bend) does both.
 
+A service can do all of this with two calls of generation.bend. For each
+request it receives, `Context.continue_or_start(extraction, TC.Continue{},
+TC.InheritSampled{}, TC.Lenient{})` gives its own operation: a child of the
+received context or of the base, or a root without either. For each request
+it sends, `Context.send(limits, service, TC.InheritSampled{}, TC.Lenient{},
+fields)` gives a child of that operation, injected into the request's fields.
+When no identifier can be generated, the request still proceeds, forwarding
+the received context unchanged if it can; `TC.Strict{}` returns the error
+instead, and `TC.Restart{}` starts a new trace at a trust boundary.
+`TC.Service.set` puts the service's own tracestate entry first. The
+[continue example](packages/trace-context/examples/continue.bend) shows both
+policies and a trust boundary, and the
+[consumer example](tests/consumer/main.bend) also sets its own entry.
+
 Read the [API and error reference](packages/trace-context/README.md) for strict
 parsing semantics, typed values, generation rules and proof scope. See
 [versioning and migration policy](CHANGELOG.md) before updating a dependency pin.
@@ -159,8 +176,9 @@ clone; they do not test uncommitted edits. To select a source and revision, run
 
 Baseline gates cover proofs, independent protocol vectors, all 256 flag bytes,
 expected static rejections, deterministic generation from replayed tapes,
-real-source generation smoke checks, the tracestate, outgoing, extraction and injection corpora, the examples, the
-exact README example above and a consumer outside the repository. Consumer logs and outputs are saved under
+real-source generation smoke checks, the tracestate, outgoing, extraction,
+injection and continue-or-start corpora, the examples, the exact README
+example above and a consumer outside the repository. Consumer logs and outputs are saved under
 `build/consumer-native/` or `build/consumer-node/`. CI exercises
 native macOS ARM64/Linux x86_64 and Node 22/24, recording exact runtime versions.
 Configuring a job is distinct from observing a successful run.
@@ -179,7 +197,8 @@ default branch. GitHub secret scanning and push protection are enabled.
 
 The universal fixed-length, `parse(format(context)) == Done{context}` and
 inverse laws of the strict codec are proved, as are the supplied-ID, context
-lifecycle, generation, limits, tracestate, emission, extraction, injection and forwarding laws listed in the
+lifecycle, generation, limits, tracestate, emission, extraction, injection,
+forwarding, continue-or-start and sending laws listed in the
 [package reference](packages/trace-context/README.md#proofs). The generation
 laws cover every sequence of words replayed from a tape; the host source's
 path through the same driver is tested, and its quality is not proved.

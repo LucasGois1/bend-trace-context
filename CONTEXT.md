@@ -125,6 +125,17 @@ Adding a new operation to an existing trace, preserving its trace ID and identif
 Creating a new trace with new identifiers at a boundary where the received context will not be continued.
 _Avoid_: Trace continuation
 
+**Trust boundary**:
+A point where a participant does not continue the contexts it receives and restarts their traces instead, keeping none of their tracestate.
+
+**Service operation**:
+The operation a participant creates for a message it receives: a child of the context that the message or the base supplies, a root when there is neither, or a trace restart at a trust boundary. Each message the participant sends gets a child of it.
+_Avoid_: Incoming context
+
+**Failure policy**:
+How an operation that needs a new identifier reports a generation failure: leniently, letting the business operation proceed without a new operation, or strictly, returning the error so that the caller can refuse the operation.
+_Avoid_: Retry policy
+
 **Log correlation**:
 Associating application logs with an operation's trace context. This association alone does not transmit context to another service.
 _Avoid_: Context propagation

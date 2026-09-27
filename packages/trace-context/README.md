@@ -6,8 +6,10 @@ and restarted local contexts, either from IDs the caller supplies or from IDs
 generated on a cryptographic source, a bounded Level 2 `tracestate` parser
 with validated limits, the operations that update a local operation's
 tracestate and emit it within the output budget, the extraction of a received
-message's context from its fields, and the injection and forwarding of a
-context into the fields of a message to send. It has no external package
+message's context from its fields, the injection and forwarding of a context
+into the fields of a message to send, and the operations that continue or
+start a service's own operation for each message it receives and give each
+message it sends a child of that operation. It has no external package
 dependencies beyond the compiler's bundled `Base`. The public entries are
 [trace_context.bend](trace_context.bend), which performs no host effect of its
 own, and [generation.bend](generation.bend), which adds the host's
@@ -103,9 +105,9 @@ assertion does not change which trace an ID names.
 - `Context.restart_from_ids` deliberately starts a new trace at a boundary
   where a received context is not continued. It applies the root defaults,
   including sampled `0`. A trace ID equal to the received one fails with
-  `ReusedTraceId{}`, even when only the randomness assertion differs. An
-  explicit sampling policy for restarts is left to the continue-or-start
-  operation of [#11](https://github.com/LucasGois1/bend-trace-context/issues/11).
+  `ReusedTraceId{}`, even when only the randomness assertion differs.
+  [`Context.continue_or_start`](#continuing-or-starting-a-trace) restarts at a
+  trust boundary with a sampling policy of the caller's choice.
 
 `RemoteContext.from_traceparent` receives a strictly parsed v00 value. It keeps
 the trace ID, the sender's span ID, sampled and random-trace-id; reserved flag
@@ -578,10 +580,9 @@ participant's. A service continues it with a child operation,
 `Context.child_from_id(IncomingContext.parent(incoming), span_id, sampling)`
 with a supplied span ID or `Context.child` of generation.bend with a generated
 one, and sends the received state with the child in an `OutgoingContext`.
-`BaseContext.parent` and `BaseContext.state` give the same for a base. The
-continue-or-start operation of
-[#11](https://github.com/LucasGois1/bend-trace-context/issues/11) will do this
-for a message and its base. The received pair is what
+`BaseContext.parent` and `BaseContext.state` give the same for a base.
+[`Context.continue_or_start`](#continuing-or-starting-a-trace) does this for
+a message and its base in one step. The received pair is what
 [forwarding](#injecting-and-forwarding-context) sends unchanged; it is
 `None{}` when the tracestate was discarded. Only the pairs that
 extraction keeps are known to be accepted and within the input budgets: as
@@ -686,6 +687,150 @@ relayed: Host: billing.internal | traceparent: cc-4bf92f3577b34da6a3ce929d0e0e47
 without context: Host: metrics.internal
 not forwarded: ForwardTooLarge
 continued instead: 00-4bf92f3577b34da6a3ce929d0e0e4736-b7ad6b7169203331-01, dropped b
+```
+
+## Continuing or starting a trace
+
+A service needs an operation of its own for each message it receives, and
+each message it sends needs an operation too. `Context.continue_or_start` and
+`Context.send` of generation.bend give both on the host's cryptographic
+source, once [extraction](#extracting-context) has read the received
+message's fields. Names below are qualified by the aliases `Generate` for
+generation.bend and `TC` for trace_context.bend:
+
+```bend
+Generate.Context.continue_or_start(extraction: TC.Extraction, reception: TC.Reception, sampling: TC.Sampling,
+  policy: TC.FailurePolicy) -> IO(TC.FailurePolicy.result(policy, TC.Service))
+Generate.Context.send(limits: TC.Limits, service: TC.Service, sampling: TC.Sampling, policy: TC.FailurePolicy,
+  carrier: List<&2, TC.Header>) -> IO(TC.FailurePolicy.result(policy, TC.Sent))
+TC.FailurePolicy.result(policy: TC.FailurePolicy, A: Data) -> Data
+TC.Service.origin(service: TC.Service) -> Maybe<&2, TC.Origin>
+TC.Service.outgoing(service: TC.Service) -> Maybe<&2, TC.OutgoingContext>
+TC.Service.error(service: TC.Service) -> Maybe<&2, TC.GenerationError>
+TC.Service.set(service: TC.Service, key: TC.StateKey, value: TC.StateValue) -> TC.Service
+TC.Service.remove(service: TC.Service, key: TC.StateKey) -> TC.Service
+TC.Service.show(service: TC.Service) -> String
+TC.Origin.show(origin: TC.Origin) -> String
+TC.Sent.carrier(sent: TC.Sent) -> List<&2, TC.Header>
+TC.Sent.operation(sent: TC.Sent) -> Maybe<&2, TC.LocalContext>
+TC.Sent.error(sent: TC.Sent) -> Maybe<&2, TC.GenerationError>
+TC.Sent.dropped(sent: TC.Sent) -> List<&2, TC.StateKey>
+TC.Sent.show(sent: TC.Sent) -> String
+TC.Unforwarded.show(reason: TC.Unforwarded) -> String
+```
+
+The common path extracts each received request, calls `continue_or_start`
+with `TC.Continue{}`, `TC.InheritSampled{}` and `TC.Lenient{}`, and calls
+`send` once for every request the service makes, with that request's fields.
+
+`continue_or_start` takes the context that extraction keeps, the message's
+accepted traceparent or, when the message has none, the base, as
+`reception` says:
+
+- `Continue{}` continues it. The operation is a generated child of it, as
+  `Generate.Context.child` creates one, with that context's state: the
+  received tracestate or the base's. Its origin is `Continued{}`.
+- `Restart{}` is for a trust boundary, where the context is not continued.
+  A generated restart, as `Generate.Context.restart` creates one, replaces
+  it: its trace ID is never the replaced one, the state is discarded, no
+  received pair is kept and the root defaults apply. Its origin is
+  `Restarted{}`. An outgoing base, an operation of this service, is replaced
+  as another participant would receive it, so its trace ID is not reused
+  either.
+
+When extraction keeps no context, a generated root starts the trace with no
+state, whatever `reception` says, and its origin is `Started{}`.
+
+`sampling` gives the operation's sampled indication. With
+`InheritSampled{}`, a child inherits its parent's, and a root or restart,
+which has nothing to inherit, takes the root default, not sampled, so it is
+emitted with flags `02`. `SetSampled{value}` sets `value` in every case.
+
+| `Service` | Meaning |
+| --- | --- |
+| `Operating{origin, outgoing, received}` | The service's operation with the state it sends. `received` is the message's incoming context when the service continued it, kept so that a message it sends can forward it if generating fails; it is `None{}` for a root, a restart or a continued base |
+| `Untraced{error, received}` | No identifier could be generated, for `error`; `received` is as above |
+
+`Service.set` adds or updates an entry of the state that the service's
+operation sends, as `OutgoingContext.set` does: a participant puts its own
+entry first, and a restarted operation takes a new state this way.
+`Service.remove` deletes an entry. A service without an operation sends no
+state of its own, so both leave it unchanged.
+
+`send` gives one message an operation of its own: a child of the service's
+operation, generated anew for every call, so that each request of a fan-out
+is a separate operation. Its span ID is never the service's; siblings get
+different span IDs as long as the source's words differ, since only the
+parent's span ID is excluded. `send` injects the child, with the service's
+state, into `carrier`, the message's fields, as
+[`Context.inject`](#injecting-and-forwarding-context) does: the old context
+fields go and the new ones come last. When the child cannot be generated,
+or the service has no operation, in which case `send` reads no word, no new
+operation is reported. The message then forwards the received pair
+unchanged if it can be sent whole, and otherwise carries no context fields.
+`Sent.carrier` gives the fields to send in every case.
+
+| `Sent` | Meaning |
+| --- | --- |
+| `Fresh{operation, injection}` | A new operation, injected with the service's state; `Sent.dropped` gives the keys that truncation to the output budget removed |
+| `Forwarded{carrier, error}` | No operation could be generated, for `error`; the carrier forwards the received pair unchanged, as `Context.forward` writes it |
+| `NoContext{carrier, error, reason}` | No operation could be generated, and no pair was forwarded, for `reason`. The carrier's context fields are removed, as `Context.clear` removes them |
+
+| `Unforwarded` | Meaning |
+| --- | --- |
+| `NothingKept{}` | The service keeps no received context: its operation is, or was to be, a root, a restart or a child of a base |
+| `ForwardFailed{error}` | `Context.forward` refused the received context: `NothingToForward{}` when its tracestate was discarded at extraction, or `ForwardTooLarge{}` over the output budget |
+
+`policy` decides what a failed generation returns:
+
+- `Lenient{}` returns the `Service` or the `Sent` itself, so the business
+  operation proceeds without a new operation, as spec #1 asks of the
+  convenience path. `Service.show` and `Sent.show` name what happened, such
+  as `Untraced SourceFailure 5 entropy unavailable`, `Fresh, truncated` or
+  `NoContext after ExhaustedSpanId, NothingKept`, without any received value,
+  so that a service may log them. The package logs nothing itself.
+- `Strict{}` returns `Result<&2, &2, TC.GenerationError, TC.Service>`, or the
+  same for `TC.Sent`: `Done{}` with a new operation, and `Fail{error}`
+  whenever no new operation was generated, so that the caller can refuse the
+  operation. `FailurePolicy.result` names the type for either policy.
+
+The same operations take a caller's source in trace_context.bend, as the
+other generating operations do:
+
+```bend
+TC.Context.continue_or_start_with(~S, ~read, source: S, extraction: TC.Extraction, reception: TC.Reception,
+  sampling: TC.Sampling, policy: TC.FailurePolicy) -> IO(S & TC.FailurePolicy.result(policy, TC.Service))
+TC.Context.send_with(~S, ~read, source: S, limits: TC.Limits, service: TC.Service, sampling: TC.Sampling,
+  policy: TC.FailurePolicy, carrier: List<&2, TC.Header>) -> IO(S & TC.FailurePolicy.result(policy, TC.Sent))
+```
+
+Each call reads what its generation reads: at most 48 words for a root or a
+restart, 16 for a child, and none for a service without an operation.
+
+The [continue example](examples/continue.bend) continues a traced request and
+sends two requests on, starts a trace for a request without context, restarts
+a partner's request at a trust boundary and, with a source that fails, lets
+the request proceed or refuses it. From the repository root:
+
+```sh
+./bend packages/trace-context/examples/continue.bend
+```
+
+Each run prints new IDs. Below, `T1` and `T2` stand for generated trace IDs
+and `S1` to `S7` for generated span IDs, each different from the others, as
+[validate.sh](../../scripts/validate.sh) checks the output:
+
+```text
+traced request: Continued 00-0af7651916cd43dd8448eb211c80319c-S1-01
+sent: Fresh | Host: inventory.internal | traceparent: 00-0af7651916cd43dd8448eb211c80319c-S2-01 | tracestate: congo=t61rcWkgMzE
+sent: Fresh | Host: billing.internal | traceparent: 00-0af7651916cd43dd8448eb211c80319c-S3-01 | tracestate: congo=t61rcWkgMzE
+request without context: Started 00-T1-S4-02
+sent: Fresh | Host: inventory.internal | traceparent: 00-T1-S5-02
+partner request: Restarted 00-T2-S6-02
+sent: Fresh | Host: inventory.internal | traceparent: 00-T2-S7-02
+without entropy: Untraced SourceFailure 5 entropy unavailable
+sent: Forwarded after SourceFailure 5 entropy unavailable | Host: inventory.internal | traceparent: 00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01 | tracestate: congo=t61rcWkgMzE
+strict, without entropy: refused after SourceFailure 5 entropy unavailable
 ```
 
 ## Parsing contract
@@ -855,6 +1000,26 @@ every value of their types, not over examples:
   output budget with `ForwardTooLarge{}`. The pair of a context that
   extraction accepted is forwarded whenever it fits, and forwarding into the
   carrier written gives that carrier again.
+- **Continuing or starting:** for every tape of words, extraction and
+  sampling, and under both policies, `continue_or_start_with` generates one
+  context and returns what that generation's outcome gives. With
+  `Continue{}`, it is a child of the context that extraction keeps, with that
+  context's state and the message's incoming context; with `Restart{}`, it is
+  a restart of that context, with the sampled indication resolved from the
+  root default, no state and no received pair; and without a kept context it
+  is a root. A failed generation gives a service without an operation under
+  `Lenient{}` and `Fail{error}` under `Strict{}`. With the generation laws, a
+  child keeps its parent's trace and never reuses its span ID, and a
+  restart's trace ID differs from the replaced one. Stated on its own, a
+  restart keeps nothing of a received context, whatever the words: no
+  received pair and no state.
+- **Sending:** for every tape, service, limits and carrier, `send_with`
+  generates a child of the service's operation and injects it with the
+  service's state; when that fails, it forwards the received pair or clears
+  the carrier, and fails under `Strict{}`. A service without an operation
+  reads no word. Stated on its own, a message reports a new operation
+  exactly when one was generated for it, and that is the operation it
+  reports, whatever the policy.
 
 The generation laws quantify over tapes, that is, over every sequence of word
 results. The host source runs through the same driver with its effect in
@@ -872,7 +1037,14 @@ inside unknown fields, names with non-ASCII letters and exact budget
 boundaries are covered by the corpus. The injection and forwarding laws quantify over every carrier,
 outgoing and incoming context, base and limits; the texts written for
 particular contexts, lookalike names, pairs built directly and exact budget
-boundaries are covered by the corpus.
+boundaries are covered by the corpus. The continue-or-start and sending laws
+quantify over every tape, extraction, service, limits and carrier, and over
+both policies; each states its result as the outcome of the generation it
+performs. That sibling messages get different span IDs rests on the words
+the source gives: the corpus shows it for replayed words and the example and
+the consumer for the host's, but no law states it. The fields a message
+sends follow from these laws with those of injection, forwarding and
+cleanup.
 
 Auxiliary universal proofs cover hexadecimal and character decoding, encoded
 lengths, reading an encoded sequence while preserving its suffix, recovery of a
@@ -942,15 +1114,31 @@ in a later version's unknown fields among them. It extracts again the
 carriers of three injections and of a forwarding, and it handles carriers of
 100000 fields and values of 32 KiB.
 
+The [continue-or-start corpus](tests/CONTINUE.bend) replays tapes through
+both operations. It continues a message's context and, without a usable
+traceparent, a base of this service and a context received earlier; it
+starts roots and restarts, with and without a sampling override, and at a
+boundary replaces the message's context, a base of this service and a
+context received earlier with trace IDs other than theirs; and it meets a
+source failure and exhausted candidates under both policies. It sends a
+fan-out of three requests with different span IDs into a reused container,
+puts the service's own entry first, and checks what a message carries when
+no operation can be generated: the received pair forwarded, and no context
+at a boundary, for a root, for a base, after a discarded state and for
+spec #1's 600-octet state. Each case checks how many words were left unread,
+and the diagnostics, truncation included, contain no received value.
+
 The [generation corpus](tests/GENERATION.bend) replays tapes through the public
 operations: conversion vectors in decimal for the W3C example words, the digit
 order within a word, zero then valid candidates, eight zero candidates with no ninth read, a 48-word
 worst case, a source error in the middle of a candidate, an empty tape, a
 child that must not reuse the parent's span ID and a restart that must not
 reuse the received trace ID, each checking how many words were left unread.
-The [smoke check](tests/SMOKE.bend) and the
-[generation example](examples/generate.bend) generate on the real host source;
-they check only that the results are well formed. The JavaScript suite runs a compiled
+The [smoke check](tests/SMOKE.bend), the
+[generation example](examples/generate.bend) and the
+[continue example](examples/continue.bend) generate on the real host source;
+they check only that the results are well formed and that generated IDs are
+new where they must be. The JavaScript suite runs a compiled
 root through WebCrypto with real host exceptions and counts the words read.
 The [validation guide](../../README.md#validation) describes reproducible
 commands and the separate clean consumer.
@@ -961,8 +1149,8 @@ The planned propagator targets the pinned
 [Level 2 Candidate Recommendation Draft](https://www.w3.org/TR/2024/CRD-trace-context-2-20240328/).
 The random-trace-id flag `0x02` still uses wire version `00`.
 
-This package does not yet implement the continue-or-start operation, browser
-generation or HTTP/browser integration. Its faithful formatter does not mask reserved bits of a parsed
+This package does not yet implement browser generation or HTTP/browser
+integration. Its faithful formatter does not mask reserved bits of a parsed
 value; `LocalContext.to_traceparent` emits only known flags. There is no claim of
 complete W3C propagator conformance or a full OpenTelemetry SDK.
 

@@ -1,6 +1,6 @@
 #!/bin/sh
-# Run the codec, generation, tracestate, extraction and injection evidence
-# gates on one explicitly selected backend.
+# Run the codec, generation, tracestate, extraction, injection and
+# continue-or-start evidence gates on one explicitly selected backend.
 set -eu
 
 repo_dir=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
@@ -13,7 +13,8 @@ mkdir -p "$build_dir"
 cp tests/expected-codec.txt tests/expected-demo.txt tests/expected-generation.txt tests/expected-smoke.txt \
   tests/expected-tracestate.txt tests/expected-tracestate-example.txt tests/expected-outgoing.txt \
   tests/expected-outgoing-example.txt tests/expected-extract.txt tests/expected-extract-example.txt \
-  tests/expected-inject.txt tests/expected-inject-example.txt "$build_dir/"
+  tests/expected-inject.txt tests/expected-inject-example.txt tests/expected-continue.txt \
+  tests/expected-continue-example.txt "$build_dir/"
 {
 echo "Package commit: $(git rev-parse HEAD)"
 echo "Platform: $(uname -s) $(uname -m)"
@@ -60,6 +61,38 @@ check_generated_example() {
     cat "$1" >&2
     return 1
   fi
+}
+
+# The continue example prints new IDs on every run too. Name each generated
+# ID by its order of appearance, T1, T2 ... for trace IDs and S1, S2 ... for
+# span IDs, keep the received IDs as they are, and compare: the same name is
+# the same ID, a new name is a new ID, and a received ID printed where a new
+# one belongs fails the comparison.
+check_continue_example() {
+  awk '
+    function named(id, kind) {
+      if (id == "0af7651916cd43dd8448eb211c80319c" || id == "4bf92f3577b34da6a3ce929d0e0e4736" ||
+        id == "b7ad6b7169203331" || id == "00f067aa0ba902b7") return id
+      if (!((kind, id) in seen)) seen[kind, id] = kind (++count[kind])
+      return seen[kind, id]
+    }
+    BEGIN {
+      span = "[0-9a-f]"
+      for (i = 1; i < 16; i++) span = span "[0-9a-f]"
+      pattern = "-" span span "-" span "-"
+    }
+    {
+      rest = $0
+      line = ""
+      while (match(rest, pattern)) {
+        line = line substr(rest, 1, RSTART) named(substr(rest, RSTART + 1, 32), "T") "-" \
+          named(substr(rest, RSTART + 34, 16), "S") "-"
+        rest = substr(rest, RSTART + RLENGTH)
+      }
+      print line rest
+    }
+  ' "$1" > "$1.named.txt"
+  compare_output tests/expected-continue-example.txt "$1.named.txt"
 }
 
 ./bend packages/trace-context/PROOF.bend --check-only > "$build_dir/proofs.txt" 2>&1 || {
@@ -111,6 +144,9 @@ echo "PASS: direct extraction corpus"
 run_logged direct-inject ./bend packages/trace-context/tests/INJECT.bend
 compare_output tests/expected-inject.txt "$build_dir/direct-inject.txt"
 echo "PASS: direct injection and forwarding corpus"
+run_logged direct-continue ./bend packages/trace-context/tests/CONTINUE.bend
+compare_output tests/expected-continue.txt "$build_dir/direct-continue.txt"
+echo "PASS: direct continue-or-start and sending corpus"
 
 if [ "$mode" = node ]; then
   run_logged codec-compile ./bend packages/trace-context/tests/TEST.bend -o "$build_dir/codec.js"
@@ -143,6 +179,11 @@ if [ "$mode" = node ]; then
   run_logged inject-example-compile ./bend packages/trace-context/examples/inject.bend \
     -o "$build_dir/inject-example.js"
   run_logged inject-example node "$build_dir/inject-example.js"
+  run_logged continue-compile ./bend packages/trace-context/tests/CONTINUE.bend -o "$build_dir/continue.js"
+  run_logged continue node "$build_dir/continue.js"
+  run_logged continue-example-compile ./bend packages/trace-context/examples/continue.bend \
+    -o "$build_dir/continue-example.js"
+  run_logged continue-example node "$build_dir/continue-example.js"
 else
   run_logged codec-compile ./bend packages/trace-context/tests/TEST.bend -o "$build_dir/codec"
   run_logged codec "$build_dir/codec"
@@ -174,6 +215,11 @@ else
   run_logged inject-example-compile ./bend packages/trace-context/examples/inject.bend \
     -o "$build_dir/inject-example"
   run_logged inject-example "$build_dir/inject-example"
+  run_logged continue-compile ./bend packages/trace-context/tests/CONTINUE.bend -o "$build_dir/continue"
+  run_logged continue "$build_dir/continue"
+  run_logged continue-example-compile ./bend packages/trace-context/examples/continue.bend \
+    -o "$build_dir/continue-example"
+  run_logged continue-example "$build_dir/continue-example"
 fi
 compare_output tests/expected-codec.txt "$build_dir/codec.txt"
 compare_output tests/expected-demo.txt "$build_dir/demo.txt"
@@ -187,5 +233,7 @@ compare_output tests/expected-extract.txt "$build_dir/extract.txt"
 compare_output tests/expected-extract-example.txt "$build_dir/extract-example.txt"
 compare_output tests/expected-inject.txt "$build_dir/inject.txt"
 compare_output tests/expected-inject-example.txt "$build_dir/inject-example.txt"
+compare_output tests/expected-continue.txt "$build_dir/continue.txt"
 check_generated_example "$build_dir/generate.txt"
-echo "PASS: proofs, protocol, tracestate, outgoing, extraction and injection corpora, generation, construction rejections and examples ($mode)"
+check_continue_example "$build_dir/continue-example.txt"
+echo "PASS: proofs, protocol, tracestate, outgoing, extraction, injection and continue-or-start corpora, generation, construction rejections and examples ($mode)"
