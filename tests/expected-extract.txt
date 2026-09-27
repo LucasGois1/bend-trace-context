@@ -1,0 +1,7 @@
+OK: precedence of the message's context over the base
+OK: field names and repeated traceparent fields
+OK: tracestate fields, their discard and their neglect without a traceparent
+OK: strict version 00, forbidden ff and later versions by their known prefix
+OK: optional whitespace and the traceparent and tracestate input budgets
+OK: incoming and base contexts, their parents and states
+OK: diagnostics without received values

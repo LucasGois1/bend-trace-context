@@ -386,7 +386,8 @@ def start_step(text, result, view):
 # For every string, a successful TraceParentV00.parse returns a value that
 # formats back to that string. Quantified over every String, including every
 # rejected one, whose view is Unit. PROOF.bend's Laws.inverse proves law
-# inverse with it.
+# inverse with it, and proofs/extract.bend (inverse_of) refuses a v00 text
+# followed by more characters with it.
 law parse_view:
   for +text: String
   ParseView(text, TC.TraceParentV00.parse(text))

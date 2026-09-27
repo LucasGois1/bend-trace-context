@@ -11,6 +11,10 @@
 # le_trans, le_refl, zero_le and ge_le compare numbers, add_assoc regroups a
 # sum and pred takes a successor off; proofs/update.bend, order.bend and
 # emit.bend use them to bound and measure tracestate updates and emission.
+# le_add_left and add_le_left bound a sum and add_succ_ne refutes
+# n == n + (1 + k); proofs/extract.bend uses them to bound the traceparent
+# value kept by extraction and to refuse a v00 value followed by more
+# characters.
 #
 # Nat.add recurses on its first argument, and Nat.is_le and Nat.is_lt both
 # read Nat.cmp, which removes one from each side until one of them is zero,
@@ -216,3 +220,53 @@ def pred(n: Nat) -> Nat:
       0n
     case 1n+p:
       p
+
+# No number equals itself plus a successor: n == n + (1 + k) is refuted. By
+# induction on `n`, taking the successor off both sides with pred; at zero,
+# Nat.is_eq tells 0 from a successor. proofs/extract.bend uses it to show
+# that a version 00 value followed by more characters is longer than any
+# value the strict codec accepts.
+law add_succ_ne:
+  for n: Nat
+  for -k: Nat
+  for same: {n == Nat.add(n, 1n+k) : Nat}
+  Empty
+
+def add_succ_ne(n, k, same):
+  match n:
+    case 0n:
+      BoolsProof.true_ne_false(Equal.cong(Nat, Bool, x => Nat.is_eq(x, 0n), 0n, 1n+k, same))
+    case 1n+p:
+      add_succ_ne(p, k, Equal.cong(Nat, Nat, x => pred(x), 1n+p, Nat.add(1n+p, 1n+k), same))
+
+# A number is at most itself plus another: b <= w + b. By induction on `w`,
+# with le_weaken. proofs/extract.bend uses it for a text whose first
+# character is removed.
+law le_add_left:
+  for w: Nat
+  for +b: Nat
+  {Nat.is_le(b, Nat.add(w, b)) == True{} : Bool}
+
+def le_add_left(w, b):
+  match w:
+    case 0n:
+      le_refl(b)
+    case 1n+(+p):
+      le_weaken(b, Nat.add(p, b), le_add_left(p, b))
+
+# Adding the same number on the left keeps a bound: a <= b gives w + a <=
+# w + b. By induction on `w`; Nat.cmp takes the successors off both sides.
+# proofs/extract.bend uses it for a text whose first character is kept.
+law add_le_left:
+  for w: Nat
+  for -a: Nat
+  for -b: Nat
+  for holds: {Nat.is_le(a, b) == True{} : Bool}
+  {Nat.is_le(Nat.add(w, a), Nat.add(w, b)) == True{} : Bool}
+
+def add_le_left(w, a, b, holds):
+  match w:
+    case 0n:
+      holds
+    case 1n+p:
+      add_le_left(p, a, b, holds)

@@ -6,8 +6,9 @@
 # Parse.end, Parse.nonzero and Parse.version of trace_context.bend (imported
 # as TC). PROOF.bend calls none of them directly; other proof modules do.
 # digits_roundtrip serves law roundtrip (proofs/context.bend), laws
-# trace_id_accepts and span_id_roundtrip (proofs/ids.bend) and law
-# hex_injective (proofs/conversion.bend). The views serve law inverse
+# trace_id_accepts and span_id_roundtrip (proofs/ids.bend), law
+# hex_injective (proofs/conversion.bend) and law read_future
+# (proofs/extract.bend). The views serve law inverse
 # (proofs/inverse.bend) and laws trace_id_parse and span_id_parse
 # (proofs/ids.bend).
 #
@@ -68,7 +69,8 @@ def step_result(-n: Nat, digit: Result<&2, &2, TC.Error, Hex.Digit>,
 # exactly those digits and leaves the suffix unread, whatever the offset. The
 # offset is general because each step reads at the next offset. The suffix is
 # general because the rest of a traceparent follows each field
-# (proofs/context.bend), while a supplied ID (proofs/ids.bend) and the eight
+# (proofs/context.bend) and the version of a later traceparent
+# (proofs/extract.bend), while a supplied ID (proofs/ids.bend) and the eight
 # digits of a word (proofs/conversion.bend) are followed by nothing.
 law digits_roundtrip:
   for n: Nat

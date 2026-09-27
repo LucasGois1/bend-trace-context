@@ -5,12 +5,13 @@
 # Cmp.is_eq of Word.cmp(32n, x, y), where x and y are the bits of the two
 # codes. This module proves that these comparisons are sound: a comparison
 # that reports equality carries a proof that its operands are the same
-# (word_view, char_view), and every word compares EQ with itself
+# (word_view, char_view, char_sound), and every word compares EQ with itself
 # (word_cmp_refl). PROOF.bend does not call it directly; it is a foundation
 # for other proof modules. proofs/strings.bend lifts it to String.eq
 # (eq_view, eq_refl), proofs/hex.bend identifies decoded digits with
-# char_view and proofs/parser.bend reads the "-" separator with it. differs,
-# at the end, shows that a character a class accepts differs from one the
+# char_view, proofs/parser.bend reads the "-" separator with it and
+# proofs/extract.bend identifies whitespace and dashes with char_sound.
+# differs shows that a character a class accepts differs from one the
 # class refuses; proofs/tracestate.bend and proofs/normal.bend use it for the
 # separators and optional whitespace of tracestate.
 #
@@ -204,3 +205,16 @@ law differs:
 
 def differs(f, char, other, holds, fails):
   differs_step(f, char, other, Char.is_eq(char, other), char_view(char, other), holds, fails)
+
+# A character comparison that reports equality means the characters are the
+# same: the view of char_view, rewritten with the comparison's result.
+# proofs/extract.bend uses it to identify whitespace and dashes.
+law char_sound:
+  for a: Char
+  for b: Char
+  for same: {Char.is_eq(a, b) == True{} : Bool}
+  {a == b : Char}
+
+def char_sound(a, b, same):
+  %same : CharView(a, b, _)
+  char_view(a, b)

@@ -1,0 +1,8 @@
+request: TraceParentAccepted, StateAccepted
+received state: congo=t61rcWkgMzE,rojo=00f067aa0ba902b7
+kept for forwarding: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01 | congo=t61rcWkgMzE | rojo=00f067aa0ba902b7
+child traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-53995c3f42cd8ad8-01
+child tracestate: fw529a3039=cHJpbWFyeQ,congo=t61rcWkgMzE,rojo=00f067aa0ba902b7
+later version: TraceParentAccepted, StateAbsent, parent 00f067aa0ba902b7
+invalid request: TraceParentRejected InvalidTraceParent ZeroTraceId, StateIgnored
+kept base: 00-5b8efff798038103d269b633813fc60c-eee19b7ec3c1b174-00

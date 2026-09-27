@@ -258,6 +258,63 @@ def outgoing() -> IO(Unit):
     IO.print("large state dropped: " ++ dropped(TC.Emission.dropped(TC.OutgoingContext.emit(limits,
       TC.OutgoingContext.set(TC.OutgoingContext.with_state(child, large), own, value)))))
 
+# A received request's context, extracted from its fields as the host hands
+# them over: names in any case and the tracestate in two fields. The service
+# continues it with a child; a request it cannot continue keeps the context
+# the service already had.
+def incoming(-A: Data, what: String, value: Maybe<&2, A>) -> IO(A):
+  match value:
+    case None{}:
+      IO.die(A, 1, "no " ++ what)
+    case Some{found}:
+      IO.pure(A, found)
+
+def forwardable(received: Maybe<&2, TC.ReceivedPair>) -> String:
+  match received:
+    case None{}:
+      "none"
+    case Some{pair}:
+      TC.ReceivedPair.traceparent(pair)
+
+def extracted(+incoming: TC.IncomingContext) -> IO(Unit):
+  do IO<Unit>:
+    Unit <- IO.print("extracted parent: " ++ TC.SpanId.to_string(TC.RemoteContext.span_id(TC.IncomingContext.context(incoming))) ++
+      " sampled: " ++ Bool.show(TC.RemoteContext.is_sampled(TC.IncomingContext.context(incoming))))
+    Unit <- IO.print("extracted state: " ++ TC.TraceState.format(TC.IncomingContext.state(incoming)))
+    Unit <- IO.print("forwardable traceparent: " ++ forwardable(TC.IncomingContext.received(incoming)))
+    span : TC.SpanId <- span_id("53995c3f42cd8ad8")
+    child : TC.LocalContext <- local(TC.Context.child_from_id(TC.IncomingContext.parent(incoming), span,
+      TC.InheritSampled{}))
+    emit("extracted child", child)
+
+def kept(context: Maybe<&2, TC.BaseContext>) -> String:
+  match context:
+    case Some{TC.OutgoingBase{outgoing}}:
+      TC.TraceParentV00.format(TC.LocalContext.to_traceparent(TC.OutgoingContext.context(outgoing)))
+    case _:
+      "another context"
+
+def extraction() -> IO(Unit):
+  +limits = TC.Limits.default()
+  +extraction = TC.Context.extract(limits, [TC.Header{"Accept", "application/json"},
+    TC.Header{"TraceParent", "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"},
+    TC.Header{"TRACESTATE", "rojo=00f067aa0ba902b7"}, TC.Header{"tracestate", "congo=t61rcWkgMzE"}], None{})
+  do IO<Unit>:
+    Unit <- IO.print("extracted: " ++ TC.Extraction.show(extraction))
+    +found : TC.IncomingContext <- incoming(TC.IncomingContext, "incoming context", TC.Extraction.incoming(extraction))
+    Unit <- extracted(found)
+    Unit <- IO.print("repeated traceparent: " ++ TC.Extraction.show(TC.Context.extract(limits,
+      [TC.Header{"traceparent", "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"},
+        TC.Header{"Traceparent", "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"}], None{})))
+    Unit <- IO.print("discarded state: " ++ TC.Extraction.show(TC.Context.extract(limits,
+      [TC.Header{"traceparent", "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"},
+        TC.Header{"tracestate", "rojo"}], None{})))
+    base_trace : TC.TraceId <- trace_id("5b8efff798038103d269b633813fc60c")
+    base_span : TC.SpanId <- span_id("eee19b7ec3c1b174")
+    IO.print("kept base: " ++ kept(TC.Extraction.context(TC.Context.extract(limits,
+      [TC.Header{"traceparent", "ff-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"}],
+      Some{TC.OutgoingBase{TC.OutgoingContext.new(TC.Context.root_from_ids(base_trace, base_span))}}))))
+
 def main() -> IO(Unit):
   do IO<Unit>:
     Unit <- show(TC.TraceParentV00.parse(
@@ -267,4 +324,5 @@ def main() -> IO(Unit):
     Unit <- lifecycle()
     Unit <- generation()
     Unit <- tracestate()
-    outgoing()
+    Unit <- outgoing()
+    extraction()

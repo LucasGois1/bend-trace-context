@@ -3,17 +3,22 @@
 #
 # General facts about Base's strings: the length of a concatenation
 # (append_length, joined_length), the empty string and the grouping of `++`
-# (append_nil, string_assoc), double reversal (reverse_twice), and the
-# soundness of String.eq: every string equals itself (eq_refl), a True
-# comparison proves equality (eq_view, eq_sound), a False one proves
-# difference (distinct), and the comparison is symmetric (eq_symmetric). Many
-# proof modules build on it.
-# Laws.formatted_length (PROOF.bend) uses joined_length. The ID reuse checks
-# of the child and restart laws rely on eq_refl, eq_view and distinct, in
-# proofs/lifecycle.bend and, for generated IDs, proofs/generation.bend.
-# proofs/distinct.bend uses the equality lemmas for tracestate lookups;
-# proofs/ids.bend, merge.bend and normal.bend use append_nil and
-# string_assoc; and proofs/tracestate.bend uses reverse_twice.
+# (append_nil, string_assoc), reversal (reverse_twice, reverse_onto,
+# reverse_append), the characters taken from or dropped off a concatenation
+# (take_append, drop_append), and the soundness of String.eq: every string
+# equals itself (eq_refl), a True comparison proves equality (eq_view,
+# eq_sound), a False one proves difference (distinct), the comparison is
+# symmetric (eq_symmetric), and two nonempty strings compare as their first
+# characters and their rests (eq_cons). Many proof modules build on it.
+# proofs/context.bend (tail_length, formatted_length) and proofs/extract.bend
+# use joined_length. The ID reuse checks of the child and restart laws rely on
+# eq_refl, eq_view and distinct, in proofs/lifecycle.bend and, for generated
+# IDs, proofs/generation.bend. proofs/distinct.bend uses the equality lemmas
+# for tracestate lookups, and proofs/extract.bend eq_cons for field names;
+# proofs/ids.bend, merge.bend, normal.bend and extract.bend use append_nil
+# and string_assoc; proofs/tracestate.bend uses reverse_twice; and
+# proofs/extract.bend uses reverse_onto, reverse_append, take_append and
+# drop_append for the whitespace and the known prefix of a traceparent.
 #
 # Strategy: the facts about `++` and reversal are inductions on the first
 # string. The equality lemmas follow proofs/chars.bend: EqView is Unit for a
@@ -47,8 +52,8 @@ def append_length(a, b):
 
 # When a has n characters and b has m, a ++ b has n + m. The form of
 # append_length with the lengths as hypotheses, so that it chains:
-# Laws.formatted_length (PROOF.bend) adds up the pieces of a traceparent
-# text this way, from the innermost outwards.
+# ContextProof.tail_length adds up the pieces of a traceparent text this way,
+# from the innermost outwards.
 law joined_length:
   for a: String
   for b: String
@@ -328,3 +333,118 @@ law eq_symmetric:
 
 def eq_symmetric(a, b):
   eq_symmetric_step(a, b, String.eq(a, b), {==})
+
+# The step of eq_cons, for the comparison `result` of the first characters'
+# codes: LT and GT make both sides False, and EQ leaves the comparison of the
+# rests (compare_rest).
+law eq_cons_step:
+  for -wx: Word(32n)
+  for -wy: Word(32n)
+  for +x: String
+  for +y: String
+  for result: Cmp
+  {String.eq.fin(String.cmp.fin(x, y, ((Chr{U32{wx}}, Chr{U32{wy}}), result))) ==
+    Bool.and(Cmp.is_eq(result), String.eq(x, y)) : Bool}
+
+def eq_cons_step(wx, wy, x, y, result):
+  match result:
+    case LT{}:
+      {==}
+    case EQ{}:
+      compare_rest(Chr{U32{wx}}, Chr{U32{wy}}, String.cmp(x, y))
+    case GT{}:
+      {==}
+
+# Two nonempty strings are equal when their first characters are and their
+# rests are. proofs/extract.bend (named_step) uses it to compare a lowered
+# field name with a lowercase name one character at a time.
+law eq_cons:
+  for a: Char
+  for b: Char
+  for +x: String
+  for +y: String
+  {String.eq(SCon{a, x}, SCon{b, y}) == Bool.and(Char.is_eq(a, b), String.eq(x, y)) : Bool}
+
+def eq_cons(a, b, x, y):
+  match a b:
+    case Chr{U32{wx}} Chr{U32{wy}}:
+      eq_cons_step(wx, wy, x, y, Word.cmp(32n, wx, wy))
+
+# Reversing a text onto `acc` is reversing it and appending `acc`. Induction
+# on the text, for every accumulator. proofs/extract.bend uses it to follow a
+# reversed text one character at a time.
+law reverse_onto:
+  for +text: String
+  for +acc: String
+  {String.reverse.go(text, acc) == String.reverse.go(text, SNil{}) ++ acc : String}
+
+def reverse_onto(text, acc):
+  match text:
+    case SNil{}:
+      {==}
+    case SCon{+head, +tail}:
+      %Equal.sym(String, String.reverse.go(tail, SCon{head, acc}), String.reverse.go(tail, SNil{}) ++ SCon{head, acc},
+        reverse_onto(tail, SCon{head, acc})) :
+        {_ == String.reverse.go(tail, SCon{head, SNil{}}) ++ acc : String}
+      %Equal.sym(String, String.reverse.go(tail, SCon{head, SNil{}}),
+        String.reverse.go(tail, SNil{}) ++ SCon{head, SNil{}}, reverse_onto(tail, SCon{head, SNil{}})) :
+        {String.reverse.go(tail, SNil{}) ++ SCon{head, acc} == _ ++ acc : String}
+      Equal.sym(String, (String.reverse.go(tail, SNil{}) ++ SCon{head, SNil{}}) ++ acc,
+        String.reverse.go(tail, SNil{}) ++ SCon{head, acc},
+        string_assoc(String.reverse.go(tail, SNil{}), SCon{head, SNil{}}, acc))
+
+# Reversing a concatenation onto `acc` reverses its first part onto `acc`,
+# then its second part onto that. Induction on the first part.
+# proofs/extract.bend uses it for the whitespace at the end of a value.
+law reverse_append:
+  for a: String
+  for b: String
+  for acc: String
+  {String.reverse.go(a ++ b, acc) == String.reverse.go(b, String.reverse.go(a, acc)) : String}
+
+def reverse_append(a, b, acc):
+  match a:
+    case SNil{}:
+      {==}
+    case SCon{head, tail}:
+      reverse_append(tail, b, SCon{head, acc})
+
+# Taking as many characters as a text has from that text followed by
+# another gives the text. Induction on the text. proofs/extract.bend uses it
+# for the known prefix of a later traceparent version.
+law take_append:
+  for +text: String
+  for after: String
+  {String.take(text ++ after, String.length(text)) == text : String}
+
+def take_append(text, after):
+  match text:
+    case SNil{}:
+      match after:
+        case SNil{}:
+          {==}
+        case SCon{head, tail}:
+          {==}
+    case SCon{+head, +tail}:
+      %Equal.sym(String, String.take(tail ++ after, String.length(tail)), tail, take_append(tail, after)) :
+        {SCon{head, _} == SCon{head, tail} : String}
+      {==}
+
+# Dropping as many characters as a text has from that text followed by
+# another gives the other. Induction on the text. proofs/extract.bend uses it
+# for what follows the known prefix.
+law drop_append:
+  for +text: String
+  for after: String
+  {String.drop(text ++ after, String.length(text)) == after : String}
+
+def drop_append(text, after):
+  match text:
+    case SNil{}:
+      match after:
+        case SNil{}:
+          {==}
+        case SCon{head, tail}:
+          {==}
+    case SCon{head, +tail}:
+      drop_append(tail, after)

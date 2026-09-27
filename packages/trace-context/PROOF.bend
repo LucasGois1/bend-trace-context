@@ -58,13 +58,13 @@
 #   proofs/order.bend               entries kept in order
 #   proofs/update.bend              setting and removing entries
 #   proofs/emit.bend                sizes, truncation and emission
+#   proofs/extract.bend             field selection, traceparent reading and
+#                                   extraction
 
 import Base
 import ./LAWS.bend as Laws
 import ./trace_context.bend as Trace
 import ./src/digits.bend as Digits
-import ./proofs/digits.bend as DigitsProof
-import ./proofs/strings.bend as StringsProof
 import ./proofs/context.bend as ContextProof
 import ./proofs/inverse.bend as InverseProof
 import ./proofs/ids.bend as IdsProof
@@ -80,28 +80,14 @@ import ./proofs/normal.bend as NormalProof
 import ./proofs/first.bend as FirstProof
 import ./proofs/update.bend as UpdateProof
 import ./proofs/emit.bend as EmitProof
+import ./proofs/extract.bend as ExtractProof
 
 # 1. Strict v00 codec
 # ===================
 
-# The text is "00-" ++ trace ++ "-" ++ parent ++ "-" ++ flags: add the lengths
-# of the pieces, 3 + 32 + 1 + 16 + 1 + 2, from the innermost outwards.
+# The lengths of the pieces of the text add up to 55 (proofs/context.bend).
 def Laws.formatted_length(context):
-  match context:
-    case Trace.TraceParentV00{+trace_id, +parent_id, +flags}:
-      +trace = Digits.NonZero.to_string(32n, trace_id)
-      +parent = Digits.NonZero.to_string(16n, parent_id)
-      +flag_text = Digits.Digits.to_string(2n, flags)
-      f = StringsProof.joined_length("-", flag_text, 1n, 2n,
-        {==}, DigitsProof.encoded_length(2n, flags))
-      p = StringsProof.joined_length(parent, "-" ++ flag_text, 16n, 3n,
-        DigitsProof.nonzero_encoded_length(16n, parent_id), f)
-      ps = StringsProof.joined_length("-", parent ++ "-" ++ flag_text,
-        1n, 19n, {==}, p)
-      t = StringsProof.joined_length(trace, "-" ++ parent ++ "-" ++ flag_text,
-        32n, 20n, DigitsProof.nonzero_encoded_length(32n, trace_id), ps)
-      StringsProof.joined_length("00-", trace ++ "-" ++ parent ++ "-" ++ flag_text,
-        3n, 52n, {==}, t)
+  ContextProof.formatted_length(context)
 
 # The parser reads back each field that the formatter wrote
 # (proofs/context.bend).
@@ -516,3 +502,67 @@ def Laws.emit_fits(limits, outgoing):
 # The emitted value fits the input budget too, so it parses back.
 def Laws.emit_accepted(limits, outgoing):
   EmitProof.emit_accepted(limits, outgoing)
+
+# 12. Extraction
+# ==============
+
+# The selected traceparent values are none, so the base is kept
+# (proofs/extract.bend).
+def Laws.extract_absent(limits, carrier, base, absent):
+  ExtractProof.extract_absent(limits, carrier, base, absent)
+
+# Two values or more are refused as repeated.
+def Laws.extract_repeated(limits, carrier, base, first, second, more, repeated):
+  ExtractProof.extract_repeated(limits, carrier, base, first, second, more, repeated)
+
+# The only value is refused, so the base is kept with the reason.
+def Laws.extract_refused(limits, carrier, base, value, error, single, refused):
+  ExtractProof.extract_refused(limits, carrier, base, value, error, single, refused)
+
+# The only value is read; the tracestate fields are read with it, and the
+# value is kept without its surrounding whitespace.
+def Laws.extract_read(limits, carrier, base, value, known, single, read):
+  ExtractProof.extract_read(limits, carrier, base, value, known, single, read)
+
+# Both extractions read the same traceparent values; the tracestate fields
+# change only the state.
+def Laws.state_independent(limits, first, second, base, same):
+  ExtractProof.state_independent(limits, first, second, base, same)
+
+# A kept value fitted its budget before trimming, and kept fields parsed
+# within theirs.
+def Laws.received_bounds(limits, carrier, base, incoming, pair, extracted, kept):
+  ExtractProof.received_bounds(limits, carrier, base, incoming, pair, extracted, kept)
+
+# The value is measured, trimmed, found free of commas and read by the strict
+# codec, which reads its text back.
+def Laws.read_v00(limits, known, before, after, before_ows, after_ows, fits):
+  ExtractProof.read_v00(limits, known, before, after, before_ows, after_ows, fits)
+
+# A value read back would format to 55 characters, fewer than the text has.
+def Laws.read_v00_exact(limits, known, more, nonempty, plain_more, fits):
+  ExtractProof.read_v00_exact(limits, known, more, nonempty, plain_more, fits)
+
+# The first 55 characters, with the version replaced by 00, are the text of
+# the value whose known fields they carry.
+def Laws.read_future(limits, version, known, unknown, before, after, later, plain_unknown, before_ows, after_ows,
+  fits):
+  ExtractProof.read_future(limits, version, known, unknown, before, after, later, plain_unknown, before_ows,
+    after_ows, fits)
+
+# The version check refuses ff by computation.
+def Laws.read_ff(limits, rest, plain_rest, fits):
+  ExtractProof.read_ff(limits, rest, plain_rest, fits)
+
+# Trimming keeps the comma, and the package refuses it.
+def Laws.read_comma(limits, value, joined, fits):
+  ExtractProof.read_comma(limits, value, joined, fits)
+
+# The measurement agrees with Utf8.length, and a value over the budget is not
+# read.
+def Laws.read_over_budget(limits, value, larger):
+  ExtractProof.read_over_budget(limits, value, larger)
+
+# Within either budget, the value is read the same way.
+def Laws.read_within_budgets(first, second, value, first_fits, second_fits):
+  ExtractProof.read_within_budgets(first, second, value, first_fits, second_fits)
