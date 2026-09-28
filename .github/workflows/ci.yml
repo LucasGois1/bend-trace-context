@@ -81,9 +81,6 @@ jobs:
         with:
           node-version: '24'
           package-manager-cache: false
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          python-version: '3.13'
       - name: Verify runner architecture
         env:
           EXPECTED_SYSTEM: ${{ matrix.system }}
@@ -97,10 +94,6 @@ jobs:
         run: ./scripts/test-installer.sh
       - name: Proofs, protocol corpus and static rejection gates
         run: ./scripts/validate.sh native
-      - name: Qualify pinned native HTTP transport
-        run: ./scripts/qualify-native-http.sh
-      - name: Native Trace Context propagation and W3C harness
-        run: ./scripts/qualify-propagation.sh native "$(git rev-parse HEAD)"
       - name: Independent consumer from this exact commit
         run: ./scripts/test-consumer.sh native "$GITHUB_WORKSPACE" "$(git rev-parse HEAD)"
       - name: Preserve validation evidence
@@ -110,10 +103,59 @@ jobs:
           name: native-${{ matrix.platform }}-${{ github.sha }}
           path: |
             build/validation-native/*.txt
-            build/native-http/
-            build/propagation-native/
             build/consumer-native/
             build/installer-tests/
+          if-no-files-found: error
+          retention-days: 14
+
+  native-http:
+    name: native HTTP (${{ matrix.platform }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux-x86_64
+            runner: ubuntu-24.04
+            system: Linux
+            architecture: x86_64
+          - platform: macos-arm64
+            runner: macos-14
+            system: Darwin
+            architecture: arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.13'
+      - name: Verify runner architecture
+        env:
+          EXPECTED_SYSTEM: ${{ matrix.system }}
+          EXPECTED_ARCHITECTURE: ${{ matrix.architecture }}
+        run: |
+          test "$(uname -s)" = "$EXPECTED_SYSTEM"
+          test "$(uname -m)" = "$EXPECTED_ARCHITECTURE"
+      - name: Install the verified Bend release
+        run: ./scripts/setup-bend.sh
+      - name: Qualify the native HTTP transport and its laws
+        run: ./scripts/qualify-native-http.sh
+      - name: Native Trace Context propagation and W3C harness
+        run: ./scripts/qualify-propagation.sh native "$(git rev-parse HEAD)"
+      - name: Preserve native HTTP evidence
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: native-http-${{ matrix.platform }}-${{ github.sha }}
+          path: |
+            build/native-http/
+            build/propagation-native/
           if-no-files-found: error
           retention-days: 14
 
@@ -199,18 +241,20 @@ jobs:
   required-baseline:
     name: required baseline
     if: always()
-    needs: [quality, native, node, browser]
+    needs: [quality, native, native-http, node, browser]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - name: Require every supported baseline
         env:
           NATIVE_RESULT: ${{ needs.native.result }}
+          NATIVE_HTTP_RESULT: ${{ needs.native-http.result }}
           NODE_RESULT: ${{ needs.node.result }}
           QUALITY_RESULT: ${{ needs.quality.result }}
           BROWSER_RESULT: ${{ needs.browser.result }}
         run: |
           test "$QUALITY_RESULT" = success
           test "$NATIVE_RESULT" = success
+          test "$NATIVE_HTTP_RESULT" = success
           test "$NODE_RESULT" = success
           test "$BROWSER_RESULT" = success

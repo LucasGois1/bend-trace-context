@@ -22,9 +22,9 @@ trap 'rm -rf "$work_dir"' EXIT
 trap 'exit 130' INT
 trap 'exit 143' HUP TERM
 # The programs import bend-kit's packages from BendHub by content hash, and
-# those packages import theirs by name and version; a fresh cache makes each
-# run fetch and resolve them again.
-BEND_LIB="$result_dir/package-cache"
+# those packages import theirs by name and version; a fresh cache, outside
+# the evidence, makes each run fetch and resolve them again.
+BEND_LIB="$work_dir/package-cache"
 export BEND_LIB
 export BEND_NO_TELEMETRY=1
 
