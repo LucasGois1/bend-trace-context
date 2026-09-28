@@ -101,7 +101,7 @@ jobs:
       - name: Qualify pinned native HTTP transport
         run: ./scripts/qualify-native-http.sh
       - name: Native Trace Context propagation and W3C harness
-        run: ./scripts/qualify-propagation.sh "$(git rev-parse HEAD)"
+        run: ./scripts/qualify-propagation.sh native "$(git rev-parse HEAD)"
       - name: Independent consumer from this exact commit
         run: ./scripts/test-consumer.sh native "$GITHUB_WORKSPACE" "$(git rev-parse HEAD)"
       - name: Preserve validation evidence
@@ -112,7 +112,7 @@ jobs:
           path: |
             build/validation-native/*.txt
             build/native-http/
-            build/propagation/
+            build/propagation-native/
             build/consumer-native/
             build/installer-tests/
           if-no-files-found: error
@@ -125,7 +125,7 @@ jobs:
       matrix:
         node: ['22', '24']
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -134,6 +134,9 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
           package-manager-cache: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.13'
       - name: Install verified Bend 2.0.27
         run: ./scripts/setup-bend.sh
       - name: Install locked JavaScript qualification tooling
@@ -147,8 +150,10 @@ jobs:
         run: ./scripts/qualify-js.sh node
       - name: Proofs, protocol corpus and static rejection gates
         run: ./scripts/validate.sh node
-      - name: Independent consumer from this exact commit
+      - name: Independent consumer and JavaScript facade from this exact commit
         run: ./scripts/test-consumer.sh node "$GITHUB_WORKSPACE" "$(git rev-parse HEAD)"
+      - name: Node Trace Context propagation and W3C harness
+        run: ./scripts/qualify-propagation.sh node "$(git rev-parse HEAD)"
       - name: Preserve validation evidence
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -157,6 +162,7 @@ jobs:
           path: |
             build/validation-node/*.txt
             build/consumer-node/
+            build/propagation-node/
             build/installer-source/
             build/javascript/
           if-no-files-found: error

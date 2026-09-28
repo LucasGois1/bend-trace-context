@@ -1,9 +1,12 @@
-// Complementary propagation checks for the native HTTP adapter, through the
-// real bend-net transport. The compiled service (tests/propagation/service.bend,
-// built from a pinned checkout) receives requests from this driver and sends
-// its callbacks to an independent Node observer, which records the header
-// lines exactly as they arrive. Expected values follow W3C Trace Context
-// Level 2 and spec #1; they are not computed by the package.
+// Complementary propagation checks for a service on real HTTP: the native
+// service (tests/propagation/service.bend, compiled from a pinned checkout)
+// over bend-net, or the Node service (tests/propagation/service.mjs, on the
+// JavaScript facade installed from a pinned checkout) over node:http. The
+// service receives requests from this driver and sends its callbacks to an
+// independent Node observer, which records the header lines exactly as they
+// arrive. Expected values follow W3C Trace Context Level 2 and spec #1; they
+// are not computed by the package. BEND_PROPAGATION_SOURCE_FAILURE is the
+// failure the service's unavailable source gives, as its host reports it.
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { createServer } from 'node:http';
@@ -12,7 +15,9 @@ import test from 'node:test';
 import { launch } from './launch.mjs';
 
 const servicePath = process.env.BEND_PROPAGATION_SERVICE;
-assert.ok(servicePath, 'pass the compiled propagation service path in BEND_PROPAGATION_SERVICE');
+assert.ok(servicePath, 'pass the propagation service path in BEND_PROPAGATION_SERVICE');
+const failure = process.env.BEND_PROPAGATION_SOURCE_FAILURE;
+assert.ok(failure, 'pass the unavailable source failure in BEND_PROPAGATION_SOURCE_FAILURE');
 
 const servicePort = 18775;
 const observerPort = 18776;
@@ -177,8 +182,8 @@ test('without entropy, the received pair is forwarded unchanged', async () => {
     'X-Request-Id: 42',
   ]);
   assert.equal(response.status, 200);
-  assert.equal(response.body.service, 'Untraced SourceFailure 5 entropy unavailable');
-  assert.deepEqual(response.body.sent, ['Forwarded after SourceFailure 5 entropy unavailable']);
+  assert.equal(response.body.service, `Untraced ${failure}`);
+  assert.deepEqual(response.body.sent, [`Forwarded after ${failure}`]);
   assert.deepEqual(fields(callbacks[0]).get('traceparent'), [`${received}-01`]);
   assert.deepEqual(fields(callbacks[0]).get('tracestate'), ['rojo=00f067aa0ba902b7,congo=t61rcWkgMzE']);
   assert.deepEqual(fields(callbacks[0]).get('x-request-id'), ['42']);
@@ -190,19 +195,19 @@ test('without entropy or a pair to forward, the old context fields are cleared',
     'tracestate: foo=,bar=3',
     'X-Request-Id: 42',
   ]);
-  assert.deepEqual(discarded.response.body.sent, ['NoContext after SourceFailure 5 entropy unavailable, NothingToForward']);
+  assert.deepEqual(discarded.response.body.sent, [`NoContext after ${failure}, NothingToForward`]);
   assert.equal(fields(discarded.callbacks[0]).get('traceparent'), undefined);
   assert.equal(fields(discarded.callbacks[0]).get('tracestate'), undefined);
   assert.deepEqual(fields(discarded.callbacks[0]).get('x-request-id'), ['42']);
   const absent = await exchange('/test/unavailable', ['X-Request-Id: 42']);
-  assert.deepEqual(absent.response.body.sent, ['NoContext after SourceFailure 5 entropy unavailable, NothingKept']);
+  assert.deepEqual(absent.response.body.sent, [`NoContext after ${failure}, NothingKept`]);
   assert.equal(fields(absent.callbacks[0]).get('traceparent'), undefined);
 });
 
 test('the strict policy refuses the request without any callback', async () => {
   const { response, callbacks } = await exchange('/test/unavailable/strict', [`traceparent: ${received}-01`]);
   assert.equal(response.status, 503);
-  assert.deepEqual(response.body, { refused: 'SourceFailure 5 entropy unavailable' });
+  assert.deepEqual(response.body, { refused: failure });
   assert.equal(callbacks.length, 0);
 });
 
@@ -215,8 +220,8 @@ test('a child that cannot be generated forwards the received pair unchanged', as
   assert.equal(response.status, 200);
   assert.equal(response.body.service, 'Continued');
   assert.deepEqual(response.body.sent, [
-    'Forwarded after SourceFailure 5 entropy unavailable',
-    'Forwarded after SourceFailure 5 entropy unavailable',
+    `Forwarded after ${failure}`,
+    `Forwarded after ${failure}`,
   ]);
   for (const callback of callbacks) {
     assert.deepEqual(fields(callback).get('traceparent'), [`${received}-01`]);
@@ -228,7 +233,7 @@ test('a child that cannot be generated forwards the received pair unchanged', as
 test('a strict send refuses the request when no child can be generated', async () => {
   const { response, callbacks } = await exchange('/test/unavailable/send/strict', [`traceparent: ${received}-01`]);
   assert.equal(response.status, 503);
-  assert.deepEqual(response.body, { refused: 'SourceFailure 5 entropy unavailable' });
+  assert.deepEqual(response.body, { refused: failure });
   assert.equal(callbacks.length, 0);
 });
 

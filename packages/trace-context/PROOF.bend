@@ -289,6 +289,10 @@ def Laws.generated_restart(tape, previous, rest, created, generated):
   %generated : GenerationProof.RestartRun(previous, _)
   GenerationProof.restart_run(previous, 48n, Trace.Draw.restart(previous), tape, {==})
 
+# The host's loop feeds the words the pure driver reads (proofs/generation.bend).
+def Laws.generation_drive(fuel, tape, step, extra):
+  GenerationProof.generation_drive(fuel, tape, step, extra)
+
 # 7. Limits
 # =========
 
@@ -645,6 +649,15 @@ def Laws.send_untraced(tape, limits, error, received, sampling, policy, carrier)
 # (proofs/continue.bend).
 def Laws.send_reports_generated(tape, limits, service, sampling, policy, carrier):
   ContinueProof.send_reports_generated(tape, limits, service, sampling, policy, carrier)
+
+# A host that drives a service plan's generation itself gets the service that
+# the operation gives (proofs/continue.bend).
+def Laws.hosted_service(tape, extraction, reception, sampling, policy):
+  ContinueProof.hosted_service(tape, extraction, reception, sampling, policy)
+
+# The same for a send plan and the message that the operation gives.
+def Laws.hosted_send(tape, limits, service, sampling, policy, carrier):
+  ContinueProof.hosted_send(tape, limits, service, sampling, policy, carrier)
 
 # 15. Native HTTP headers
 # =======================

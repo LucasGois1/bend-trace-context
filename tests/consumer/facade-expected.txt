@@ -1,0 +1,26 @@
+extracted: TraceParentAccepted, StateAccepted
+received pair: 00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01 | congo=t61rcWkgMzE | rojo=00f067aa0ba902b7
+service: Continued 00-0af7651916cd43dd8448eb211c80319c-00f067aa0ba902b7-01
+own entry: fw529a3039=cHJpbWFyeQ,congo=t61rcWkgMzE,rojo=00f067aa0ba902b7
+sent: Fresh | Accept: application/json | traceparent: 00-0af7651916cd43dd8448eb211c80319c-53995c3f42cd8ad8-01 | tracestate: fw529a3039=cHJpbWFyeQ,congo=t61rcWkgMzE,rojo=00f067aa0ba902b7
+started: Started 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-02
+restarted: Restarted 00-4bf92f3577b34da6a3ce929d0e0e4736-53995c3f42cd8ad8-03 state ""
+rejected: TraceParentRejected InvalidTraceParent ZeroTraceId, StateAbsent
+repeated: TraceParentRejected RepeatedTraceParent, StateAbsent
+discarded: TraceParentAccepted, StateDiscarded InvalidEntry 0 MissingEquals
+without entropy: Untraced SourceFailure 2 source-failure
+fallback: Forwarded after SourceFailure 2 source-failure
+strict: GenerationError SourceFailure 2 source-failure
+exhausted: ExhaustedTraceId
+forwarded: Host: billing.internal | traceparent: 00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01 | tracestate: congo=t61rcWkgMzE,rojo=00f067aa0ba902b7
+not forwarded: NothingToForward
+injected: Host: metrics.internal | traceparent: 00-0af7651916cd43dd8448eb211c80319c-a3ce929d0e0e4736-00
+cleared: Host: metrics.internal
+limits refused: RangeError TraceParentInputTooSmall
+copied handle refused: TypeError
+supplied operation: 00-5b8efff798038103d269b633813fc60c-eee19b7ec3c1b174-01
+supplied child: 00-5b8efff798038103d269b633813fc60c-2f1c8a36d5e97b40-01
+reused span refused: RangeError ReusedSpanId
+supplied trace refused: RangeError ZeroTraceId
+generated root: true random true
+http: Continued | traceparent: 00-0af7651916cd43dd8448eb211c80319c-53995c3f42cd8ad8-01 | tracestate: congo=t61rcWkgMzE,rojo=00f067aa0ba902b7

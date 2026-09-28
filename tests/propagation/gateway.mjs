@@ -1,7 +1,8 @@
-// The adoption example packages/trace-context/examples/gateway.bend, compiled
-// from a pinned checkout, between a client and an independent downstream
-// observer: the gateway continues the client's trace, calls downstream with
-// a new child and returns the downstream response, logging only diagnostics.
+// The adoption example packages/trace-context/examples/gateway.bend,
+// compiled from a pinned checkout, or its JavaScript twin gateway.mjs, run
+// from one, between a client and an independent downstream observer: the
+// gateway continues the client's trace, calls downstream with a new child
+// and returns the downstream response, logging only diagnostics.
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { createServer, request as httpRequest } from 'node:http';
@@ -9,7 +10,7 @@ import test from 'node:test';
 import { launch } from './launch.mjs';
 
 const gatewayPath = process.env.BEND_GATEWAY;
-assert.ok(gatewayPath, 'pass the compiled gateway path in BEND_GATEWAY');
+assert.ok(gatewayPath, 'pass the gateway program path in BEND_GATEWAY');
 
 test('the gateway continues a request and calls downstream with its own child', async t => {
   const observations = [];

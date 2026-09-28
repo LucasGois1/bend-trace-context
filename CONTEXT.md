@@ -140,6 +140,14 @@ A point where a participant does not continue the contexts it receives and resta
 The operation a participant creates for a message it receives: a child of the context that the message or the base supplies, a root when there is neither, or a trace restart at a trust boundary. Each message the participant sends gets a child of it.
 _Avoid_: Incoming context
 
+**JavaScript facade**:
+The package's interface for JavaScript applications. It converts JavaScript values at the boundary and feeds the package's generation words from WebCrypto, without deciding any Trace Context rule.
+_Avoid_: JavaScript SDK, second implementation
+
+**Handle**:
+A frozen JavaScript object that only the facade creates, standing for a value of the package. An object that merely looks like a handle is refused.
+_Avoid_: Wrapper object, raw loader value
+
 **Failure policy**:
 How an operation that needs a new identifier reports a generation failure: leniently, letting the business operation proceed without a new operation, or strictly, returning the error so that the caller can refuse the operation.
 _Avoid_: Retry policy

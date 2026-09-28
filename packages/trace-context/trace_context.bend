@@ -28,8 +28,8 @@
 #   Identifiers and contexts         TraceId, SpanId, contexts, children,
 #                                    restarts
 #   Identifiers from source words    U32.to_hex, TraceId.from_words, ...
-#   Generation machine               Draw.*, Step.*, Context.*_with,
-#                                    Source.tape
+#   Generation machine               Draw.*, Step.*, Generation.*,
+#                                    Context.*_with, Source.tape
 #   Error messages                   Error.show, ContextError.show, ...
 #   Limits                           Limits.new, Limits.default, accessors
 #   Tracestate                       keys and values, states and lookups,
@@ -45,8 +45,9 @@
 #                                    writes, Context.clear
 #   Forwarding                       Context.forward, ForwardError
 #   Continuing or starting           Context.continue_or_start_with,
-#                                    Reception, FailurePolicy, Service
-#   Sending                          Context.send_with, Sent
+#                                    Reception, FailurePolicy, Service,
+#                                    ServicePlan
+#   Sending                          Context.send_with, Sent, SendPlan
 #
 # The public names are documented in packages/trace-context/README.md. Names in
 # the Parse, Draw, Step, Tape, Scan, Member, Value, Budget, Utf8, Entries,
@@ -221,7 +222,8 @@ type SpanWords is Data:
 
 # The generation machine below is shared by the IO operations and stated in
 # the laws. Its types and `Draw` functions are internal: callers use the
-# `Context.*_with` operations or generation.bend.
+# `Context.*_with` operations or generation.bend, and a host that feeds words
+# itself uses Generation.
 #
 # What a new local context needs besides its span ID: the trace ID it belongs
 # to, its sampled indication, and for a child the parent's span ID, which the
@@ -243,6 +245,16 @@ type Step is Data:
   NeedWord{draw: Draw}
   Created{context: LocalContext}
   Failed{error: GenerationError}
+
+# A generation with its word budget, for a host that feeds it one word at a
+# time instead of passing a source as a template, such as JavaScript code
+# calling this module: the words it may still read (`fuel`) and the
+# machine's step. Its fields are internal, like Step: Generation.root and
+# its siblings build one. Context.root_with and its siblings drive the same
+# values, and a host that feeds words while Generation.needs says so gets
+# the pure driver's result (law generation_drive).
+type Generation is Data:
+  Generation{fuel: Nat, step: Step}
 
 # Strict v00 codec
 # ================
@@ -894,27 +906,95 @@ def Draw.finished(~S: Type, action: IO(S & Step)) -> IO(S & Result<&2, &2, Gener
   IO.bind(S & Step, S & Result<&2, &2, GenerationError, LocalContext>, action,
     done => IO.pure(S & Result<&2, &2, GenerationError, LocalContext>, Draw.outcome(S, done)))
 
+# A root: at most 48 words, eight trace ID candidates of four words and eight
+# span ID candidates of two.
+def Generation.root() -> Generation:
+  Generation{48n, Draw.root()}
+
+# A restart replacing `previous`: at most 48 words, as a root.
+def Generation.restart(previous: RemoteContext) -> Generation:
+  Generation{48n, Draw.restart(previous)}
+
+# A child of `parent`: at most 16 words, eight span ID candidates.
+def Generation.child(+parent: Parent, sampling: Sampling) -> Generation:
+  Generation{16n, Draw.child(parent, sampling)}
+
+# Whether a step needs another word within `fuel` more words.
+def Generation.needs.of(fuel: Nat, step: Step) -> Bool:
+  match fuel step:
+    case 0n _:
+      False{}
+    case 1n+p NeedWord{draw}:
+      True{}
+    case 1n+p Created{context}:
+      False{}
+    case 1n+p Failed{error}:
+      False{}
+
+# Whether the generation needs another word: it has not ended, and its
+# budget allows one more.
+def Generation.needs(generation: Generation) -> Bool:
+  match generation:
+    case Generation{fuel, step}:
+      Generation.needs.of(fuel, step)
+
+# The generation after `word`: the step it gives with one word less of
+# budget, or, for a step that needs no word, the same step with none left.
+def Generation.fed(fuel: Nat, step: Step, word: Result<&1, &1, U32 & String, U32>) -> Generation:
+  match fuel step:
+    case 0n other:
+      Generation{0n, other}
+    case 1n+p NeedWord{draw}:
+      Generation{p, Draw.feed(word, draw)}
+    case 1n+p Created{context}:
+      Generation{0n, Created{context}}
+    case 1n+p Failed{error}:
+      Generation{0n, Failed{error}}
+
+# Feed the generation the next word of its source (see Draw.feed). A
+# generation that needs no word ignores it.
+def Generation.feed(generation: Generation, word: Result<&1, &1, U32 & String, U32>) -> Generation:
+  match generation:
+    case Generation{fuel, step}:
+      Generation.fed(fuel, step, word)
+
+# The generation's result: the context it created, or why it failed. One that
+# still needs a word once its budget is spent has exhausted its candidates;
+# the root_ends, child_ends and restart_ends laws show that the budgets
+# suffice.
+def Generation.result(generation: Generation) -> Result<&2, &2, GenerationError, LocalContext>:
+  match generation:
+    case Generation{fuel, step}:
+      Step.result(step)
+
+# Drive a generation from a caller's source, one word at a time
+# (Draw.read), and hand back the source's final state with the result.
+def Generation.run_with(~S: Type, ~read: S -> IO(S & Result<&1, &1, U32 & String, U32>), source: S,
+  generation: Generation) -> IO(S & Result<&2, &2, GenerationError, LocalContext>):
+  match generation:
+    case Generation{fuel, step}:
+      Draw.finished(~S, Draw.read(~S, ~read, fuel, (source, step)))
+
 # Generated contexts from a caller's source. `read` returns the source's next
 # state with each word result. The source is trusted to be random: a generated
-# trace ID asserts random-trace-id. A root or restart reads at most 48 words:
-# eight trace ID candidates of four words and eight span ID candidates of two.
-# A child reads at most 16.
+# trace ID asserts random-trace-id. A root or restart reads at most 48 words,
+# and a child at most 16 (Generation.root and its siblings).
 # Laws: root_tape, root_ends, root_exhaustion and generated_root.
 def Context.root_with(~S: Type, ~read: S -> IO(S & Result<&1, &1, U32 & String, U32>), source: S) ->
   IO(S & Result<&2, &2, GenerationError, LocalContext>):
-  Draw.finished(~S, Draw.read(~S, ~read, 48n, (source, Draw.root())))
+  Generation.run_with(~S, ~read, source, Generation.root())
 
 # A generated child of `parent` from a caller's source: at most 16 words.
 # Laws: child_tape, child_ends, child_exhaustion and generated_child.
 def Context.child_with(~S: Type, ~read: S -> IO(S & Result<&1, &1, U32 & String, U32>), source: S,
   parent: Parent, sampling: Sampling) -> IO(S & Result<&2, &2, GenerationError, LocalContext>):
-  Draw.finished(~S, Draw.read(~S, ~read, 16n, (source, Draw.child(parent, sampling))))
+  Generation.run_with(~S, ~read, source, Generation.child(parent, sampling))
 
 # A generated restart replacing `previous` from a caller's source: at most 48
 # words. Laws: restart_tape, restart_ends and generated_restart.
 def Context.restart_with(~S: Type, ~read: S -> IO(S & Result<&1, &1, U32 & String, U32>), source: S,
   previous: RemoteContext) -> IO(S & Result<&2, &2, GenerationError, LocalContext>):
-  Draw.finished(~S, Draw.read(~S, ~read, 48n, (source, Draw.restart(previous))))
+  Generation.run_with(~S, ~read, source, Generation.restart(previous))
 
 # A deterministic source that replays a tape of word results.
 def Source.tape(tape: List<&1, Result<&1, &1, U32 & String, U32>>) ->
@@ -2853,32 +2933,20 @@ def Serve.from_start(origin: Origin, sampling: Sampling, result: Result<&2, &2, 
     case Done{context}:
       Operating{origin, OutgoingContext.new(Serve.start(sampling, context)), None{}}
 
-# The source's final state with the service that a child gives.
-def Serve.from_child.done(-S: Type, state: TraceState, received: Maybe<&2, IncomingContext>,
-  done: S & Result<&2, &2, GenerationError, LocalContext>) -> S & Service:
-  (source, result) = done
-  (source, Serve.from_child(state, received, result))
+# The service's operation as Context.continue_or_start_with decides it for
+# a received message, before it reads any word: the generation to drive and
+# what the generation's result makes of the service.
+#   ContinuePlan{generation, state, received}   a child of the kept context,
+#                                               sending its `state`
+#   StartPlan{generation, origin, sampling}     a root or a restart
+# A host that feeds a generation one word at a time, such as JavaScript code
+# calling this module, drives ServicePlan.generation and hands the result to
+# ServicePlan.service (law hosted_service).
+type ServicePlan is Data:
+  ContinuePlan{generation: Generation, state: TraceState, received: Maybe<&2, IncomingContext>}
+  StartPlan{generation: Generation, origin: Origin, sampling: Sampling}
 
-# The source's final state with the service that a new trace gives.
-def Serve.from_start.done(-S: Type, origin: Origin, sampling: Sampling,
-  done: S & Result<&2, &2, GenerationError, LocalContext>) -> S & Service:
-  (source, result) = done
-  (source, Serve.from_start(origin, sampling, result))
-
-# Continue `base` with a child: the base's parent and state.
-def Serve.child(~S: Type, ~read: S -> IO(S & Result<&1, &1, U32 & String, U32>), source: S, +base: BaseContext,
-  received: Maybe<&2, IncomingContext>, sampling: Sampling) -> IO(S & Service):
-  IO.bind(S & Result<&2, &2, GenerationError, LocalContext>, S & Service,
-    Context.child_with(~S, ~read, source, BaseContext.parent(base), sampling),
-    done => IO.pure(S & Service, Serve.from_child.done(S, BaseContext.state(base), received, done)))
-
-# Start a trace with a root.
-def Serve.root(~S: Type, ~read: S -> IO(S & Result<&1, &1, U32 & String, U32>), source: S, sampling: Sampling) ->
-  IO(S & Service):
-  IO.bind(S & Result<&2, &2, GenerationError, LocalContext>, S & Service, Context.root_with(~S, ~read, source),
-    done => IO.pure(S & Service, Serve.from_start.done(S, Started{}, sampling, done)))
-
-# The context that a restart replaces, as Context.restart_with takes it: an
+# The context that a restart replaces, as Generation.restart takes it: an
 # incoming base's received context, or an outgoing base's operation as
 # another participant receives it. The new trace ID reuses neither.
 def Serve.replaced(base: BaseContext) -> RemoteContext:
@@ -2888,36 +2956,63 @@ def Serve.replaced(base: BaseContext) -> RemoteContext:
     case OutgoingBase{outgoing}:
       RemoteContext.from_traceparent(LocalContext.to_traceparent(OutgoingContext.context(outgoing)))
 
-# Start a new trace in place of `base` (Context.restart_with).
-def Serve.restart(~S: Type, ~read: S -> IO(S & Result<&1, &1, U32 & String, U32>), source: S, base: BaseContext,
-  sampling: Sampling) -> IO(S & Service):
-  IO.bind(S & Result<&2, &2, GenerationError, LocalContext>, S & Service,
-    Context.restart_with(~S, ~read, source, Serve.replaced(base)),
-    done => IO.pure(S & Service, Serve.from_start.done(S, Restarted{}, sampling, done)))
-
-# Continue the kept context or replace it, as `reception` says.
-def Serve.usable(~S: Type, ~read: S -> IO(S & Result<&1, &1, U32 & String, U32>), source: S, +base: BaseContext,
-  received: Maybe<&2, IncomingContext>, reception: Reception, sampling: Sampling) -> IO(S & Service):
+# Continue the kept context with a child, with its parent and state, or
+# replace it with a new trace, as `reception` says.
+def Serve.usable(+base: BaseContext, received: Maybe<&2, IncomingContext>, reception: Reception,
+  sampling: Sampling) -> ServicePlan:
   match reception:
     case Continue{}:
-      Serve.child(~S, ~read, source, base, received, sampling)
+      ContinuePlan{Generation.child(BaseContext.parent(base), sampling), BaseContext.state(base), received}
     case Restart{}:
-      Serve.restart(~S, ~read, source, base, sampling)
+      StartPlan{Generation.restart(Serve.replaced(base)), Restarted{}, sampling}
 
 # Take the context that extraction keeps, or start a root without one.
-def Serve.kept(~S: Type, ~read: S -> IO(S & Result<&1, &1, U32 & String, U32>), source: S,
-  context: Maybe<&2, BaseContext>, received: Maybe<&2, IncomingContext>, reception: Reception, sampling: Sampling) ->
-  IO(S & Service):
+def Serve.kept(context: Maybe<&2, BaseContext>, received: Maybe<&2, IncomingContext>, reception: Reception,
+  sampling: Sampling) -> ServicePlan:
   match context:
     case None{}:
-      Serve.root(~S, ~read, source, sampling)
+      StartPlan{Generation.root(), Started{}, sampling}
     case Some{+base}:
-      Serve.usable(~S, ~read, source, base, received, reception, sampling)
+      Serve.usable(base, received, reception, sampling)
+
+# The plan of the service's operation for a message (see ServicePlan).
+def ServicePlan.new(+extraction: Extraction, reception: Reception, sampling: Sampling) -> ServicePlan:
+  Serve.kept(Extraction.context(extraction), Extraction.incoming(extraction), reception, sampling)
+
+# The generation that the plan drives.
+def ServicePlan.generation(plan: ServicePlan) -> Generation:
+  match plan:
+    case ContinuePlan{generation, state, received}:
+      generation
+    case StartPlan{generation, origin, sampling}:
+      generation
+
+# The service that the result of the plan's generation gives, before the
+# policy applies: its operation, or Untraced with the error.
+def ServicePlan.service(plan: ServicePlan, result: Result<&2, &2, GenerationError, LocalContext>) -> Service:
+  match plan:
+    case ContinuePlan{generation, state, received}:
+      Serve.from_child(state, received, result)
+    case StartPlan{generation, origin, sampling}:
+      Serve.from_start(origin, sampling, result)
+
+# The source's final state with the service that the plan gives.
+def Serve.finish(-S: Type, plan: ServicePlan, done: S & Result<&2, &2, GenerationError, LocalContext>) ->
+  S & Service:
+  (source, result) = done
+  (source, ServicePlan.service(plan, result))
+
+# Drive the plan's generation from a caller's source.
+def Serve.run(~S: Type, ~read: S -> IO(S & Result<&1, &1, U32 & String, U32>), source: S, +plan: ServicePlan) ->
+  IO(S & Service):
+  IO.bind(S & Result<&2, &2, GenerationError, LocalContext>, S & Service,
+    Generation.run_with(~S, ~read, source, ServicePlan.generation(plan)),
+    done => IO.pure(S & Service, Serve.finish(S, plan, done)))
 
 # The service for a message, before the policy applies.
 def Serve.operation(~S: Type, ~read: S -> IO(S & Result<&1, &1, U32 & String, U32>), source: S,
   +extraction: Extraction, reception: Reception, sampling: Sampling) -> IO(S & Service):
-  Serve.kept(~S, ~read, source, Extraction.context(extraction), Extraction.incoming(extraction), reception, sampling)
+  Serve.run(~S, ~read, source, ServicePlan.new(extraction, reception, sampling))
 
 # A service without an operation as the GenerationError that caused it.
 def Serve.strict(service: Service) -> Result<&2, &2, GenerationError, Service>:
@@ -3006,23 +3101,61 @@ def Send.of(+limits: Limits, +outgoing: OutgoingContext, received: Maybe<&2, Inc
       Fresh{operation, Context.inject(limits, OutgoingContext.with_state(operation, OutgoingContext.state(outgoing)),
         carrier)}
 
-# The source's final state with the message that a generated child gives.
-def Send.done(-S: Type, +limits: Limits, +outgoing: OutgoingContext, received: Maybe<&2, IncomingContext>,
-  +carrier: List<&2, Header>, done: S & Result<&2, &2, GenerationError, LocalContext>) -> S & Sent:
-  (source, result) = done
-  (source, Send.of(limits, outgoing, received, carrier, result))
+# A message's operation as Context.send_with decides it before it reads any
+# word, with the limits and the carrier to send it with:
+#   SendChild{generation, limits, outgoing, received, carrier}
+#     a child of the service's operation, injected with the service's state
+#   SendFallback{error, limits, received, carrier}
+#     no operation, for a service without one: the fallback, reading no word
+# A host that feeds a generation one word at a time drives
+# SendPlan.generation and hands the result to SendPlan.sent (law
+# hosted_send).
+type SendPlan is Data:
+  SendChild{generation: Generation, limits: Limits, outgoing: OutgoingContext,
+    received: Maybe<&2, IncomingContext>, carrier: List<&2, Header>}
+  SendFallback{error: GenerationError, limits: Limits, received: Maybe<&2, IncomingContext>,
+    carrier: List<&2, Header>}
 
-# The message, before the policy applies: a child of the service's
-# operation, or the fallback without reading the source.
-def Send.message(~S: Type, ~read: S -> IO(S & Result<&1, &1, U32 & String, U32>), source: S, +limits: Limits,
-  service: Service, sampling: Sampling, +carrier: List<&2, Header>) -> IO(S & Sent):
+# The plan of one message that the service sends (see SendPlan).
+def SendPlan.new(limits: Limits, service: Service, sampling: Sampling, carrier: List<&2, Header>) -> SendPlan:
   match service:
     case Operating{origin, +outgoing, received}:
-      IO.bind(S & Result<&2, &2, GenerationError, LocalContext>, S & Sent,
-        Context.child_with(~S, ~read, source, LocalParent{OutgoingContext.context(outgoing)}, sampling),
-        done => IO.pure(S & Sent, Send.done(S, limits, outgoing, received, carrier, done)))
+      SendChild{Generation.child(LocalParent{OutgoingContext.context(outgoing)}, sampling), limits, outgoing, received,
+        carrier}
     case Untraced{error, received}:
-      IO.pure(S & Sent, (source, Send.fallback(limits, received, error, carrier)))
+      SendFallback{error, limits, received, carrier}
+
+# The generation that the plan drives. A service without an operation has
+# none to drive: its generation has already failed with the service's
+# error, so that a host reads no word.
+def SendPlan.generation(plan: SendPlan) -> Generation:
+  match plan:
+    case SendChild{generation, limits, outgoing, received, carrier}:
+      generation
+    case SendFallback{error, limits, received, carrier}:
+      Generation{0n, Failed{error}}
+
+# The message that the result of the plan's generation gives, before the
+# policy applies. The fallback of a service without an operation does not
+# depend on it.
+def SendPlan.sent(plan: SendPlan, result: Result<&2, &2, GenerationError, LocalContext>) -> Sent:
+  match plan:
+    case SendChild{generation, limits, outgoing, received, carrier}:
+      Send.of(limits, outgoing, received, carrier, result)
+    case SendFallback{error, limits, received, carrier}:
+      Send.fallback(limits, received, error, carrier)
+
+# The source's final state with the message that the plan gives.
+def Send.finish(-S: Type, plan: SendPlan, done: S & Result<&2, &2, GenerationError, LocalContext>) -> S & Sent:
+  (source, result) = done
+  (source, SendPlan.sent(plan, result))
+
+# Drive the plan's generation from a caller's source.
+def Send.run(~S: Type, ~read: S -> IO(S & Result<&1, &1, U32 & String, U32>), source: S, +plan: SendPlan) ->
+  IO(S & Sent):
+  IO.bind(S & Result<&2, &2, GenerationError, LocalContext>, S & Sent,
+    Generation.run_with(~S, ~read, source, SendPlan.generation(plan)),
+    done => IO.pure(S & Sent, Send.finish(S, plan, done)))
 
 # A message without a new operation as the GenerationError that caused it.
 def Send.strict(sent: Sent) -> Result<&2, &2, GenerationError, Sent>:
@@ -3042,7 +3175,7 @@ def Context.send_with(~S: Type, ~read: S -> IO(S & Result<&1, &1, U32 & String, 
   service: Service, sampling: Sampling, +policy: FailurePolicy, +carrier: List<&2, Header>) ->
   IO(S & FailurePolicy.result(policy, Sent)):
   IO.bind(S & Sent, S & FailurePolicy.result(policy, Sent),
-    Send.message(~S, ~read, source, limits, service, sampling, carrier),
+    Send.run(~S, ~read, source, SendPlan.new(limits, service, sampling, carrier)),
     done => IO.pure(S & FailurePolicy.result(policy, Sent), Policy.apply.done(S, policy, Sent, Send.strict, done)))
 
 # The name of an origin.

@@ -2,7 +2,7 @@
   "name": "bend-trace-context-qualification",
   "private": true,
   "engines": {
-    "node": "22.x || 24.x"
+    "node": "^22.18.0 || ^24.0.0"
   },
   "devDependencies": {
     "@playwright/test": "1.63.0"

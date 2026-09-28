@@ -27,14 +27,15 @@ import ./generation.bend as GenerationProof
 # computes.
 law continuing_step:
   for +policy: TC.FailurePolicy
+  for generation: TC.Generation
   for +state: TC.TraceState
   for +received: Maybe<&2, TC.IncomingContext>
   for outcome: Laws.TapeOutcome()
   {TC.Policy.apply.done(Laws.Tape(), policy, TC.Service, TC.Serve.strict,
-    TC.Serve.from_child.done(Laws.Tape(), state, received, outcome)) ==
+    TC.Serve.finish(Laws.Tape(), TC.ContinuePlan{generation, state, received}, outcome)) ==
     Laws.continuing(policy, state, received, outcome) : Laws.TapeService(policy)}
 
-def continuing_step(policy, state, received, outcome):
+def continuing_step(policy, generation, state, received, outcome):
   match policy outcome:
     case TC.Lenient{} Tuple{rest, Fail{error}}:
       {==}
@@ -63,19 +64,21 @@ law continue_usable:
     IO.OP<Laws.TapeService(policy)>}
 
 def continue_usable(tape, extraction, base, sampling, policy, usable):
+  +generation = TC.Generation.child(TC.BaseContext.parent(base), sampling)
   +state = TC.BaseContext.state(base)
   +received = TC.Extraction.incoming(extraction)
   %Equal.sym(Maybe<&2, TC.BaseContext>, TC.Extraction.context(extraction), Some{base}, usable) :
-    {TC.Serve.kept(~Laws.Tape(), ~TC.Source.tape, tape, _, received, TC.Continue{}, sampling)(Laws.TapeService(policy),
-      done => Emit{TC.Policy.apply.done(Laws.Tape(), policy, TC.Service, TC.Serve.strict, done)}) ==
+    {TC.Serve.run(~Laws.Tape(), ~TC.Source.tape, tape, TC.Serve.kept(_, received, TC.Continue{}, sampling))(
+      Laws.TapeService(policy), done => Emit{TC.Policy.apply.done(Laws.Tape(), policy, TC.Service, TC.Serve.strict,
+        done)}) ==
       Emit{Laws.continuing(policy, state, received, TC.Draw.outcome(Laws.Tape(),
         TC.Draw.run(16n, (tape, TC.Draw.child(TC.BaseContext.parent(base), sampling)))))} :
       IO.OP<Laws.TapeService(policy)>}
   GenerationProof.read_tape_outcome(Laws.TapeService(policy),
     outcome => TC.Policy.apply.done(Laws.Tape(), policy, TC.Service, TC.Serve.strict,
-      TC.Serve.from_child.done(Laws.Tape(), state, received, outcome)),
+      TC.Serve.finish(Laws.Tape(), TC.ContinuePlan{generation, state, received}, outcome)),
     outcome => Laws.continuing(policy, state, received, outcome),
-    outcome => continuing_step(policy, state, received, outcome),
+    outcome => continuing_step(policy, generation, state, received, outcome),
     16n, (tape, TC.Draw.child(TC.BaseContext.parent(base), sampling)))
 
 # The package's handling of a new trace's outcome under `policy` is
@@ -83,14 +86,15 @@ def continue_usable(tape, extraction, base, sampling, policy, usable):
 # computes.
 law starting_step:
   for +policy: TC.FailurePolicy
+  for generation: TC.Generation
   for +origin: TC.Origin
   for +sampling: TC.Sampling
   for outcome: Laws.TapeOutcome()
   {TC.Policy.apply.done(Laws.Tape(), policy, TC.Service, TC.Serve.strict,
-    TC.Serve.from_start.done(Laws.Tape(), origin, sampling, outcome)) ==
+    TC.Serve.finish(Laws.Tape(), TC.StartPlan{generation, origin, sampling}, outcome)) ==
     Laws.starting(policy, origin, sampling, outcome) : Laws.TapeService(policy)}
 
-def starting_step(policy, origin, sampling, outcome):
+def starting_step(policy, generation, origin, sampling, outcome):
   match policy outcome:
     case TC.Lenient{} Tuple{rest, Fail{error}}:
       {==}
@@ -107,21 +111,22 @@ def starting_step(policy, origin, sampling, outcome):
 # and restart_usable.
 law starting_read:
   for +policy: TC.FailurePolicy
+  for +generation: TC.Generation
   for +origin: TC.Origin
   for +sampling: TC.Sampling
   for current: Laws.TapeStep()
   {TC.Draw.read(~Laws.Tape(), ~TC.Source.tape, 48n, current)(Laws.TapeService(policy),
     step => Emit{TC.Policy.apply.done(Laws.Tape(), policy, TC.Service, TC.Serve.strict,
-      TC.Serve.from_start.done(Laws.Tape(), origin, sampling, TC.Draw.outcome(Laws.Tape(), step)))}) ==
-    Emit{Laws.starting(policy, origin, sampling, TC.Draw.outcome(Laws.Tape(), TC.Draw.run(48n, current)))} :
+      TC.Serve.finish(Laws.Tape(), TC.StartPlan{generation, origin, sampling}, TC.Draw.outcome(Laws.Tape(), step)))})
+    == Emit{Laws.starting(policy, origin, sampling, TC.Draw.outcome(Laws.Tape(), TC.Draw.run(48n, current)))} :
     IO.OP<Laws.TapeService(policy)>}
 
-def starting_read(policy, origin, sampling, current):
+def starting_read(policy, generation, origin, sampling, current):
   GenerationProof.read_tape_outcome(Laws.TapeService(policy),
     outcome => TC.Policy.apply.done(Laws.Tape(), policy, TC.Service, TC.Serve.strict,
-      TC.Serve.from_start.done(Laws.Tape(), origin, sampling, outcome)),
+      TC.Serve.finish(Laws.Tape(), TC.StartPlan{generation, origin, sampling}, outcome)),
     outcome => Laws.starting(policy, origin, sampling, outcome),
-    outcome => starting_step(policy, origin, sampling, outcome),
+    outcome => starting_step(policy, generation, origin, sampling, outcome),
     48n, current)
 
 # Law restart_usable: with `usable`, a boundary reduces to the generation of
@@ -144,22 +149,24 @@ def restart_usable(tape, extraction, base, sampling, policy, usable):
   match base:
     case TC.IncomingBase{+incoming}:
       %Equal.sym(Maybe<&2, TC.BaseContext>, TC.Extraction.context(extraction), Some{TC.IncomingBase{incoming}}, usable) :
-        {TC.Serve.kept(~Laws.Tape(), ~TC.Source.tape, tape, _, TC.Extraction.incoming(extraction), TC.Restart{},
-          sampling)(Laws.TapeService(policy), done => Emit{TC.Policy.apply.done(Laws.Tape(), policy, TC.Service,
-            TC.Serve.strict, done)}) ==
+        {TC.Serve.run(~Laws.Tape(), ~TC.Source.tape, tape, TC.Serve.kept(_, TC.Extraction.incoming(extraction),
+          TC.Restart{}, sampling))(Laws.TapeService(policy), done => Emit{TC.Policy.apply.done(Laws.Tape(), policy,
+            TC.Service, TC.Serve.strict, done)}) ==
           Emit{Laws.starting(policy, TC.Restarted{}, sampling, TC.Draw.outcome(Laws.Tape(),
             TC.Draw.run(48n, (tape, TC.Draw.restart(TC.IncomingContext.context(incoming))))))} :
           IO.OP<Laws.TapeService(policy)>}
-      starting_read(policy, TC.Restarted{}, sampling, (tape, TC.Draw.restart(TC.IncomingContext.context(incoming))))
+      starting_read(policy, TC.Generation.restart(TC.IncomingContext.context(incoming)), TC.Restarted{}, sampling,
+        (tape, TC.Draw.restart(TC.IncomingContext.context(incoming))))
     case TC.OutgoingBase{+outgoing}:
       +previous = TC.RemoteContext.from_traceparent(TC.LocalContext.to_traceparent(TC.OutgoingContext.context(outgoing)))
       %Equal.sym(Maybe<&2, TC.BaseContext>, TC.Extraction.context(extraction), Some{TC.OutgoingBase{outgoing}}, usable) :
-        {TC.Serve.kept(~Laws.Tape(), ~TC.Source.tape, tape, _, TC.Extraction.incoming(extraction), TC.Restart{},
-          sampling)(Laws.TapeService(policy), done => Emit{TC.Policy.apply.done(Laws.Tape(), policy, TC.Service,
-            TC.Serve.strict, done)}) ==
+        {TC.Serve.run(~Laws.Tape(), ~TC.Source.tape, tape, TC.Serve.kept(_, TC.Extraction.incoming(extraction),
+          TC.Restart{}, sampling))(Laws.TapeService(policy), done => Emit{TC.Policy.apply.done(Laws.Tape(), policy,
+            TC.Service, TC.Serve.strict, done)}) ==
           Emit{Laws.starting(policy, TC.Restarted{}, sampling, TC.Draw.outcome(Laws.Tape(),
             TC.Draw.run(48n, (tape, TC.Draw.restart(previous)))))} : IO.OP<Laws.TapeService(policy)>}
-      starting_read(policy, TC.Restarted{}, sampling, (tape, TC.Draw.restart(previous)))
+      starting_read(policy, TC.Generation.restart(previous), TC.Restarted{}, sampling,
+        (tape, TC.Draw.restart(previous)))
 
 # Law start_unusable: with `none`, the service reduces to the generation of
 # a root whatever the reception, since the package looks at the kept context
@@ -178,24 +185,25 @@ law start_unusable:
 
 def start_unusable(tape, extraction, reception, sampling, policy, none):
   %Equal.sym(Maybe<&2, TC.BaseContext>, TC.Extraction.context(extraction), None{}, none) :
-    {TC.Serve.kept(~Laws.Tape(), ~TC.Source.tape, tape, _, TC.Extraction.incoming(extraction), reception,
-      sampling)(Laws.TapeService(policy), done => Emit{TC.Policy.apply.done(Laws.Tape(), policy, TC.Service,
-        TC.Serve.strict, done)}) ==
+    {TC.Serve.run(~Laws.Tape(), ~TC.Source.tape, tape, TC.Serve.kept(_, TC.Extraction.incoming(extraction),
+      reception, sampling))(Laws.TapeService(policy), done => Emit{TC.Policy.apply.done(Laws.Tape(), policy,
+        TC.Service, TC.Serve.strict, done)}) ==
       Emit{Laws.starting(policy, TC.Started{}, sampling, TC.Draw.outcome(Laws.Tape(),
         TC.Draw.run(48n, (tape, TC.Draw.root()))))} : IO.OP<Laws.TapeService(policy)>}
-  starting_read(policy, TC.Started{}, sampling, (tape, TC.Draw.root()))
+  starting_read(policy, TC.Generation.root(), TC.Started{}, sampling, (tape, TC.Draw.root()))
 
 # A new trace keeps nothing of a received context, whatever its outcome and
 # the policy. By cases on the policy and the outcome; each case computes.
 law started_keeps:
   for +policy: TC.FailurePolicy
+  for generation: TC.Generation
   for +origin: TC.Origin
   for +sampling: TC.Sampling
   for outcome: Laws.TapeOutcome()
   {Laws.kept_nothing(policy, TC.Policy.apply.done(Laws.Tape(), policy, TC.Service, TC.Serve.strict,
-    TC.Serve.from_start.done(Laws.Tape(), origin, sampling, outcome))) == True{} : Bool}
+    TC.Serve.finish(Laws.Tape(), TC.StartPlan{generation, origin, sampling}, outcome))) == True{} : Bool}
 
-def started_keeps(policy, origin, sampling, outcome):
+def started_keeps(policy, generation, origin, sampling, outcome):
   match policy outcome:
     case TC.Lenient{} Tuple{rest, Fail{error}}:
       {==}
@@ -211,20 +219,21 @@ def started_keeps(policy, origin, sampling, outcome):
 # GenerationProof.read_tape_outcome).
 law started_read:
   for +policy: TC.FailurePolicy
+  for +generation: TC.Generation
   for +origin: TC.Origin
   for +sampling: TC.Sampling
   for current: Laws.TapeStep()
   {TC.Draw.read(~Laws.Tape(), ~TC.Source.tape, 48n, current)(Bool,
     step => Emit{Laws.kept_nothing(policy, TC.Policy.apply.done(Laws.Tape(), policy, TC.Service, TC.Serve.strict,
-      TC.Serve.from_start.done(Laws.Tape(), origin, sampling, TC.Draw.outcome(Laws.Tape(), step))))}) ==
-    Emit{True{}} : IO.OP<Bool>}
+      TC.Serve.finish(Laws.Tape(), TC.StartPlan{generation, origin, sampling}, TC.Draw.outcome(Laws.Tape(),
+        step))))}) == Emit{True{}} : IO.OP<Bool>}
 
-def started_read(policy, origin, sampling, current):
+def started_read(policy, generation, origin, sampling, current):
   GenerationProof.read_tape_outcome(Bool,
     outcome => Laws.kept_nothing(policy, TC.Policy.apply.done(Laws.Tape(), policy, TC.Service, TC.Serve.strict,
-      TC.Serve.from_start.done(Laws.Tape(), origin, sampling, outcome))),
+      TC.Serve.finish(Laws.Tape(), TC.StartPlan{generation, origin, sampling}, outcome))),
     outcome => True{},
-    outcome => started_keeps(policy, origin, sampling, outcome),
+    outcome => started_keeps(policy, generation, origin, sampling, outcome),
     48n, current)
 
 # restart_keeps_nothing for a kept context `context` that extraction is
@@ -245,16 +254,17 @@ def restart_keeps.kept(tape, extraction, sampling, policy, context, same):
   match context:
     case None{}:
       %Equal.sym(Maybe<&2, TC.BaseContext>, TC.Extraction.context(extraction), None{}, same) :
-        {TC.Serve.kept(~Laws.Tape(), ~TC.Source.tape, tape, _, TC.Extraction.incoming(extraction), TC.Restart{},
-          sampling)(Bool, done => Emit{Laws.kept_nothing(policy, TC.Policy.apply.done(Laws.Tape(), policy,
-            TC.Service, TC.Serve.strict, done))}) == Emit{True{}} : IO.OP<Bool>}
-      started_read(policy, TC.Started{}, sampling, (tape, TC.Draw.root()))
+        {TC.Serve.run(~Laws.Tape(), ~TC.Source.tape, tape, TC.Serve.kept(_, TC.Extraction.incoming(extraction),
+          TC.Restart{}, sampling))(Bool, done => Emit{Laws.kept_nothing(policy, TC.Policy.apply.done(Laws.Tape(),
+            policy, TC.Service, TC.Serve.strict, done))}) == Emit{True{}} : IO.OP<Bool>}
+      started_read(policy, TC.Generation.root(), TC.Started{}, sampling, (tape, TC.Draw.root()))
     case Some{+base}:
       %Equal.sym(Maybe<&2, TC.BaseContext>, TC.Extraction.context(extraction), Some{base}, same) :
-        {TC.Serve.kept(~Laws.Tape(), ~TC.Source.tape, tape, _, TC.Extraction.incoming(extraction), TC.Restart{},
-          sampling)(Bool, done => Emit{Laws.kept_nothing(policy, TC.Policy.apply.done(Laws.Tape(), policy,
-            TC.Service, TC.Serve.strict, done))}) == Emit{True{}} : IO.OP<Bool>}
-      started_read(policy, TC.Restarted{}, sampling, (tape, TC.Draw.restart(TC.Serve.replaced(base))))
+        {TC.Serve.run(~Laws.Tape(), ~TC.Source.tape, tape, TC.Serve.kept(_, TC.Extraction.incoming(extraction),
+          TC.Restart{}, sampling))(Bool, done => Emit{Laws.kept_nothing(policy, TC.Policy.apply.done(Laws.Tape(),
+            policy, TC.Service, TC.Serve.strict, done))}) == Emit{True{}} : IO.OP<Bool>}
+      started_read(policy, TC.Generation.restart(TC.Serve.replaced(base)), TC.Restarted{}, sampling,
+        (tape, TC.Draw.restart(TC.Serve.replaced(base))))
 
 # Law restart_keeps_nothing: restart_keeps.kept with the context that
 # extraction gives.
@@ -320,16 +330,17 @@ def fallback_step(policy, limits, received, error, carrier):
 # fallback (fallback_step), and a generated one computes.
 law sending_step:
   for +policy: TC.FailurePolicy
+  for generation: TC.Generation
   for +limits: TC.Limits
   for +outgoing: TC.OutgoingContext
   for +received: Maybe<&2, TC.IncomingContext>
   for +carrier: List<&2, TC.Header>
   for outcome: Laws.TapeOutcome()
   {TC.Policy.apply.done(Laws.Tape(), policy, TC.Sent, TC.Send.strict,
-    TC.Send.done(Laws.Tape(), limits, outgoing, received, carrier, outcome)) ==
+    TC.Send.finish(Laws.Tape(), TC.SendChild{generation, limits, outgoing, received, carrier}, outcome)) ==
     Laws.sending(policy, limits, outgoing, received, carrier, outcome) : Laws.TapeSent(policy)}
 
-def sending_step(policy, limits, outgoing, received, carrier, outcome):
+def sending_step(policy, generation, limits, outgoing, received, carrier, outcome):
   match policy outcome:
     case TC.Lenient{} Tuple{rest, Fail{error}}:
       Equal.cong(TC.Sent, Laws.TapeSent(TC.Lenient{}), sent => (rest, sent),
@@ -366,11 +377,12 @@ law send_operating:
     IO.OP<Laws.TapeSent(policy)>}
 
 def send_operating(tape, limits, origin, outgoing, received, sampling, policy, carrier):
+  +generation = TC.Generation.child(TC.LocalParent{TC.OutgoingContext.context(outgoing)}, sampling)
   GenerationProof.read_tape_outcome(Laws.TapeSent(policy),
     outcome => TC.Policy.apply.done(Laws.Tape(), policy, TC.Sent, TC.Send.strict,
-      TC.Send.done(Laws.Tape(), limits, outgoing, received, carrier, outcome)),
+      TC.Send.finish(Laws.Tape(), TC.SendChild{generation, limits, outgoing, received, carrier}, outcome)),
     outcome => Laws.sending(policy, limits, outgoing, received, carrier, outcome),
-    outcome => sending_step(policy, limits, outgoing, received, carrier, outcome),
+    outcome => sending_step(policy, generation, limits, outgoing, received, carrier, outcome),
     16n, (tape, TC.Draw.child(TC.LocalParent{TC.OutgoingContext.context(outgoing)}, sampling)))
 
 # Law send_untraced: a service without an operation returns the tape whole
@@ -443,16 +455,17 @@ def unreported(policy, limits, received, error, carrier):
 # policy and the outcome.
 law reported_step:
   for +policy: TC.FailurePolicy
+  for generation: TC.Generation
   for +limits: TC.Limits
   for +outgoing: TC.OutgoingContext
   for +received: Maybe<&2, TC.IncomingContext>
   for +carrier: List<&2, TC.Header>
   for outcome: Laws.TapeOutcome()
   {Laws.reported(policy, TC.Policy.apply.done(Laws.Tape(), policy, TC.Sent, TC.Send.strict,
-    TC.Send.done(Laws.Tape(), limits, outgoing, received, carrier, outcome))) ==
+    TC.Send.finish(Laws.Tape(), TC.SendChild{generation, limits, outgoing, received, carrier}, outcome))) ==
     Laws.generated(outcome) : Maybe<&2, TC.LocalContext>}
 
-def reported_step(policy, limits, outgoing, received, carrier, outcome):
+def reported_step(policy, generation, limits, outgoing, received, carrier, outcome):
   match policy outcome:
     case TC.Lenient{} Tuple{rest, Fail{error}}:
       unreported(TC.Lenient{}, limits, received, error, carrier)
@@ -483,14 +496,90 @@ law send_reports_generated:
 def send_reports_generated(tape, limits, service, sampling, policy, carrier):
   match service:
     case TC.Operating{origin, +outgoing, +received}:
+      +generation = TC.Generation.child(TC.LocalParent{TC.OutgoingContext.context(outgoing)}, sampling)
       GenerationProof.read_tape_outcome(Maybe<&2, TC.LocalContext>,
         outcome => Laws.reported(policy, TC.Policy.apply.done(Laws.Tape(), policy, TC.Sent, TC.Send.strict,
-          TC.Send.done(Laws.Tape(), limits, outgoing, received, carrier, outcome))),
+          TC.Send.finish(Laws.Tape(), TC.SendChild{generation, limits, outgoing, received, carrier}, outcome))),
         outcome => Laws.generated(outcome),
-        outcome => reported_step(policy, limits, outgoing, received, carrier, outcome),
+        outcome => reported_step(policy, generation, limits, outgoing, received, carrier, outcome),
         16n, (tape, TC.Draw.child(TC.LocalParent{TC.OutgoingContext.context(outgoing)}, sampling)))
     case TC.Untraced{+error, received}:
       Equal.cong(Maybe<&2, TC.LocalContext>, IO.OP<Maybe<&2, TC.LocalContext>>, reported => Emit{reported},
         Laws.reported.result(policy, TC.Policy.apply(policy, TC.Sent, TC.Send.strict,
           TC.Send.fallback(limits, received, error, carrier))), None{},
         unreported(policy, limits, received, error, carrier))
+
+# The package's handling of a service plan's outcome under `policy` is
+# Laws.host_service.done: both apply the policy to ServicePlan.service of
+# the result. By the outcome's pair; it computes.
+law service_finished:
+  for +policy: TC.FailurePolicy
+  for +plan: TC.ServicePlan
+  for outcome: Laws.TapeOutcome()
+  {TC.Policy.apply.done(Laws.Tape(), policy, TC.Service, TC.Serve.strict, TC.Serve.finish(Laws.Tape(), plan, outcome)) ==
+    Laws.host_service.done(policy, plan, outcome) : Laws.TapeService(policy)}
+
+def service_finished(policy, plan, outcome):
+  match outcome:
+    case Tuple{rest, result}:
+      {==}
+
+# Law hosted_service: the operation drives the generation of the plan that
+# ServicePlan.new gives, followed by the package's continuation, which
+# agrees with the host's on every outcome (service_finished,
+# GenerationProof.run_hosted).
+law hosted_service:
+  for tape: Laws.Tape()
+  for +extraction: TC.Extraction
+  for reception: TC.Reception
+  for sampling: TC.Sampling
+  for +policy: TC.FailurePolicy
+  {Laws.Observe(Laws.TapeService(policy), TC.Context.continue_or_start_with(~Laws.Tape(), ~TC.Source.tape, tape,
+    extraction, reception, sampling, policy)) ==
+    Emit{Laws.host_service(policy, tape, TC.ServicePlan.new(extraction, reception, sampling))} :
+    IO.OP<Laws.TapeService(policy)>}
+
+def hosted_service(tape, extraction, reception, sampling, policy):
+  +plan : TC.ServicePlan = TC.ServicePlan.new(extraction, reception, sampling)
+  GenerationProof.run_hosted(Laws.TapeService(policy),
+    outcome => TC.Policy.apply.done(Laws.Tape(), policy, TC.Service, TC.Serve.strict,
+      TC.Serve.finish(Laws.Tape(), plan, outcome)),
+    outcome => Laws.host_service.done(policy, plan, outcome),
+    outcome => service_finished(policy, plan, outcome),
+    tape, TC.ServicePlan.generation(plan))
+
+# The same for a send plan and Laws.host_sent.done.
+law sent_finished:
+  for +policy: TC.FailurePolicy
+  for +plan: TC.SendPlan
+  for outcome: Laws.TapeOutcome()
+  {TC.Policy.apply.done(Laws.Tape(), policy, TC.Sent, TC.Send.strict, TC.Send.finish(Laws.Tape(), plan, outcome)) ==
+    Laws.host_sent.done(policy, plan, outcome) : Laws.TapeSent(policy)}
+
+def sent_finished(policy, plan, outcome):
+  match outcome:
+    case Tuple{rest, result}:
+      {==}
+
+# Law hosted_send: as hosted_service, for the plan that SendPlan.new gives
+# (sent_finished, GenerationProof.run_hosted).
+law hosted_send:
+  for tape: Laws.Tape()
+  for +limits: TC.Limits
+  for service: TC.Service
+  for sampling: TC.Sampling
+  for +policy: TC.FailurePolicy
+  for +carrier: List<&2, TC.Header>
+  {Laws.Observe(Laws.TapeSent(policy), TC.Context.send_with(~Laws.Tape(), ~TC.Source.tape, tape, limits, service,
+    sampling, policy, carrier)) ==
+    Emit{Laws.host_sent(policy, tape, TC.SendPlan.new(limits, service, sampling, carrier))} :
+    IO.OP<Laws.TapeSent(policy)>}
+
+def hosted_send(tape, limits, service, sampling, policy, carrier):
+  +plan : TC.SendPlan = TC.SendPlan.new(limits, service, sampling, carrier)
+  GenerationProof.run_hosted(Laws.TapeSent(policy),
+    outcome => TC.Policy.apply.done(Laws.Tape(), policy, TC.Sent, TC.Send.strict, TC.Send.finish(Laws.Tape(), plan,
+      outcome)),
+    outcome => Laws.host_sent.done(policy, plan, outcome),
+    outcome => sent_finished(policy, plan, outcome),
+    tape, TC.SendPlan.generation(plan))
