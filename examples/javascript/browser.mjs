@@ -1,5 +1,4 @@
-import { inspectTraceparent } from '../../packages/trace-context/javascript/codec.mjs';
-import entropy from '../../packages/trace-context/entropy/webcrypto.js';
+import { inspectTraceparent } from 'bend-trace-context';
 
 document.getElementById('inspect').addEventListener('click', () => {
   const result = inspectTraceparent(document.getElementById('traceparent').value);
@@ -7,4 +6,4 @@ document.getElementById('inspect').addEventListener('click', () => {
 });
 
 // Also available to callers in the page and the browser console.
-globalThis.traceContext = { inspectTraceparent, readRandomU32: entropy.readRandomU32 };
+globalThis.traceContext = { inspectTraceparent };

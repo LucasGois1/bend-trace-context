@@ -1,27 +1,45 @@
-# Traceparent codec, contexts and tracestate
+# Bend API reference
 
-The currently implemented part of **bend-trace-context 0.1.0-dev** is a pure,
-strict v00 codec for Bend 2.0.32, validated trace and span IDs, root, child
-and restarted local contexts, either from IDs the caller supplies or from IDs
-generated on a cryptographic source, a bounded Level 2 `tracestate` parser
-with validated limits, the operations that update a local operation's
-tracestate and emit it within the output budget, the extraction of a received
-message's context from its fields, the injection and forwarding of a context
-into the fields of a message to send, and the operations that continue or
-start a service's own operation for each message it receives and give each
-message it sends a child of that operation, with an adapter for the header
-maps of bend-kit's native HTTP package and a JavaScript facade for Node and
-browser pages.
-It has no external package dependencies beyond the compiler's bundled `Base`.
-The public entries are [trace_context.bend](trace_context.bend), which
-performs no host effect of its own, [generation.bend](generation.bend), which
-adds the host's cryptographic source, [native_http.bend](native_http.bend),
-which adapts bend-kit's header maps without any host effect, and the
-JavaScript modules of
-[javascript](javascript), which the [JavaScript guide](JAVASCRIPT.md)
-documents.
-See the root [installation guide](../../README.md) to consume them from a pinned
-Git checkout.
+This reference lists every public operation and type of the Bend package,
+and what its laws prove. Start with the [guide](GUIDE.md) for the ideas and
+recipes; [Errors and diagnostics](ERRORS.md) lists every error and log name,
+and the [JavaScript guide](JAVASCRIPT.md) covers the facade.
+
+The package has three public modules, and no dependency beyond the
+compiler's bundled `Base`:
+
+- [trace_context.bend](trace_context.bend), imported as `TC` below, decides
+  every Trace Context rule and performs no host effect of its own;
+- [generation.bend](generation.bend), `Generate` below, runs its generating
+  operations on the host's cryptographic source;
+- [native_http.bend](native_http.bend), `NativeHttp` below, adapts the header
+  maps of bend-kit's HTTP package, without any host effect.
+
+Names that this reference does not list, such as the `Headers`, `Scan` or
+`Draw` helpers, are internal: Bend lets any module import them, but they
+are not a compatibility contract. The [root README](../../README.md#install)
+shows how to add the package to a project.
+
+Most services need three operations: `TC.Context.extract`,
+`Generate.Context.continue_or_start` and `Generate.Context.send`, in
+[Extracting context](#extracting-context) and
+[Continuing or starting a trace](#continuing-or-starting-a-trace). The
+sections below build up to them from the codec. "Spec #1" is the package's
+approved [specification](https://github.com/LucasGois1/bend-trace-context/issues/1).
+
+- [Codec API](#codec-api)
+- [Supplied IDs and contexts](#supplied-ids-and-contexts)
+- [Generated contexts](#generated-contexts)
+- [Tracestate](#tracestate)
+- [Updating and emitting tracestate](#updating-and-emitting-tracestate)
+- [Extracting context](#extracting-context)
+- [Injecting and forwarding context](#injecting-and-forwarding-context)
+- [Continuing or starting a trace](#continuing-or-starting-a-trace), the
+  operations that most services use
+- [Host-driven generation](#host-driven-generation)
+- [Native HTTP integration](#native-http-integration)
+- [Parsing contract](#parsing-contract) and [representation](#representation)
+- [Proofs](#proofs)
 
 ## Codec API
 
@@ -189,18 +207,11 @@ Every operation follows the same rules:
   resolves sampled as `Context.child_from_id` does, so generating its span ID
   never changes a received random bit.
 
-| Error | Meaning |
-| --- | --- |
-| `SourceFailure{code, message}` | The source failed with its own code and message |
-| `ExhaustedTraceId{}` | Eight trace ID candidates were rejected |
-| `ExhaustedSpanId{}` | Eight span ID candidates were rejected |
-
-The host source fails with `1 unavailable` or `2 source-failure` in JavaScript,
-as the [WebCrypto adapter](JAVASCRIPT.md#webcrypto-and-explicit-effects)
-documents. Natively, a Linux `getrandom` error gives its `errno` and
-`strerror` text, and `arc4random_buf` on macOS cannot fail. The tests induce
-the JavaScript failures but not the native one. `Source.tape` fails with
-`1 tape-exhausted` when its words run out.
+A generation fails with a `GenerationError`: `SourceFailure{code, message}`
+when the source fails, and `ExhaustedTraceId{}` or `ExhaustedSpanId{}` after
+eight rejected candidates. [Errors and diagnostics](ERRORS.md#generation)
+lists the failures of each source; the tests induce the JavaScript failures
+but not the native one.
 
 The same operations take a caller's source in trace_context.bend:
 
@@ -353,27 +364,13 @@ the transport's responsibility.
 
 ### Diagnostics
 
-| `StateError` | Meaning |
-| --- | --- |
-| `StateTooLarge{}` | The combined value exceeds the tracestate input budget |
-| `TooManyMembers{}` | A 33rd nonempty member was reached |
-| `InvalidEntry{member, error}` | The member numbered `member`, counting every comma-separated member from zero, is invalid |
-
-| `EntryError` | Meaning |
-| --- | --- |
-| `MissingEquals{}` | A nonempty member has no `=` |
-| `InvalidKey{}` | The text before the first `=` is not a key |
-| `InvalidValue{}` | The text after it, without trailing optional whitespace, is not a value |
-
-| `LimitsError` | Meaning |
-| --- | --- |
-| `TraceParentInputTooSmall{}` | The traceparent input budget is below 55 |
-| `TraceStateOutputTooSmall{}` | The tracestate output budget is below 512 |
-| `TraceStateInputTooSmall{}` | The tracestate input budget is below the output budget |
-
-`StateKey.parse` and `StateValue.parse` fail with `InvalidKey{}` and
-`InvalidValue{}`; they trim nothing, so a value with a trailing space is
-refused there. Diagnostics carry positions and categories, never the received
+`TraceState.parse` and `parse_fields` fail with a `StateError`,
+`StateKey.parse` and `StateValue.parse` with an `EntryError`, and
+`Limits.new` with a `LimitsError`; Errors and diagnostics lists each
+[tracestate error](ERRORS.md#tracestate) and
+[limits error](ERRORS.md#limits) with its name. `StateKey.parse` and
+`StateValue.parse` fail with `InvalidKey{}` and `InvalidValue{}`; they trim
+nothing, so a value with a trailing space is refused there. Diagnostics carry positions and categories, never the received
 text, and the package does not log.
 
 Parsing does not attach state to a context, and a parsed state gives no
@@ -561,26 +558,12 @@ Extraction follows these rules:
 - Extraction generates no identifier and performs no effect, and no
   diagnostic contains a received value.
 
-| `TraceParentOutcome` | Meaning |
-| --- | --- |
-| `TraceParentAccepted{}` | The message's traceparent was read; `Extraction.incoming` gives its context |
-| `TraceParentAbsent{}` | The message has no traceparent field; the base is kept |
-| `TraceParentRejected{error}` | The traceparent was refused; the base is kept |
-
-| `TraceParentError` | Meaning |
-| --- | --- |
-| `RepeatedTraceParent{}` | More than one traceparent field, or a value joining several with a comma |
-| `TraceParentTooLarge{}` | The value exceeds the traceparent input budget |
-| `InvalidTraceParent{error}` | The value breaks the rules of its version; `error` is a codec `Error` |
-
-| `StateOutcome` | Meaning |
-| --- | --- |
-| `StateAbsent{}` | The message has no tracestate field |
-| `StateAccepted{}` | The fields were read into the incoming context's state, which may be empty |
-| `StateDiscarded{error}` | The fields were refused as a whole; the traceparent stays accepted |
-| `StateIgnored{}` | The fields were not read, because the message has no accepted traceparent |
-
-`Extraction.show` joins both outcomes for a log line, such as
+`Extraction.parent` gives the traceparent's outcome: accepted, absent, or
+rejected with a `TraceParentError`. `Extraction.state` gives the
+tracestate's: absent, accepted, discarded with a `StateError`, or ignored
+without an accepted traceparent.
+[Errors and diagnostics](ERRORS.md#extraction) lists each outcome and
+error. `Extraction.show` joins both outcomes for a log line, such as
 `TraceParentAccepted, StateDiscarded InvalidEntry 1 MissingEquals`.
 
 An incoming context identifies the sender's operation, not one of this
@@ -656,24 +639,22 @@ does not accumulate fields.
 - `clear` removes the context fields alone, for a message sent without
   context.
 - `forward` writes the received pair of an incoming context as it came: the
-  traceparent value, whatever its version, reserved flag bits and unknown
-  fields, and the tracestate fields joined into one field by commas, as W3C
+  traceparent value without the whitespace around it, whatever its version,
+  reserved flag bits and unknown fields, and the tracestate fields joined
+  into one field by commas, as W3C
   section 3.3.2 recommends, byte for byte; the tracestate field is left out
   when that joined value is empty, as injection leaves out an empty state.
   It never normalizes flags, downgrades a version or edits the tracestate
   (section 3.4). When the pair cannot be sent whole, it fails and writes
   nothing.
 
-| `ForwardError` | Meaning |
-| --- | --- |
-| `NothingToForward{}` | The context keeps no received pair: its tracestate was discarded when it was extracted |
-| `ForwardTooLarge{}` | The tracestate fields, joined by commas, exceed the tracestate output budget |
-| `InvalidForwardParent{error}` | The traceparent value is not one that `TraceParent.read` accepts |
-| `InvalidForwardState{error}` | The tracestate fields are not ones that `TraceState.parse_fields` accepts |
-
-The last two refuse only a pair built directly: the pair of a context that
-extraction accepted passes them under the same limits, so the output budget is
-the only reason it is refused. A received tracestate within the 32 KiB input
+`forward` fails with a `ForwardError`: `NothingToForward{}` when the
+context keeps no received pair, `ForwardTooLarge{}` over the output budget,
+or `InvalidForwardParent{error}` and `InvalidForwardState{error}`; see
+[Errors and diagnostics](ERRORS.md#forwarding). The last two refuse a pair
+built directly, or one that extraction accepted under larger input budgets:
+under the limits of its extraction, the pair of a context that extraction
+accepted passes them, so the output budget is the only reason it is refused. A received tracestate within the 32 KiB input
 budget may exceed the 512-octet default output budget. A service that cannot
 forward such a pair, or that changes the state it passes on, continues the
 trace with a child operation of its own and injects it instead: the child's
@@ -787,7 +768,9 @@ unchanged if it can be sent whole, and otherwise carries no context fields.
 | `Unforwarded` | Meaning |
 | --- | --- |
 | `NothingKept{}` | The service keeps no received context: its operation is, or was to be, a root, a restart or a child of a base |
-| `ForwardFailed{error}` | `Context.forward` refused the received context: `NothingToForward{}` when its tracestate was discarded at extraction, or `ForwardTooLarge{}` over the output budget |
+| `ForwardFailed{error}` | `Context.forward` refused the received context under the limits of `send`, with its `ForwardError`: `NothingToForward{}` when its tracestate was discarded at extraction, `ForwardTooLarge{}` over the output budget, or `InvalidForwardParent{TraceParentTooLarge{}}` under a traceparent input budget smaller than that of extraction |
+
+### Failure policies
 
 `policy` decides what a failed generation returns:
 
@@ -960,30 +943,20 @@ NativeHttp.send_with(~S, ~read, source: S, limits: TC.Limits, service: TC.Servic
   are the same on the host's cryptographic source, which is what a service
   normally uses.
 
-A service handles each request in three steps:
+A service handles each request in three steps: its operation from the
+request's header map with `Generate.NativeHttp.continue_or_start`, a child
+of it for each request that it sends with `Generate.NativeHttp.send`, and
+the call with bend-kit's `Http.fetch.how` and
+`NativeHttp.Outbound.headers(outbound)`. The guide's
+[native HTTP service](GUIDE.md#a-native-http-service) is a complete program.
 
-```bend
-+service : TC.Service <- Generate.NativeHttp.continue_or_start(TC.Limits.default(), headers, None{}, TC.Continue{},
-  TC.InheritSampled{}, TC.Lenient{})
-+outbound : NativeHttp.Outbound <- Generate.NativeHttp.send(TC.Limits.default(), service, TC.InheritSampled{},
-  TC.Lenient{}, Http.set(Http.empty(), "content-type", "application/json"))
-result : Result<&1, &1, Http.Err, Http.Res> <- Http.fetch.how("POST", url,
-  NativeHttp.Outbound.headers(outbound), body, 3000, Http.ModeManual{})
-```
-
-`Generate.NativeHttp.continue_or_start` returns only the service. A
-service that also logs why it continued or started a trace, which spec #1's
+`Generate.NativeHttp.continue_or_start` returns only the service. A service
+that also logs why it continued or started a trace, which spec #1's
 diagnostics distinguish (an absent or a rejected traceparent, a discarded
-state), extracts first and passes the extraction on, as the
-[gateway example](examples/gateway.bend) does:
-
-```bend
-+extraction = TC.Context.extract(TC.Limits.default(), NativeHttp.carrier(headers), None{})
-+service : TC.Service <- Generate.Context.continue_or_start(extraction, TC.Continue{}, TC.InheritSampled{},
-  TC.Lenient{})
-```
-
-and logs `TC.Extraction.show(extraction)` with the other diagnostics.
+state), extracts first with `TC.Context.extract` on
+`NativeHttp.carrier(headers)`, passes the extraction to
+`Generate.Context.continue_or_start`, and logs `TC.Extraction.show`, as that
+program and the [gateway example](examples/gateway.bend) do.
 
 Errors are handled at three levels:
 
@@ -1081,21 +1054,11 @@ Supplied IDs follow the same rules for their single field: offsets count from
 the start of the ID text, and extra characters after the last digit are
 `TrailingInput{}`.
 
-Structured errors are constructors of `Error`; callers may pattern-match on
-them rather than parsing the human-readable result of `Error.show`:
-
-| Error | Meaning |
-| --- | --- |
-| `UnexpectedEnd{offset}` | A required character is missing |
-| `InvalidHex{offset}` | A character is not lowercase ASCII hexadecimal |
-| `ExpectedSeparator{offset}` | A required dash is absent |
-| `TrailingInput{}` | Extra characters follow the flag byte or a supplied ID |
-| `ForbiddenVersion{}` | The version is `ff` |
-| `UnsupportedVersion{version}` | A syntactically valid version is neither `00` nor `ff` |
-| `ZeroId{TraceIdField{}}` | A trace ID is all zero |
-| `ZeroId{ParentIdField{}}` | The parent ID is all zero |
-| `ZeroId{SpanIdField{}}` | A supplied span ID is all zero |
-| `ControlCharacter{offset}` | A control character other than a tab in the unknown fields of a later version, reported by `TraceParent.read` only |
+Errors are constructors of `Error`, such as `InvalidHex{offset}` or
+`ZeroId{TraceIdField{}}`; callers may match on them rather than read the
+name that `Error.show` gives, `InvalidHex at 3` or `ZeroTraceId`.
+[Errors and diagnostics](ERRORS.md#traceparent-and-identifiers) lists them
+all.
 
 Creating a context from valid IDs can only fail with a `ContextError`:
 `ReusedSpanId{}` when a child uses its parent's span ID, and `ReusedTraceId{}`
@@ -1337,118 +1300,7 @@ the modules under [proofs](proofs), each of which starts with a summary of what
 it proves. [trace_context.bend](trace_context.bend) opens with notes on the
 Bend features the implementation relies on, and documents every definition.
 
-## Validation and scope
-
-The [public corpus](tests/TEST.bend) uses eight valid traceparent inputs, 26
-malformed traceparent inputs with expected errors/positions, 14 malformed
-supplied IDs, roots and children for all four known flag combinations, both
-restart outcomes (`00` and `02`), and all 256 flag bytes. For each flag byte
-it checks the codec, the received sampled and random bits and the flags a child
-emits against independent numeric oracles. The [negative fixtures](tests/reject)
-must fail typechecking for the intended nonzero, length and remote/local
-mismatch.
-
-The [tracestate corpus](tests/TRACESTATE.bend) uses literal fixtures for keys
-and values at every character-class boundary and length limit, optional
-whitespace, empty members, member errors and their numbers, duplicates,
-exactly 32 and 33 members, repeated fields, every limit rule, and inputs at and
-past the budget with one-, two-, three- and four-octet characters, up to a
-mebibyte that must be refused without being read. It also parses the largest
-valid state, 16447 octets, within the default budget.
-
-The [outgoing corpus](tests/OUTGOING.bend) sets and removes entries of
-literal states, including full states that must evict nothing or exactly the
-last entry, checks emitted sizes, and truncates states at 512 and 513 octets,
-with entries of 128 and 129 octets, several large entries, a single entry
-larger than the budget and a larger configured budget, checking the entries
-kept and the keys dropped. It also emits outgoing contexts for a root and for
-a child of a received context.
-
-The [extraction corpus](tests/EXTRACT.bend) uses the inputs of the pinned W3C
-harness for field names, repeated fields, versions, IDs, flags and
-whitespace. It checks the precedence of a message's context over the base,
-repeated traceparent fields apart and joined by a host, the combination,
-discard and neglect of tracestate fields, strict version 00, `ff` and later
-versions with and without unknown fields, control characters in those fields
-at each edge of their range, the exact traceparent budget with
-one-, two- and three-octet characters and a mebibyte refused without being
-read, the tracestate budget with its joining commas, a carrier of 100000
-fields, incoming and base contexts and their parents and states, and
-diagnostics that never contain the received values.
-
-The [injection corpus](tests/INJECT.bend) cleans and injects into carriers
-with old context fields in every case, lookalike names and unrelated fields,
-for roots, children of a context with every flag bit set, empty and truncated
-states, and repeated injection. It forwards a later version with unknown
-fields, every flag bit set and whitespace around it, whose three tracestate
-fields, one of them empty, are joined as they came; a version 00 with
-reserved flag bits; empty and discarded states; joined tracestates of 512 and
-513 octets; spec #1's 600-octet state under the default and a larger output
-budget; and pairs built directly that forwarding must refuse, a line break
-in a later version's unknown fields among them. It extracts again the
-carriers of three injections and of a forwarding, and it handles carriers of
-100000 fields and values of 32 KiB.
-
-The [continue-or-start corpus](tests/CONTINUE.bend) replays tapes through
-both operations. It continues a message's context and, without a usable
-traceparent, a base of this service and a context received earlier; it
-starts roots and restarts, with and without a sampling override, and at a
-boundary replaces the message's context, a base of this service and a
-context received earlier with trace IDs other than theirs; and it meets a
-source failure and exhausted candidates under both policies. It sends a
-fan-out of three requests with different span IDs into a reused container,
-puts the service's own entry first, and checks what a message carries when
-no operation can be generated: the received pair forwarded, and no context
-at a boundary, for a root, for a base, after a discarded state and for
-spec #1's 600-octet state. Each case checks how many words were left unread,
-and the diagnostics, truncation included, contain no received value.
-
-The [native HTTP header corpus](tests/NATIVE-HTTP.bend) reads received header
-maps with repeated traceparent and tracestate values, writes carriers with
-repeated and mixed-case names back into maps, and runs both shortcuts over
-replayed tapes: a continued request, a child sent in place of a reused
-container's old context fields, whatever the case of their names, the
-forwarded pair, the cleared fields and a strict failure.
-
-The [propagation qualification](../../scripts/qualify-propagation.sh) takes a
-service and the gateway example from a pinned checkout of the repository, as
-an application would: in `native` mode it builds them on the adapter and
-runs them over bend-kit's real transport, and in `node` mode it installs
-the [JavaScript facade](JAVASCRIPT.md) into a Node service and runs them over
-`node:http`. Its own checks, against an independent Node observer, cover:
-
-- sampled `0` and every combination of the sampled and random-trace-id flags;
-- roots, restarts and fan-out;
-- repeated injection into reused containers with stale context fields;
-- a discarded state, with diagnostics that hold no received value;
-- source failures for the service's operation and for each child, and
-  exhausted candidates, which forward the received pair or clear the
-  context;
-- strict refusals;
-- the gateway example.
-
-In both modes it then runs the W3C harness at commit `acab820` with
-`SPEC_LEVEL=2` and `STRICT_LEVEL=2`: `TraceContextTest`, `AdvancedTest` and
-`TraceContext2Test`, 41 tests, of which none may fail, error or be skipped. Passing this finite
-harness shows interoperability in the scenarios it runs, not conformance to
-the whole W3C publication.
-
-The [generation corpus](tests/GENERATION.bend) replays tapes through the public
-operations: conversion vectors in decimal for the W3C example words, the digit
-order within a word, zero then valid candidates, eight zero candidates with no ninth read, a 48-word
-worst case, a source error in the middle of a candidate, an empty tape, a
-child that must not reuse the parent's span ID and a restart that must not
-reuse the received trace ID, each checking how many words were left unread.
-The [smoke check](tests/SMOKE.bend), the
-[generation example](examples/generate.bend) and the
-[continue example](examples/continue.bend) generate on the real host source;
-they check only that the results are well formed and that generated IDs are
-new where they must be. The JavaScript suite runs a compiled
-root through WebCrypto with real host exceptions and counts the words read,
-and runs the facade's generations on deterministic sources, counting the
-words they read, and on actual WebCrypto exceptions.
-The [validation guide](../../README.md#validation) describes reproducible
-commands and the separate clean consumer.
+## Standards and scope
 
 The strict v00 format follows
 [W3C Trace Context Level 1](https://www.w3.org/TR/2021/REC-trace-context-1-20211123/#traceparent-header).
@@ -1460,6 +1312,6 @@ The codec's faithful formatter does not mask reserved bits of a parsed
 value; `LocalContext.to_traceparent` emits only known flags. There is no
 claim of complete W3C propagator conformance or a full OpenTelemetry SDK.
 
-See the [validation record](VALIDATION.md) for the execution evidence of the
-first codec and of the move to Bend 2.0.32, and
-[CHANGELOG.md](../../CHANGELOG.md) for versioning and migration.
+[VALIDATION.md](VALIDATION.md) describes what each test corpus covers and
+records the validation runs, and [CHANGELOG.md](../../CHANGELOG.md) covers
+versioning and migration.

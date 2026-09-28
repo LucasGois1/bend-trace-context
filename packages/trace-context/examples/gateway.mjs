@@ -19,8 +19,8 @@
 //   node packages/trace-context/examples/gateway.mjs
 // It listens on 127.0.0.1:18777 and calls http://127.0.0.1:18776/downstream.
 import http from 'node:http';
-import * as TC from '../javascript/index.mjs';
-import { extractRequest, requestHeaders } from '../javascript/node.mjs';
+import * as TC from 'bend-trace-context';
+import { extractRequest, requestHeaders } from 'bend-trace-context/node';
 
 const downstream = 'http://127.0.0.1:18776/downstream';
 

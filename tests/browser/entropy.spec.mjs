@@ -1,7 +1,7 @@
 import { test, expect } from './fixtures.mjs';
 
 test('the browser obtains a U32 through the shared WebCrypto bridge', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/entropy.html');
   const result = await page.evaluate(() => globalThis.traceContext.readRandomU32());
   expect(result.$).toBe('Done');
   expect(Number.isInteger(result.value)).toBe(true);
@@ -11,7 +11,7 @@ test('the browser obtains a U32 through the shared WebCrypto bridge', async ({ p
 
 for (const exception of ['TypeMismatchError', 'QuotaExceededError']) {
   test(`a real WebCrypto ${exception} becomes a structured source failure`, async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/entropy.html');
     const outcome = await page.evaluate(name => {
       let observed;
       const result = globalThis.traceContext.readRandomU32({
@@ -35,7 +35,7 @@ for (const exception of ['TypeMismatchError', 'QuotaExceededError']) {
 }
 
 test('missing host crypto and controlled provider failures return errors without fallback', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/entropy.html');
   const results = await page.evaluate(() => {
     const read = globalThis.traceContext.readRandomU32;
     const absent = Object.getOwnPropertyDescriptor(globalThis, 'crypto');

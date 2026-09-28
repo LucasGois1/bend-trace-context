@@ -57,14 +57,18 @@ else
   run_logged browser-bundle cksum build/browser/*
   # A copy of the sources at another path gives the same scripts under other
   # names: the bundler names its chunks by a hash of where the sources are.
+  # The examples import the package by name, as `npm ci` links it.
   relocated=$(mktemp -d "${TMPDIR:-/tmp}/bend-browser.XXXXXXXX")
-  mkdir -p "$relocated/examples" "$relocated/packages"
+  mkdir -p "$relocated/examples" "$relocated/packages" "$relocated/tests/browser" "$relocated/node_modules"
   cp -R examples/javascript "$relocated/examples/"
   cp -R packages/trace-context "$relocated/packages/"
+  cp -R tests/browser/pages "$relocated/tests/browser/"
+  ln -s ../packages/trace-context "$relocated/node_modules/bend-trace-context"
   # shellcheck disable=SC2317,SC2329 # run_logged invokes these functions.
   relocated_build() {
     ./bend "$relocated/examples/javascript/index.html" -o "$relocated/out" &&
-      ./bend "$relocated/examples/javascript/fetch.html" -o "$relocated/out"
+      ./bend "$relocated/examples/javascript/fetch.html" -o "$relocated/out" &&
+      ./bend "$relocated/tests/browser/pages/entropy.html" -o "$relocated/out"
   }
   # shellcheck disable=SC2317,SC2329
   scripts_of() { for script in "$1"/*.js; do cksum < "$script"; done | sort; }

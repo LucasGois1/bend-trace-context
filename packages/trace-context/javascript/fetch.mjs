@@ -15,13 +15,14 @@ import { optionsOf, sendOptions } from './options.mjs';
 // <meta name="traceparent" content="..."> and <meta name="tracestate">
 // elements, in document order: the fields to extract the page's context
 // from. The names are compared without regard to ASCII case; the <meta>
-// convention is OpenTelemetry's, not the W3C's.
+// convention is OpenTelemetry's, not the W3C's. The selection may be any
+// array-like, as a NodeList is in every DOM library.
 export function documentFields(document) {
   if (typeof document !== 'object' || document === null || typeof document.querySelectorAll !== 'function') {
     throw new TypeError('document must be a DOM document');
   }
   const fields = [];
-  for (const meta of document.querySelectorAll('meta[name]')) {
+  for (const meta of Array.from(document.querySelectorAll('meta[name]'))) {
     const name = String(meta.getAttribute('name')).toLowerCase();
     if (name === 'traceparent' || name === 'tracestate') fields.push([name, String(meta.getAttribute('content') ?? '')]);
   }

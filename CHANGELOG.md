@@ -177,8 +177,8 @@ qualified JavaScript/entropy boundaries; it is not a published release.
 
   The package's values stay behind frozen handles that only the facade
   creates, named after the package's types, so copied or forged objects are
-  refused, and arguments are read once. It needs Node 22.18.0 or later, or
-  Node 24. Generation reads WebCrypto words one at a time, and the policies
+  refused, and arguments are read once. It needs Node 22.18.0 or a later
+  Node 22, or Node 24. Generation reads WebCrypto words one at a time, and the policies
   follow the package: the lenient path proceeds with diagnostics, and the
   strict one throws a `GenerationError`. `bend-trace-context/node` reads
   received `node:http` requests from their raw header lines and writes the
@@ -232,6 +232,38 @@ qualified JavaScript/entropy boundaries; it is not a published release.
   unchanged.
 - Establish reproducible Bend 2.0.27 setup, Git-pinned consumption, MIT licensing
   and baseline validation on native and Node targets.
+- Complete the user documentation. The root README is the entry point:
+  what the package is and whom it is for, what it does and does not, where
+  it runs, how to install it at a commit, and quick starts for a Bend
+  service, a Node program and a browser page. A new
+  [guide](packages/trace-context/GUIDE.md) explains Trace Context, how a
+  service takes part and the decisions it makes, with recipes for a native
+  HTTP service, log correlation, jobs, sampling, a `tracestate` entry, trust
+  boundaries, relays, queue workers, supplied IDs and tests, and sections on
+  security, questions, troubleshooting and OpenTelemetry.
+  [Errors and diagnostics](packages/trace-context/ERRORS.md) lists every
+  error and log name with its `show` form and its JavaScript surface. The
+  [JavaScript guide](packages/trace-context/JAVASCRIPT.md) starts with
+  recipes for `node:http` with `fetch`, Express, Fastify,
+  `AsyncLocalStorage`, log correlation and OpenTelemetry, and adds a server
+  for a page, TypeScript and troubleshooting. The package reference is the
+  Bend API reference, and the validation record describes the test corpora
+  and the JavaScript qualification. [CONTRIBUTING.md](CONTRIBUTING.md) and
+  [SECURITY.md](SECURITY.md) are new, and the planning records `PROPOSAL.md`
+  and `DESIGN.md` are removed: the approved specification and decisions are
+  in the issues. The consumer qualification runs every program of the
+  README and the guides and compares what it prints with what they show,
+  runs the JavaScript recipes against an independent observer, and runs the
+  README's browser quick start in the three engines. The JavaScript examples
+  import the package by its name, as an application does.
+- Ship TypeScript declarations for the three JavaScript entries,
+  `javascript/index.d.mts`, `node.d.mts` and `fetch.d.mts`, which the
+  package's `exports` name. The first two need no DOM or Node types; the
+  Fetch entry's use the DOM library's Fetch types. A test requires them to
+  declare exactly the functions, classes and handle properties that each
+  entry provides, and the consumer qualification checks their use with
+  TypeScript 5.9 and 7.0. `documentFields` now reads any array-like
+  selection, as its declaration allows, where it required an iterable one.
 - Move to Bend 2.0.32. The proof gate reads its verdict, `ALL PROOFS CHECK`,
   which also requires that nothing `PROOF.bend` imports relies on `@unsafe`
   or foreign code. The host shortcuts of the native HTTP adapter therefore
@@ -253,8 +285,7 @@ qualified JavaScript/entropy boundaries; it is not a published release.
 - Qualify pure module consumption in Node 22/24 and Chromium/Firefox/WebKit
   with the package's compiled ES module and the official HTML bundler. Add
   primitive-string inspection and a shared WebCrypto source whose explicit
-  Bend JS effect returns structured failures. HTTP/Fetch integration remains
-  a separate planned capability.
+  Bend JS effect returns structured failures.
 - Qualify bend-kit's native HTTP client/server, `bend-kit-http` 0.23.0.1
   from BendHub (paymog/bend-net at `274591f1d1fcca2e4aa39ba65e505b32e2dbff21`
   before Bend 2.0.32), on macOS ARM64 and Linux x86_64 with a
@@ -282,12 +313,15 @@ alias, as in `Generate.NativeHttp.send`. Bend 2.0.32 answers
 `SOME PROOFS FAIL` for a file that imports generation.bend, whose host
 operations rely on the entropy effect's foreign code, so an application's
 proof gate should not import it: state the laws over a caller's source, as
-this package's laws do. A JavaScript
-application runs with `node` alone: drop the `--import` of Bend's loader and
-`scripts/setup-bend-source.sh`. A native service imports bend-kit's HTTP
-package instead of bend-net: its bodies are bytes (`Http.Body()`, with
-`Http.from_string` and `Http.to_string`), `Http.fetch.how` answers
-`Result<&1, &1, Http.Err, Http.Res>`, and no submodule is needed.
+this package's laws do. A JavaScript application runs with `node` alone:
+drop the `--import` of Bend's loader and `scripts/setup-bend-source.sh`. An
+application that imported `javascript/codec.mjs` or `entropy/webcrypto.js`
+by path imports `inspectTraceparent` from `bend-trace-context` instead, and
+passes its own WebCrypto provider as the `crypto` option. A native service
+imports bend-kit's HTTP package instead of bend-net: its bodies are bytes
+(`Http.Body()`, with `Http.from_string` and `Http.to_string`),
+`Http.fetch.how` answers `Result<&1, &1, Http.Err, Http.Res>`, and no
+submodule is needed.
 
 ## Versioning and compatibility
 
@@ -309,8 +343,14 @@ extraction steps (`Carrier`, `Text`, `Read`, `Extract`), forwarding steps
 the native HTTP adapter's `Headers` steps and proof helpers are not
 compatibility promises, even where Bend makes their names importable.
 
-The additional JavaScript inspection and entropy entries and their error
-contracts are documented in the [qualification guide](packages/trace-context/JAVASCRIPT.md).
+The documented JavaScript entries are `bend-trace-context`,
+`bend-trace-context/node` and `bend-trace-context/fetch`: their functions,
+handles, options, error behavior and TypeScript declarations, as the
+[JavaScript guide](packages/trace-context/JAVASCRIPT.md) documents them,
+form the JavaScript API contract. Their internal modules, such as
+`javascript/trace_context.mjs`, `handles.mjs` and `options.mjs`, and the
+shared WebCrypto source are not, and no other path of the package is
+exported.
 
 Future releases will record API, wire-policy and toolchain changes here, including
 migration steps for incompatible changes. Development toward 0.1.0 does not

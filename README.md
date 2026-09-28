@@ -1,67 +1,80 @@
 # bend-trace-context
 
-A pure, strict `traceparent` v00 codec for **Bend 2.0.32**, using dependent ID
-types and checked proofs. Licensed under [MIT](LICENSE).
+W3C Trace Context propagation for [Bend](https://bend-lang.com/): the
+`traceparent` and `tracestate` fields that let a distributed tracing system
+follow one request through every service that it reaches. A service that
+uses the package continues the trace of each request that it receives, and
+gives each request that it sends a child of its own operation, with the
+standard's rules proved as laws. Licensed under [MIT](LICENSE).
 
-**Status: 0.1.0-dev.** The complete Trace Context propagator is being developed
-under [specification #1](https://github.com/LucasGois1/bend-trace-context/issues/1).
-The current package parses, formats and inspects strict v00 values, creates
-root, child and restarted local contexts from validated IDs that the caller
-supplies or from IDs generated on the host's cryptographic source, natively and
-in Bend programs compiled to Node, parses, queries and formats Level 2
-`tracestate` within validated limits, updates the state a local operation
-sends and emits it within the output budget, extracts the context of a
-received message from its fields, keeping a base context when the message has
-no usable traceparent, injects a local operation into the fields of a
-message to send or forwards a received context unchanged, and gives a service
-its own operation for each message it receives, a child for each message it
-sends, and a lenient or strict outcome when an identifier cannot be
-generated. Over bend-kit's native HTTP package, a service built on the
-package's adapter passes the W3C Trace Context harness at its pinned commit.
-On Node 22 and 24, a JavaScript facade gives JavaScript applications the same
-operations, with WebCrypto as the identifier source and `node:http`
-integration, and a Node service built on it passes the same harness. In
-Playwright's builds of Chromium, Firefox and WebKit, which the
-[JavaScript guide](packages/trace-context/JAVASCRIPT.md#tested-engines) lists,
-a page bundled with the official Bend bundler uses the same facade, with
-Fetch integration and a same-origin default for the context fields. No BendHub or npm package has been published.
+[![CI](https://github.com/LucasGois1/bend-trace-context/actions/workflows/ci.yml/badge.svg)](https://github.com/LucasGois1/bend-trace-context/actions/workflows/ci.yml)
 
-## Try the codec
+It is for Bend services that take part in distributed tracing, natively or
+compiled to JavaScript, and for the Node applications and browser pages that
+call them or must follow the same rules. It propagates context, records
+nothing and makes no sampling decision of its own: pair it with a tracer to
+record spans, such as OpenTelemetry in JavaScript, or log the trace and span
+IDs of a Bend service's operations to correlate its logs.
 
-Prerequisites: Git, POSIX shell, curl, tar, a SHA-256 utility (`sha256sum` or
-`shasum`), and Clang 14+ for native builds. Node 22 or 24 is needed to run
-generated JavaScript. The pinned compiler installer supports macOS ARM64 and
-Linux x86_64.
+**Status: 0.1.0-dev, not released yet.** The package does everything that
+0.1.0 will ship, and its release is being prepared in
+[#15](https://github.com/LucasGois1/bend-trace-context/issues/15). Until
+then, depend on a commit, as [Install](#install) shows. It needs exactly
+Bend 2.0.32.
 
-From a checkout of this repository:
+## What it does
+
+For each message that a service receives, the package:
+
+- reads its context, as
+  [W3C Trace Context Level 2](https://www.w3.org/TR/2024/CRD-trace-context-2-20240328/)
+  asks: a malformed, oversized or repeated `traceparent` is refused, repeated
+  `tracestate` fields are combined, and later versions are read by their
+  known prefix;
+- gives the service an **operation** of its own, which tracers call a span:
+  a **child** of the caller's operation, which keeps the caller's trace, or
+  the root of a new trace when the message carries no context;
+- gives each message that the service sends a new child of that operation,
+  written into the message's fields, with `tracestate` kept within budgets.
+
+It also generates trace and span IDs on the host's cryptographic source, or
+on a source that you supply for tests; forwards a context unchanged for
+intermediaries; restarts traces at trust boundaries; lets requests proceed
+when no ID can be generated, or fails them if you choose; and reports every
+outcome in names that can be logged, without logging anything itself. The
+[guide](packages/trace-context/GUIDE.md) explains the ideas in a few
+minutes.
+
+## Where it runs
+
+| Target | Support |
+| --- | --- |
+| Bend compiler | Exactly 2.0.32, which [Install](#install) sets up; other versions are not supported |
+| Native Bend | macOS ARM64 and Linux x86_64, with Clang 14 or later |
+| Bend programs compiled to JavaScript | Node 22 and 24 |
+| JavaScript applications | Node 22.18.0 or a later Node 22, and Node 24, through the facade, with TypeScript declarations |
+| Browser pages | Chromium, Firefox and WebKit, as Playwright 1.63 builds them, bundled with the official Bend bundler |
+| Native HTTP | bend-kit's HTTP package, `bend-kit-http` 0.23.0.1 |
+
+Each row is qualified in CI on every commit; the
+[validation record](packages/trace-context/VALIDATION.md) lists the exact
+versions.
+
+## Install
+
+The package has no release yet, so a project depends on an exact commit of
+`master` whose [CI run](https://github.com/LucasGois1/bend-trace-context/actions/workflows/ci.yml?query=branch%3Amaster+is%3Asuccess)
+passed. With the GitHub CLI, the latest such commit is:
 
 ```sh
-./scripts/setup-bend.sh
-./bend version
-./bend packages/trace-context/examples/demo.bend
+gh run list --repo LucasGois1/bend-trace-context --workflow ci.yml --branch master --status success --limit 1 --json headSha --jq '.[0].headSha'
 ```
 
-Expected output from the example:
-
-```text
-00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01
-sampled: True
-```
-
-Setup downloads the exact official release, verifies its SHA-256 before
-extraction and installs it under `.tools/bend-2.0.32/`. It does not install
-global shell configuration.
-The [installer](scripts/setup-bend.sh) records the platform archive hashes for
-the official [Bend 2.0.32 release](https://github.com/bendlang/bend/releases/tag/v2.0.32),
-whose tag resolves to `573002f01ec6c52416d44489543f69a9625facf8`. Setup
-rejects an existing destination that differs from the verified release.
-
-## Use it from another project
-
-Choose a reviewed **full commit SHA** from this repository and substitute it for
-`FULL_COMMIT_SHA` below. This source pin is separate from the compiler pin.
-Keep that SHA in your application's dependency record so another checkout uses
-the same code; a moving branch or `0.1.0-dev` is not a reproducible version.
+Record it where your project records its dependencies, so that every
+checkout uses the same code: a moving branch is not a version. After the
+release, use its tag instead. Put the repository in your project at that
+commit, in place of `FULL_COMMIT_SHA` below, and install the Bend compiler
+that it pins:
 
 ```sh
 mkdir -p deps
@@ -70,121 +83,90 @@ git -C deps/bend-trace-context checkout --detach FULL_COMMIT_SHA
 ./deps/bend-trace-context/scripts/setup-bend.sh
 ```
 
-Create `main.bend` in your project:
+`setup-bend.sh` downloads the official Bend 2.0.32 release for macOS ARM64
+or Linux x86_64, verifies its SHA-256, and installs it under
+`deps/bend-trace-context/.tools/`; `./deps/bend-trace-context/bend` runs it.
+It installs no global shell configuration.
 
-<!-- test:readme-consumer:start -->
-```bend
-import Base
-import ./deps/bend-trace-context/packages/trace-context/trace_context.bend as TC
-
-def print_context(result: Result<&2, &2, TC.ContextError, TC.LocalContext>) -> IO(Unit):
-  match result:
-    case Fail{error}:
-      IO.die(Unit, 1, TC.ContextError.show(error))
-    case Done{context}:
-      IO.print(TC.TraceParentV00.format(TC.LocalContext.to_traceparent(context)))
-
-# Start a trace with IDs from an existing system, then create the operation
-# that calls another service.
-def start(trace: Result<&2, &2, TC.Error, TC.TraceId>, root: Result<&2, &2, TC.Error, TC.SpanId>,
-  call: Result<&2, &2, TC.Error, TC.SpanId>) -> IO(Unit):
-  match trace root call:
-    case Done{trace_id} Done{root_span} Done{call_span}:
-      print_context(TC.Context.child_from_id(TC.LocalParent{TC.Context.root_from_ids(trace_id, root_span)},
-        call_span, TC.InheritSampled{}))
-    case Fail{error} _ _:
-      IO.die(Unit, 1, TC.Error.show(error))
-    case _ Fail{error} _:
-      IO.die(Unit, 1, TC.Error.show(error))
-    case _ _ Fail{error}:
-      IO.die(Unit, 1, TC.Error.show(error))
-
-def main() -> IO(Unit):
-  start(TC.TraceId.parse("4bf92f3577b34da6a3ce929d0e0e4736"),
-    TC.SpanId.parse("00f067aa0ba902b7"), TC.SpanId.parse("53995c3f42cd8ad8"))
-```
-<!-- test:readme-consumer:end -->
-
-Then run `./deps/bend-trace-context/bend main.bend`. No implementation files need
-to be copied into the application. The documented public entry is the file
-imported above; internal helpers are not a compatibility contract.
-
-Expected output: the trace ID, the calling operation's span ID and the root's
-unsampled default, as they would be sent to the called service.
-
-```text
-00-4bf92f3577b34da6a3ce929d0e0e4736-53995c3f42cd8ad8-00
-```
-
-To generate the IDs instead, import
-`./deps/bend-trace-context/packages/trace-context/generation.bend` and call
-`Context.root()`, `Context.child(parent, sampling)` or `Context.restart(previous)`
-from it; a generated root is emitted with flags `02`. The
-[generation example](packages/trace-context/examples/generate.bend) starts a
-trace and creates a child on the host's source, and the
-[consumer example](tests/consumer/main.bend) shows both paths.
-
-To read the context of a received request, pass its fields in their order,
-each a `TC.Header{name, value}`, to
-`TC.Context.extract(TC.Limits.default(), fields, base)`. It reads the
-traceparent, and the tracestate only with an accepted traceparent; `base`, a
-context the application already has or `None{}`, is kept when the request has
-no usable traceparent. The
-[extraction example](packages/trace-context/examples/extract.bend) continues a
-received trace with a child and keeps a base for an invalid request. The
-[tracestate example](packages/trace-context/examples/tracestate.bend) looks
-up its own entry and prints the state's normalized value. To send state, pair
-it with a local operation in a `TC.OutgoingContext`, set your entry and emit both
-fields with `TC.OutgoingContext.emit`; the
-[outgoing example](packages/trace-context/examples/outgoing.bend) continues a
-received trace this way. To send the fields, pass the outgoing context and the
-fields of the message to `TC.Context.inject(limits, outgoing, fields)`, whose
-carrier replaces any old context fields; to relay a request unchanged, pass
-its incoming context to `TC.Context.forward(limits, incoming, fields)`, which
-refuses a pair it cannot send whole. The
-[injection example](packages/trace-context/examples/inject.bend) does both.
-
-A service can do all of this with two calls of generation.bend. For each
-request it receives, `Context.continue_or_start(extraction, TC.Continue{},
-TC.InheritSampled{}, TC.Lenient{})` gives its own operation: a child of the
-received context or of the base, or a root without either. For each request
-it sends, `Context.send(limits, service, TC.InheritSampled{}, TC.Lenient{},
-fields)` gives a child of that operation, injected into the request's fields.
-When no identifier can be generated, the request still proceeds, forwarding
-the received context unchanged if it can; `TC.Strict{}` returns the error
-instead, and `TC.Restart{}` starts a new trace at a trust boundary.
-`TC.Service.set` puts the service's own tracestate entry first. The
-[continue example](packages/trace-context/examples/continue.bend) shows both
-policies and a trust boundary, and the
-[consumer example](tests/consumer/main.bend) also sets its own entry.
-
-On bend-kit's native HTTP package, `bend-kit-http` on BendHub,
-`packages/trace-context/native_http.bend` adapts a request's header map to
-these steps, and generation.bend takes them on the host's source. With
-`Generate` for generation.bend, `Generate.NativeHttp.continue_or_start(limits,
-headers, base, TC.Continue{}, TC.InheritSampled{}, TC.Lenient{})` gives the
-service's operation, and `Generate.NativeHttp.send(limits, service,
-TC.InheritSampled{}, TC.Lenient{}, headers)` the header map of each request
-it sends. The
-[gateway example](packages/trace-context/examples/gateway.bend) is a complete
-service on it.
-
-Read the [API and error reference](packages/trace-context/README.md) for strict
-parsing semantics, typed values, generation rules and proof scope. See
-[versioning and migration policy](CHANGELOG.md) before updating a dependency pin.
-
-### From JavaScript
-
-The package's JavaScript facade runs on Node 22.18.0 or later, or Node 24,
-with no Bend at run time: it carries the package as the ES module that the
-pinned compiler builds. From the pinned checkout above, install it into your
-project as the `bend-trace-context` package:
+A JavaScript project installs the facade from the same checkout; it needs no
+Bend at run time, and a page needs it only to be bundled:
 
 ```sh
 npm install ./deps/bend-trace-context/packages/trace-context
 ```
 
-Create `main.mjs` in your project:
+## Quick start: Bend
+
+A service that receives a request continues its trace and gives the request
+it sends a child of its own operation. Create `main.bend`:
+
+<!-- test:readme-bend:start -->
+```bend
+import Base
+import ./deps/bend-trace-context/packages/trace-context/trace_context.bend as TC
+import ./deps/bend-trace-context/packages/trace-context/generation.bend as Generate
+
+# The fields of a request that this service receives, in their order.
+def received() -> List<&2, TC.Header>:
+  [TC.Header{"traceparent", "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"},
+    TC.Header{"tracestate", "congo=t61rcWkgMzE"}]
+
+# The trace ID of the service's operation, for a log line.
+def trace_id(outgoing: Maybe<&2, TC.OutgoingContext>) -> String:
+  match outgoing:
+    case Some{context}:
+      TC.TraceId.to_string(TC.LocalContext.trace_id(TC.OutgoingContext.context(context)))
+    case None{}:
+      "none"
+
+# The names of the fields to send, in their order.
+def names(fields: List<&2, TC.Header>) -> String:
+  match fields:
+    case Nil{}:
+      ""
+    case Con{TC.Header{name, value}, rest}:
+      " " ++ name ++ names(rest)
+
+def main() -> IO(Unit):
+  # The request's context. None{} passes no base context, so a request
+  # without a usable traceparent would start a new trace.
+  +extraction = TC.Context.extract(TC.Limits.default(), received(), None{})
+  do IO<Unit>:
+    # The service's own operation for the request: a child of the caller's.
+    +service : TC.Service <- Generate.Context.continue_or_start(extraction, TC.Continue{}, TC.InheritSampled{},
+      TC.Lenient{})
+    # A child of that operation for a request that the service sends.
+    +sent : TC.Sent <- Generate.Context.send(TC.Limits.default(), service, TC.InheritSampled{}, TC.Lenient{},
+      [TC.Header{"content-type", "application/json"}])
+    Unit <- IO.print(TC.Extraction.show(extraction))
+    Unit <- IO.print(TC.Service.show(service) ++ " " ++ trace_id(TC.Service.outgoing(service)))
+    IO.print(TC.Sent.show(sent) ++ names(TC.Sent.carrier(sent)))
+```
+<!-- test:readme-bend:end -->
+
+Run it with `./deps/bend-trace-context/bend main.bend`, build a native
+binary with `-o main`, or a program for Node with `-o main.js`. The span IDs
+are new on every run, so it prints only what does not change: the request's
+context was accepted, the service continued its trace, and the request sent
+carries a new `traceparent` and the received `tracestate`.
+
+<!-- test:readme-bend-output:start -->
+```text
+TraceParentAccepted, StateAccepted
+Continued 4bf92f3577b34da6a3ce929d0e0e4736
+Fresh content-type traceparent tracestate
+```
+<!-- test:readme-bend-output:end -->
+
+A real service takes the fields from its transport: the
+[guide](packages/trace-context/GUIDE.md#a-native-http-service) has a
+complete HTTP service on bend-kit, and recipes for log correlation, jobs,
+sampling, your own `tracestate` entry, trust boundaries, relays, queue
+workers and tests.
+
+## Quick start: JavaScript
+
+The same service in Node. Create `main.mjs`:
 
 <!-- test:readme-javascript:start -->
 ```js
@@ -200,125 +182,126 @@ const extraction = TC.extract([
 const service = TC.continueOrStart(extraction);
 const sent = TC.send(service, [['content-type', 'application/json']]);
 console.log(extraction.show);
-console.log(service.show, service.outgoing.context.traceId);
+// A service has no operation only when no ID could be generated.
+console.log(service.show, service.outgoing?.context.traceId ?? 'untraced');
 console.log(sent.show, sent.fields.map(([name]) => name).join(' '));
 ```
 <!-- test:readme-javascript:end -->
 
-Then run `node main.mjs`. The service continues the received trace, and the
-request it sends carries a child of the service's operation with the
-received state. The span IDs are generated anew on each run, so the example
-prints only what does not change:
+Run it with `node main.mjs`:
 
+<!-- test:readme-javascript-output:start -->
 ```text
 TraceParentAccepted, StateAccepted
 Continued 4bf92f3577b34da6a3ce929d0e0e4736
 Fresh content-type traceparent tracestate
 ```
+<!-- test:readme-javascript-output:end -->
 
-`bend-trace-context/node` reads the fields of a `node:http` request and
-writes the headers of one to send. In a browser page, bundled with
-`./deps/bend-trace-context/bend page.html -o dist`, `bend-trace-context/fetch`
-reads the context that the server rendered into the page and sends each
-request with a child of the page's operation. The
-[JavaScript guide](packages/trace-context/JAVASCRIPT.md) documents the facade,
-its errors, its Node HTTP and Fetch integrations, CORS, its runtime
-requirements, the [gateway example](packages/trace-context/examples/gateway.mjs)
-and the [Fetch page](examples/javascript/fetch.html).
+`bend-trace-context/node` reads `node:http` requests. The
+[JavaScript guide](packages/trace-context/JAVASCRIPT.md#recipes) has recipes
+for `node:http`, Express, Fastify, `AsyncLocalStorage`, log correlation and
+OpenTelemetry.
 
-## Validation
+## Quick start: browser page
+
+A page continues the context that its server rendered into it, and gives
+each request that it sends a child of the page's own operation. In a project
+that installed the facade, create `page.html`:
+
+<!-- test:readme-page-html:start -->
+```html
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>Orders</title>
+  </head>
+  <body>
+    <script type="module" src="./page.mjs"></script>
+  </body>
+</html>
+```
+<!-- test:readme-page-html:end -->
+
+and `page.mjs`:
+
+<!-- test:readme-page:start -->
+```js
+import * as TC from 'bend-trace-context';
+import { documentFields, tracedFetch } from 'bend-trace-context/fetch';
+
+// The page's own operation: a child of the one that its server rendered
+// into it, or the root of a new trace when it rendered none.
+const service = TC.continueOrStart(TC.extract(documentFields(document)));
+// A request to the page's own origin, with a child of the page's operation.
+const { response, sent } = await tracedFetch(service, '/api/orders', {
+  method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ order: 1 }),
+});
+console.log(service.show);
+console.log(response.status, sent.show);
+```
+<!-- test:readme-page:end -->
+
+Bundle it with the checkout's bundler, which writes the page and its script
+to `dist`:
 
 ```sh
-./scripts/validate.sh native
-./scripts/validate.sh node
-./scripts/test-installer.sh
-./scripts/test-consumer.sh native
-./scripts/test-consumer.sh node
-./scripts/qualify-js.sh node
-./scripts/qualify-js.sh browser
-./scripts/test-consumer.sh browser
-./scripts/qualify-native-http.sh
-./scripts/qualify-propagation.sh native
-./scripts/qualify-propagation.sh node
+./deps/bend-trace-context/bend page.html -o dist
 ```
 
-The consumer commands test the current **committed HEAD** in a separate fresh
-clone; they do not test uncommitted edits. To select a source and revision, run
-`./scripts/test-consumer.sh native REPOSITORY_SOURCE FULL_COMMIT_SHA` (or use
-`node` as the first argument).
+Serve `dist` with a server that renders its own context into the page: save
+the one of [Serving a page](packages/trace-context/JAVASCRIPT.md#serving-a-page)
+as `server.mjs`, run `node server.mjs`, and open `http://127.0.0.1:8080/`.
+The console shows that the page continued the server's trace, and that its
+request carried a new child:
 
-Baseline gates cover proofs, independent protocol vectors, all 256 flag bytes,
-expected static rejections, deterministic generation from replayed tapes,
-real-source generation smoke checks, the tracestate, outgoing, extraction,
-injection, continue-or-start and native HTTP header corpora, the examples,
-the exact README examples above and a consumer outside the repository; in
-`node` mode, the consumer also installs and runs the JavaScript facade, and in
-`browser` mode it bundles a page on the facade and runs it in three engines.
-The browser commands need Playwright's engines:
-`npm ci --ignore-scripts` and
-`npx --no-install playwright install chromium firefox webkit`, then
-`npm run build:browser`. The
-native HTTP transport script and the `native` propagation mode fetch
-bend-kit from BendHub. Both propagation modes run the W3C harness: over
-bend-kit natively, and over `node:http` through the JavaScript facade.
-Consumer logs and outputs are saved under `build/consumer-native/` or
-`build/consumer-node/`. CI exercises native macOS ARM64/Linux x86_64 and
-Node 22/24, recording exact runtime versions. Configuring a job is distinct
-from observing a successful run.
+<!-- test:readme-page-output:start -->
+```text
+Continued
+200 Fresh
+```
+<!-- test:readme-page-output:end -->
 
-The installer suite covers fresh/repeated installation, corrupt and interrupted
-downloads, and preservation of existing directories, files and symlinks. It
-downloads the official release once and controls only its delivery; checksum,
-extraction and installation checks remain real.
+Requests to other origins carry the context only when you allow them, as
+[Cross-origin requests and CORS](packages/trace-context/JAVASCRIPT.md#cross-origin-requests-and-cors)
+explains.
 
-CI also requires actionlint, ShellCheck, zizmor and local-link checks. Logs,
-proof diagnostics, expected/actual outputs and runtime versions are uploaded
-as artifacts retained for 14 days, including after failures. A separate weekly
-workflow checks external links. Dependabot proposes weekly GitHub Actions
-updates with a seven-day release cooldown. These schedules activate from the
-default branch. GitHub secret scanning and push protection are enabled.
+## Documentation
 
-The universal fixed-length, `parse(format(context)) == Done{context}` and
-inverse laws of the strict codec are proved, as are the supplied-ID, context
-lifecycle, generation, limits, tracestate, emission, extraction, injection,
-forwarding, continue-or-start, sending and host-driven generation laws listed
-in the [package reference](packages/trace-context/README.md#proofs). The
-generation laws cover every sequence of words replayed from a tape, including
-the loop of a host that feeds its own words, as the JavaScript facade does;
-the host source's path through the same driver is tested, and its quality is
-not proved.
-Neither these laws nor the finite corpus establish full W3C propagator
-conformance.
+- [Guide](packages/trace-context/GUIDE.md): the ideas, the decisions a
+  service makes, recipes, security considerations and troubleshooting.
+- [Bend API reference](packages/trace-context/README.md): every operation
+  and type, and what the laws prove.
+- [Errors and diagnostics](packages/trace-context/ERRORS.md): every error
+  and log name, in Bend and in JavaScript.
+- [JavaScript guide](packages/trace-context/JAVASCRIPT.md): the facade for
+  Node and browser pages.
+- [Native HTTP guide](packages/trace-context/NATIVE-HTTP.md): the bend-kit
+  transport and its qualification.
+- [Glossary](CONTEXT.md), [changelog](CHANGELOG.md) with versioning and
+  migration notes, [contributing](CONTRIBUTING.md) and
+  [security policy](SECURITY.md).
 
-## JavaScript and browser consumers
+## How it is verified
 
-The [JavaScript guide](packages/trace-context/JAVASCRIPT.md) documents the
-facade for Node and browsers: extraction, continue-or-start, sending,
-injection, forwarding, tracestate edits and generation with explicit failure
-policies. Its `node:http` integration has a harness-qualified service, and
-its Fetch integration a same-origin default, an allowlist for other origins
-and CORS guidance. It also covers the input-validating codec adapter, the
-shared WebCrypto source with structured failures, the package's compiled ES
-module, the Bend HTML bundler, what browsers do to header fields, the
-engines tested and the boundary between JavaScript values and the package's
-proof-carrying values.
+- **Proofs.** The laws of [LAWS.bend](packages/trace-context/LAWS.bend)
+  quantify over every input, and `./bend packages/trace-context/PROOF.bend`
+  prints `ALL PROOFS CHECK`. They cover the codec's round trip, the
+  contexts, generation, `tracestate`, extraction, injection, forwarding and
+  the service operations; the [reference](packages/trace-context/README.md#proofs)
+  states each law and its limits.
+- **Tests.** Independent protocol vectors, all 256 flag bytes, compile-time
+  rejections, deterministic generation, the examples, and a consumer that
+  installs the package from a fresh clone, natively, in Node and in
+  browsers. That consumer also runs every program of this README and of the
+  guides, and compares what it prints with what the documents show; the
+  guide's HTTP service is checked to be the gateway example, which the
+  propagation tests run, and the TypeScript example is type-checked.
+- **Interoperability.** A native service on bend-kit and a Node service on
+  the facade pass the [W3C Trace Context test harness](https://github.com/w3c/trace-context/tree/acab820be9db7b3433668baa5cdd43f57f4c4be0/test)
+  at Level 2, 41 tests, and browser pages run in Chromium, Firefox and
+  WebKit.
 
-The [native HTTP guide](packages/trace-context/NATIVE-HTTP.md) documents the
-bend-kit route and its native macOS/Linux checks. Its transport
-fixtures relay header values opaquely and claim nothing about Trace Context.
-Its propagation qualification builds a service on the package's
-[native HTTP adapter](packages/trace-context/README.md#native-http-integration)
-from a pinned checkout and runs the W3C Trace Context harness against it with
-`SPEC_LEVEL=2` and `STRICT_LEVEL=2`: 41 tests, none failed or skipped.
-
-## Development
-
-The [parent specification](https://github.com/LucasGois1/bend-trace-context/issues/1)
-and its linked issues record dependencies and acceptance criteria. Each slice
-includes its applicable laws, tests and consumer documentation. English is the
-repository language for code, comments, documentation and file/directory names.
-
-The package targets [Bend 2](https://bend-lang.com/), maintained at
-[bendlang/bend](https://github.com/bendlang/bend). See [Validation](#validation)
-for reproducible checks and the [installer](scripts/setup-bend.sh) for the
-pinned toolchain.
+Neither the laws nor the tests establish full conformance to the W3C
+publication. [CONTRIBUTING.md](CONTRIBUTING.md) shows how to run every gate.

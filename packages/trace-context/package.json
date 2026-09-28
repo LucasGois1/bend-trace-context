@@ -9,8 +9,17 @@
     "node": "^22.18.0 || ^24.0.0"
   },
   "exports": {
-    ".": "./javascript/index.mjs",
-    "./node": "./javascript/node.mjs",
-    "./fetch": "./javascript/fetch.mjs"
+    ".": {
+      "types": "./javascript/index.d.mts",
+      "default": "./javascript/index.mjs"
+    },
+    "./node": {
+      "types": "./javascript/node.d.mts",
+      "default": "./javascript/node.mjs"
+    },
+    "./fetch": {
+      "types": "./javascript/fetch.d.mts",
+      "default": "./javascript/fetch.mjs"
+    }
   }
 }

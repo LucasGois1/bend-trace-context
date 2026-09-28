@@ -1,32 +1,47 @@
 # JavaScript
 
-The package's JavaScript facade gives a Node application or a browser page
-the package's operations:
+The JavaScript facade gives Node applications and browser pages the
+package's operations: extraction, continuing or starting a service's
+operation and sending, tracestate edits, injection, forwarding and cleanup,
+and generation on WebCrypto with explicit failure policies. Every Trace
+Context rule runs in the Bend package itself, the same
+[`trace_context.bend`](trace_context.bend) that native programs use,
+compiled to an ES module, so a JavaScript service follows exactly the rules
+of a Bend one and needs no Bend at run time. The facade converts JavaScript
+values at the boundary, feeds WebCrypto words to the package's generation,
+and wraps the package's values in [handles](#handles).
 
-- extraction;
-- continuing or starting a service's operation, and sending;
-- injection, forwarding and context cleanup;
-- tracestate edits;
-- generation, with WebCrypto as the identifier source and explicit failure
-  policies, and operations with identifiers that the application supplies.
+Use it for JavaScript code that must follow the same rules as your Bend
+services, or that propagates context without a tracer. A Node application
+that uses OpenTelemetry already has a W3C propagator; the
+[OpenTelemetry recipe](#opentelemetry) shows how the facade works alongside
+it. Like the Bend package, the facade records no spans and logs nothing.
 
-Its `node:http` integration reads received requests and writes the headers of
-requests to send, and its [Fetch integration](#browser-integration) gives a
-page's requests their context. Every Trace Context rule runs in the Bend
-package, the same [`trace_context.bend`](trace_context.bend) that native
-programs use. The facade converts JavaScript values at the boundary, feeds
-WebCrypto words to the package's generation machine, and wraps the package's
-values in [handles](#handles). It is qualified on Node 22 and 24 and in
-Chromium, Firefox and WebKit.
+The package has three entries, all ES modules with
+[TypeScript declarations](#typescript):
 
-This guide also covers the [codec adapter](#codec-adapter-and-foreign-values),
-the [WebCrypto source](#webcrypto-and-explicit-effects) and their browser
-qualification.
+- `bend-trace-context`: the facade;
+- `bend-trace-context/node`: [`node:http` requests](#node-http-integration);
+- `bend-trace-context/fetch`: [a browser page's requests](#browser-integration).
+
+The [guide](GUIDE.md) explains the ideas behind these operations, and
+[Errors and diagnostics](ERRORS.md) lists every error and log name.
+
+- [Install and run](#install-and-run)
+- [Recipes](#recipes): `node:http` and `fetch`, Express, Fastify,
+  `AsyncLocalStorage`, log correlation and OpenTelemetry
+- [Facade reference](#facade-reference), with
+  [inspecting a traceparent](#inspecting-a-traceparent)
+- [Node HTTP integration](#node-http-integration)
+- [Browser integration](#browser-integration)
+- [TypeScript](#typescript)
+- [Troubleshooting](#troubleshooting)
+- [How the facade works](#how-the-facade-works)
 
 ## Install and run
 
 An application uses an exact commit of this repository, as the
-[root README](../../README.md#from-javascript) shows:
+[root README](../../README.md#install) shows:
 
 ```sh
 mkdir -p deps
@@ -36,46 +51,284 @@ npm install ./deps/bend-trace-context/packages/trace-context
 ```
 
 `npm install` links the package directory into `node_modules` as
-`bend-trace-context`; the package has no dependencies. The facade runs the
-package as [`javascript/trace_context.mjs`](javascript/trace_context.mjs), the
-ES module that the pinned compiler builds from `trace_context.bend`, so an
-application needs neither the Bend binary, nor Bun, nor a module loader. Run
-it with Node:
+`bend-trace-context`; the package has no dependencies. An application needs
+neither the Bend binary, nor Bun, nor a module loader: it runs with Node
+alone, as `node main.mjs`. The
+[root README](../../README.md#quick-start-javascript) has the smallest
+program, and the [recipes](#recipes) are complete services to start from.
 
-```sh
-node main.mjs
-```
+The facade runs on:
 
-The package offers three entries:
+- Node 22.18.0 or a later Node 22 release, or Node 24, the range that the
+  package declares. CI qualifies the current patch release of each line and
+  records its exact version; the facade's tests also passed locally on
+  22.17.1, 22.18.0 and 24.0.0, which CI does not run.
+- Browser pages bundled with the official Bend bundler, in the
+  [tested engines](#tested-engines).
 
-- `bend-trace-context`: the facade;
-- `bend-trace-context/node`: the [`node:http` integration](#node-http-integration);
-- `bend-trace-context/fetch`: the [Fetch integration](#browser-integration).
+## Recipes
 
-All three are ES modules.
+Each recipe is a complete program for a project that installed the package
+as [Install and run](#install-and-run) shows, plus its framework. The
+servers read their port from `PORT` and the downstream service from
+`DOWNSTREAM`. For each request they call downstream with a new child of the
+service's operation: a traced request continues its trace, and an untraced
+one starts a trace. They answer 502 when downstream cannot be reached. The
+tests run each server against an independent observer, with a traced
+request, an untraced one and an unreachable downstream.
 
-A service handles each request in three steps:
+### node:http and fetch
 
+<!-- test:javascript-http:start -->
 ```js
 import http from 'node:http';
 import * as TC from 'bend-trace-context';
-import { continueOrStartRequest, requestHeaders } from 'bend-trace-context/node';
+import { continueOrStartRequest } from 'bend-trace-context/node';
+
+const port = Number(process.env.PORT ?? 8080);
+const downstream = process.env.DOWNSTREAM ?? 'http://127.0.0.1:8081/items';
+
+http.createServer(async (request, response) => {
+  // The service's own operation for this request: a child of the caller's
+  // operation, or the root of a new trace when the request carries none.
+  const service = continueOrStartRequest(request);
+  // A child of that operation for the call downstream, in the call's fields.
+  const sent = TC.send(service, [['content-type', 'application/json']]);
+  console.log(`${request.method} ${request.url}: ${service.show}, downstream ${sent.show}`);
+  try {
+    const answer = await fetch(downstream, { method: 'POST', headers: sent.fields, body: '{"order":1}' });
+    const body = await answer.text();
+    response.writeHead(answer.status, { 'content-type': 'application/json' }).end(body);
+  } catch {
+    // Downstream could not be reached.
+    response.writeHead(502).end();
+  }
+}).listen(port);
+```
+<!-- test:javascript-http:end -->
+
+`sent.fields` is the call's fields with the context fields added; `fetch`
+takes them as they are. With `http.request`, pass
+`requestHeaders(sent.fields)` from `bend-trace-context/node` instead, as the
+[gateway example](examples/gateway.mjs) does.
+
+### Express
+
+A middleware gives every request the service's operation, and the handlers
+send with it:
+
+<!-- test:javascript-express:start -->
+```js
+import express from 'express';
+import * as TC from 'bend-trace-context';
+import { continueOrStartRequest } from 'bend-trace-context/node';
+
+const port = Number(process.env.PORT ?? 8080);
+const downstream = process.env.DOWNSTREAM ?? 'http://127.0.0.1:8081/items';
+const app = express();
+
+// Every request gets the service's operation for it.
+app.use((request, response, next) => {
+  response.locals.service = continueOrStartRequest(request);
+  next();
+});
+
+app.post('/orders', async (request, response) => {
+  const sent = TC.send(response.locals.service, [['content-type', 'application/json']]);
+  try {
+    const answer = await fetch(downstream, { method: 'POST', headers: sent.fields, body: '{"order":1}' });
+    const body = await answer.text();
+    response.status(answer.status).type('application/json').send(body);
+  } catch {
+    response.status(502).end();
+  }
+});
+
+app.listen(port);
+```
+<!-- test:javascript-express:end -->
+
+An Express request is a `node:http` `IncomingMessage`, so
+`continueOrStartRequest` reads its raw header lines directly.
+
+### Fastify
+
+A hook gives every request the service's operation, from the raw request:
+
+<!-- test:javascript-fastify:start -->
+```js
+import Fastify from 'fastify';
+import * as TC from 'bend-trace-context';
+import { continueOrStartRequest } from 'bend-trace-context/node';
+
+const port = Number(process.env.PORT ?? 8080);
+const downstream = process.env.DOWNSTREAM ?? 'http://127.0.0.1:8081/items';
+const app = Fastify();
+app.decorateRequest('service', null);
+
+// Every request gets the service's operation for it, from its raw headers.
+app.addHook('onRequest', async (request) => {
+  request.service = continueOrStartRequest(request.raw);
+});
+
+app.post('/orders', async (request, reply) => {
+  const sent = TC.send(request.service, [['content-type', 'application/json']]);
+  try {
+    const answer = await fetch(downstream, { method: 'POST', headers: sent.fields, body: '{"order":1}' });
+    const body = await answer.text();
+    return reply.code(answer.status).type('application/json').send(body);
+  } catch {
+    return reply.code(502).send();
+  }
+});
+
+await app.listen({ port, host: '127.0.0.1' });
+```
+<!-- test:javascript-fastify:end -->
+
+### A service for the whole request
+
+`AsyncLocalStorage` keeps the service's operation for the code that a
+request runs, so that a function far from the handler sends with it without
+receiving it as an argument:
+
+<!-- test:javascript-context:start -->
+```js
+import http from 'node:http';
+import { AsyncLocalStorage } from 'node:async_hooks';
+import * as TC from 'bend-trace-context';
+import { continueOrStartRequest } from 'bend-trace-context/node';
+
+const port = Number(process.env.PORT ?? 8080);
+const downstream = process.env.DOWNSTREAM ?? 'http://127.0.0.1:8081/items';
+// The service's operation for the request that the current code serves.
+const requests = new AsyncLocalStorage();
+
+// fetch, with a new child of the current request's operation among the
+// call's headers. Outside a request, the call goes without context fields.
+function tracedCall(url, init = {}) {
+  const service = requests.getStore();
+  const fields = [...new Headers(init.headers)];
+  const headers = service === undefined ? TC.clear(fields) : TC.send(service, fields).fields;
+  return fetch(url, { ...init, headers });
+}
+
+// Code far from the request handler calls downstream through tracedCall.
+async function placeOrder() {
+  const answer = await tracedCall(downstream, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"order":1}',
+  });
+  return { status: answer.status, body: await answer.text() };
+}
 
 http.createServer((request, response) => {
-  const service = continueOrStartRequest(request);
-  const sent = TC.send(service, [['content-type', 'application/json']]);
-  const call = http.request('http://inventory.internal/items',
-    { method: 'POST', headers: requestHeaders(sent.fields) }, (answer) => answer.pipe(response));
-  call.on('error', () => {
-    response.writeHead(502);
-    response.end();
+  requests.run(continueOrStartRequest(request), async () => {
+    try {
+      const { status, body } = await placeOrder();
+      response.writeHead(status, { 'content-type': 'application/json' }).end(body);
+    } catch {
+      response.writeHead(502).end();
+    }
   });
-  call.end(JSON.stringify({ order: 1 }));
-}).listen(8080);
+}).listen(port);
 ```
+<!-- test:javascript-context:end -->
 
-The [gateway example](examples/gateway.mjs) is a complete service, described
-[below](#gateway-walkthrough).
+### Log correlation
+
+Log the trace and span IDs of the service's operation with your log lines,
+so that a log backend can relate them to the traces of other services. A
+service without an operation has no IDs; log its `show`, which says why:
+
+<!-- test:javascript-log:start -->
+```js
+import * as TC from 'bend-trace-context';
+
+// The trace and span IDs of the service's operation, as fields of a log
+// line, or why the service has none.
+function traceFields(service) {
+  const operation = service.outgoing?.context;
+  if (operation === undefined) return `tracing="${service.show}"`;
+  return `trace_id=${operation.traceId} span_id=${operation.spanId}`;
+}
+
+const traced = TC.continueOrStart(TC.extract([
+  ['traceparent', '00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01'],
+]));
+console.log(`order placed ${traceFields(traced)}`);
+// Without a source of words, no ID can be generated: the service is untraced.
+const untraced = TC.continueOrStart(TC.extract([]), { crypto: null });
+console.log(`order placed ${traceFields(untraced)}`);
+```
+<!-- test:javascript-log:end -->
+
+The span ID is new on every run:
+
+<!-- test:javascript-log-output:start -->
+```text
+order placed trace_id=4bf92f3577b34da6a3ce929d0e0e4736 span_id=b9c7c989f97918e1
+order placed tracing="Untraced SourceFailure 1 unavailable"
+```
+<!-- test:javascript-log-output:end -->
+
+### OpenTelemetry
+
+The facade records no spans. With OpenTelemetry, the service's operation
+becomes the parent of the spans that a tracer records, and a span that
+OpenTelemetry created can be sent with the package:
+
+<!-- test:javascript-opentelemetry:start -->
+```js
+import { ROOT_CONTEXT, trace, TraceFlags } from '@opentelemetry/api';
+import * as TC from 'bend-trace-context';
+
+// The service's operation as an OpenTelemetry context, the parent of the
+// spans that a tracer records for the request.
+function openTelemetryContext(service) {
+  const operation = service.outgoing?.context;
+  if (operation === undefined) return ROOT_CONTEXT;
+  return trace.setSpanContext(ROOT_CONTEXT, {
+    traceId: operation.traceId,
+    spanId: operation.spanId,
+    traceFlags: operation.sampled ? TraceFlags.SAMPLED : TraceFlags.NONE,
+  });
+}
+
+// An OpenTelemetry span as an operation of this service, to send with the
+// package: the span's identifiers and sampled flag.
+function fromOpenTelemetry(span) {
+  const { traceId, spanId, traceFlags } = span.spanContext();
+  return TC.fromIds(traceId, spanId, { sampled: (traceFlags & TraceFlags.SAMPLED) !== 0 });
+}
+
+const service = TC.continueOrStart(TC.extract([
+  ['traceparent', '00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01'],
+  ['tracestate', 'congo=t61rcWkgMzE'],
+]));
+const span = trace.getTracer('orders').startSpan('place order', {}, openTelemetryContext(service));
+// The span's context, with the state that the service received, for a
+// request that the span makes.
+const operation = TC.outgoing(fromOpenTelemetry(span), { state: service });
+console.log(span.spanContext().traceId);
+console.log(TC.inject(operation, []).fields.map(([name]) => name).join(' '));
+span.end();
+```
+<!-- test:javascript-opentelemetry:end -->
+
+<!-- test:javascript-opentelemetry-output:start -->
+```text
+4bf92f3577b34da6a3ce929d0e0e4736
+traceparent tracestate
+```
+<!-- test:javascript-opentelemetry-output:end -->
+
+With only `@opentelemetry/api` installed, as here, the tracer records
+nothing and its span keeps the parent's identifiers. With an OpenTelemetry
+SDK registered, the span is a child in the same trace, which the SDK
+records when its sampler decides so: its default sampler follows the
+parent's sampled flag. `fromOpenTelemetry` then sends that child. The
+`state` option keeps the tracestate that the service received; without it,
+`TC.outgoing` sends none.
 
 ## Facade reference
 
@@ -85,10 +338,12 @@ Values cross the boundary as ordinary JavaScript data:
   message's order, the package's carrier;
 - wire text, such as traceparent and tracestate values, is a string;
 - diagnostics are the package's names, such as
-  `TraceParentAccepted, StateAccepted` or `Untraced SourceFailure 2 source-failure`.
+  `TraceParentAccepted, StateAccepted` or
+  `Untraced SourceFailure 2 source-failure`.
 
-Diagnostics contain no received value. Every function takes its options as an
-optional last argument.
+The diagnostics of extraction, of services and of sent messages contain no
+received value, so they can be logged. Every function takes its options as
+an optional last argument.
 
 ### Receiving and sending
 
@@ -128,11 +383,12 @@ send(service, fields, { limits, sampling, policy, crypto }) -> Sent
 
 A handle is a frozen object that only the facade creates, with the package
 value it stands for kept in a module-private `WeakMap`. Its kind is named
-after the package's type, and its properties are plain data. A function that takes a handle refuses any other object with a
-`TypeError`, including a copy of a handle, an object that inherits from one,
-and a tagged object shaped like the package's own values. JavaScript code
-therefore cannot build a context, a service or a limit that the package's
-constructors did not check.
+after the package's type, and its properties are plain data. A function
+that takes a handle refuses any other object with a `TypeError`, including
+a copy of a handle, an object that inherits from one, and a tagged object
+shaped like the package's own values. JavaScript code therefore cannot
+build a context, a service or a limit that the package's constructors did
+not check.
 
 | Handle | Properties |
 | --- | --- |
@@ -146,8 +402,9 @@ constructors did not check.
 
 `Service.show` and `Sent.show` name what happened, for a log line:
 `Continued`, `Untraced SourceFailure 2 source-failure`, `Fresh, truncated` or
-`NoContext after ExhaustedSpanId, NothingKept`. The package's
-[tables](README.md#continuing-or-starting-a-trace) define each name.
+`NoContext after ExhaustedSpanId, NothingKept`.
+[Errors and diagnostics](ERRORS.md#continuing-or-starting-and-sending)
+defines each name.
 
 ### Generation
 
@@ -171,8 +428,7 @@ A root or a restart is not sampled and asserts random-trace-id, so it is sent
 with flags `02`. A child keeps its parent's trace ID and randomness
 assertion. When generation fails, these functions throw a `GenerationError`.
 
-The facade reads one word at a time from `crypto` through the package's
-[WebCrypto adapter](#webcrypto-and-explicit-effects), and only while the
+The facade reads one word at a time from `crypto`, and only while the
 package says that the generation needs one, so it never reads more than the
 package's rules use. A source is trusted to be random: nothing checks the
 quality of its words.
@@ -211,7 +467,7 @@ validation cannot establish it. An identifier that the codec refuses throws a
 ### Failure handling
 
 - `GenerationError` has `name` `'GenerationError'` and `reason`, the
-  package's [`GenerationError`](README.md#generated-contexts):
+  package's [`GenerationError`](ERRORS.md#generation):
   `SourceFailure 1 unavailable` or `SourceFailure 2 source-failure` from
   WebCrypto, `ExhaustedTraceId` or `ExhaustedSpanId`.
 - Under the lenient policy, `continueOrStart` and `send` never throw for a
@@ -238,8 +494,6 @@ validation cannot establish it. An identifier that the codec refuses throws a
 The facade reads each argument once and converts it before any package code
 runs, so an array with getters or a proxy cannot pass one value to the check
 and another to the package.
-
-The facade logs nothing.
 
 ### Tracestate
 
@@ -278,12 +532,11 @@ clear(fields) -> fields
   as [`Context.inject`](README.md#injecting-and-forwarding-context) does.
   `dropped` lists the keys that truncation removed.
 - `forward` writes the pair an `IncomingContext` was received with,
-  unchanged, or refuses with a
-  [`ForwardError`](README.md#injecting-and-forwarding-context) name:
+  unchanged, or refuses with a [`ForwardError`](ERRORS.md#forwarding) name:
   `NothingToForward` when the tracestate was discarded, and
-  `ForwardTooLarge` over the output budget. With limits smaller than those
-  it was extracted with, a pair may also exceed an input budget:
-  `InvalidForwardParent TraceParentTooLarge`, for example.
+  `ForwardTooLarge` over the output budget. Under a traceparent input
+  budget smaller than the one it was extracted with, the traceparent may
+  also be refused, as `InvalidForwardParent TraceParentTooLarge`.
 - `clear` removes the context fields alone, for a message sent without
   context.
 
@@ -301,8 +554,41 @@ limits({ traceparentInput, tracestateInput, tracestateOutput }) -> Limits
 option replaces one budget, and the package's
 [rules](README.md#limits) decide whether the combination is valid.
 
-`inspectTraceparent`, the [codec adapter](#codec-adapter-and-foreign-values),
-is exported too.
+### Inspecting a traceparent
+
+`inspectTraceparent(value)` reads a traceparent value with the package's
+strict version 00 codec, for a value that the application holds. Received
+messages go through `extract`, which also reads later versions by their
+known prefix. It accepts only a primitive string, and returns
+`{ ok: true, traceparent, sampled }`, with every flag bit preserved, or
+`{ ok: false, error }`, with the codec's
+[error name](ERRORS.md#traceparent-and-identifiers) or `InvalidInputType`
+for any other value. Numbers, arrays, boxed strings and tagged objects are
+refused without coercion.
+
+<!-- test:javascript-inspect:start -->
+```js
+import { inspectTraceparent } from 'bend-trace-context';
+
+for (const value of ['00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01',
+  '00-00000000000000000000000000000000-b7ad6b7169203331-01', 42]) {
+  console.log(JSON.stringify(inspectTraceparent(value)));
+}
+```
+<!-- test:javascript-inspect:end -->
+
+<!-- test:javascript-inspect-output:start -->
+```text
+{"ok":true,"traceparent":"00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01","sampled":true}
+{"ok":false,"error":"ZeroTraceId"}
+{"ok":false,"error":"InvalidInputType"}
+```
+<!-- test:javascript-inspect-output:end -->
+
+The codec names the version it refuses, as in `UnsupportedVersion 01`: that
+is the only name of the package that holds part of a value it read. The
+[inspector page](../../examples/javascript/index.html) does the same in a
+browser.
 
 ## Node HTTP integration
 
@@ -316,12 +602,14 @@ requestHeaders(fields) -> headers
 - `requestFields` reads the fields of a received `node:http` request, an
   `IncomingMessage`, from its `rawHeaders`: every header line in arrival
   order, with its name as it came. Extraction therefore refuses a repeated
-  traceparent and reads repeated tracestate lines in order. `IncomingMessage.headers`
-  joins repeated values, so it is not used for incoming requests.
+  traceparent and reads repeated tracestate lines in order.
+  `IncomingMessage.headers` joins repeated values, so it is not used for
+  incoming requests.
 - `extractRequest` is `extract(requestFields(request), options)`.
-- `continueOrStartRequest` is `continueOrStart(extractRequest(request, options), options)`.
-  A service that logs why it continued or started a trace extracts first and
-  passes the extraction on, as the gateway example does.
+- `continueOrStartRequest` is
+  `continueOrStart(extractRequest(request, options), options)`. A service
+  that logs why it continued or started a trace extracts first and passes
+  the extraction on, as the gateway example does.
 - `requestHeaders` gives the headers of a request to send, for the `headers`
   option of `http.request` or `ClientRequest`. It holds each name once, with
   the spelling of its first field, and the values of that name in order, as
@@ -397,11 +685,13 @@ POST /downstream {"order":2}
 ## Browser integration
 
 A browser page uses the same facade, bundled into the page by the official
-Bend bundler, and `bend-trace-context/fetch` for its requests.
+Bend bundler, and `bend-trace-context/fetch` for its requests. The
+[root README](../../README.md#quick-start-browser-page) has a complete page,
+and [Serving a page](#serving-a-page) a server for it.
 
 ### Build a page
 
-In the pinned checkout that the [root README](../../README.md#from-javascript)
+In the pinned checkout that the [root README](../../README.md#install)
 describes, install the facade into the project, then bundle each page with
 the checkout's own `bend`:
 
@@ -418,22 +708,76 @@ same checkout again gives byte-identical files. A copy of the sources at
 another path gives the same scripts under other names, because the bundler
 names its chunks by a hash that depends on where the sources are; the
 qualification checks both. The facade itself is plain JavaScript: an ES
-module of the package, which the pinned compiler builds, and the CommonJS
-[WebCrypto source](#webcrypto-and-explicit-effects). Other bundlers, such as
-Vite, webpack or esbuild, are not qualified.
+module of the package, which the pinned compiler builds, and the package's
+WebCrypto source. Other bundlers, such as Vite, webpack or esbuild, are not
+qualified.
 
-A page's module continues the context that its server rendered, or starts a
-trace without one, and sends its requests with a child of that operation:
+### Serving a page
 
+The page continues the operation of the server that rendered it: the
+server's own operation for the page request, as it would inject it into a
+request. Render each context field as a `<meta>` element, and escape the
+value as an HTML attribute: a tracestate value may hold `"`, `&` and `<`,
+and the HTML parser decodes character references before `documentFields`
+reads them. Everything in the page is visible to its scripts, so render
+only what the page's own requests would carry.
+
+This server, saved next to `dist` as `server.mjs`, serves the page of the
+[root README](../../README.md#quick-start-browser-page) that way, with its
+script and the API that the page calls:
+
+<!-- test:javascript-server:start -->
 ```js
+import http from 'node:http';
+import { readFile } from 'node:fs/promises';
 import * as TC from 'bend-trace-context';
-import { documentFields, tracedFetch } from 'bend-trace-context/fetch';
+import { continueOrStartRequest } from 'bend-trace-context/node';
 
-const service = TC.continueOrStart(TC.extract(documentFields(document)));
-const { response, sent } = await tracedFetch(service, '/api/orders', {
-  method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ order: 1 }),
-});
+const port = Number(process.env.PORT ?? 8080);
+// The page and the scripts that `bend page.html -o dist` wrote.
+const dist = new URL('./dist/', import.meta.url);
+
+// A value as an HTML attribute: a tracestate value may hold ", & and <.
+const attribute = (text) => text.replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll('<', '&lt;');
+
+// The page, with the context of the server's own operation for the page
+// request as <meta> elements. A server without an operation renders no
+// context, and the page starts a trace of its own.
+async function page(request) {
+  const service = continueOrStartRequest(request);
+  const fields = service.outgoing === null ? [] : TC.inject(service.outgoing, []).fields;
+  const metas = fields.map(([name, value]) => `<meta name="${name}" content="${attribute(value)}">`).join('');
+  const html = await readFile(new URL('page.html', dist), 'utf8');
+  return html.replace('<meta charset="utf-8">', `<meta charset="utf-8">${metas}`);
+}
+
+http.createServer(async (request, response) => {
+  const { pathname } = new URL(request.url, 'http://localhost');
+  try {
+    if (request.method === 'GET' && pathname === '/') {
+      const html = await page(request);
+      response.writeHead(200, { 'content-type': 'text/html' }).end(html);
+    } else if (request.method === 'GET' && /^\/[\w-]+\.js$/.test(pathname)) {
+      const script = await readFile(new URL(`.${pathname}`, dist));
+      response.writeHead(200, { 'content-type': 'text/javascript' }).end(script);
+    } else if (request.method === 'POST' && pathname === '/api/orders') {
+      // The API's operation continues the page's trace.
+      console.log(`POST /api/orders: ${continueOrStartRequest(request).show}`);
+      request.resume();
+      response.writeHead(200, { 'content-type': 'application/json' }).end('{"accepted":true}');
+    } else {
+      response.writeHead(404).end();
+    }
+  } catch {
+    response.writeHead(404).end();
+  }
+}).listen(port);
 ```
+<!-- test:javascript-server:end -->
+
+Run it with `node server.mjs` and open `http://127.0.0.1:8080/`: the page
+continues the server's trace, and its request to `/api/orders` carries a
+child of the page's operation. The tests check both in the three engines.
 
 ### Fetch reference
 
@@ -505,35 +849,6 @@ fails. For a request whose redirects may leave the allowed destinations,
 pass `redirect: 'error'` or `'manual'` in `init`, or allow the origins it
 redirects to. The tests show all three outcomes.
 
-### Rendering the context into a page
-
-The page continues the operation of the server that rendered it: the
-server's own operation for the page request, as it would inject it into a
-request. Render each context field as a `<meta>` element, and escape the
-value as an HTML attribute: a tracestate value may hold `"`, `&` and `<`,
-and the HTML parser decodes character references before `documentFields`
-reads them. Everything in the page is visible to its scripts, so render
-only what the page's own requests would carry. On `node:http`:
-
-```js
-import http from 'node:http';
-import * as TC from 'bend-trace-context';
-import { continueOrStartRequest } from 'bend-trace-context/node';
-
-const attribute = (text) => text.replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll('<', '&lt;');
-
-http.createServer((request, response) => {
-  const service = continueOrStartRequest(request);
-  const fields = service.outgoing === null ? [] : TC.inject(service.outgoing, []).fields;
-  const metas = fields.map(([name, value]) => `<meta name="${name}" content="${attribute(value)}">`).join('');
-  response.writeHead(200, { 'content-type': 'text/html' });
-  response.end(`<!doctype html><html><head><meta charset="utf-8">${metas}</head><body></body></html>`);
-}).listen(8080);
-```
-
-A service without an operation renders no context, and the page starts a
-trace of its own.
-
 ### What browsers do to the fields
 
 - `Headers` lowercases names, gives them sorted, and joins the repeated
@@ -573,7 +888,8 @@ mobile browsers, or for other versions.
 The [Fetch page](../../examples/javascript/fetch.html) continues the context
 that its server rendered, or starts a trace, and calls a same-origin API and
 a partner API on another origin. From the repository root, after
-`./scripts/setup-bend.sh`, bundle it and start its server:
+`./scripts/setup-bend.sh` and `npm ci --ignore-scripts`, which links the
+package into `node_modules`, bundle it and start its server:
 
 ```sh
 npm run build:browser
@@ -597,7 +913,82 @@ at `http://127.0.0.1:4174/observations/example`. "Show what Fetch hands
 over" shows the fields that a `Headers` object gives the page, with a
 repeated name joined, and what extraction makes of them.
 
-## How the facade reaches the package
+## TypeScript
+
+The package declares its three entries for TypeScript, in
+[`javascript/index.d.mts`](javascript/index.d.mts),
+[`node.d.mts`](javascript/node.d.mts) and [`fetch.d.mts`](javascript/fetch.d.mts),
+which `package.json` names for each entry. The declarations of
+`bend-trace-context` and `bend-trace-context/node` need no DOM or Node
+types:
+
+<!-- test:javascript-typescript:start -->
+```ts
+import * as TC from 'bend-trace-context';
+
+function operationOf(service: TC.Service): TC.LocalContext | null {
+  return service.outgoing === null ? null : service.outgoing.context;
+}
+
+const service: TC.Service = TC.continueOrStart(TC.extract([['traceparent',
+  '00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01']]), { sampling: 'inherit' });
+const operation: TC.LocalContext | null = operationOf(service);
+export const traceId: string | null = operation === null ? null : operation.traceId;
+```
+<!-- test:javascript-typescript:end -->
+
+Those of `bend-trace-context/fetch` use the Fetch API's own types,
+`Request`, `RequestInit`, `Response` and `URL`, which TypeScript's `dom`
+library declares. Handles are declared read-only, and options take only
+their documented values, such as `policy: 'lenient' | 'strict'`. The types
+describe the checks that the facade makes anyway at run time.
+
+The consumer qualification checks the declarations with TypeScript 5.9.3
+and 7.0.2 with `strict` on: the first two entries, and the example above,
+without the DOM library, and the Fetch entry with it. A test also requires
+each declaration file to declare exactly the functions and classes that its
+entry exports, and the handles to have exactly the properties that their
+declarations list.
+
+## Troubleshooting
+
+**`ERR_MODULE_NOT_FOUND` for `bend-trace-context`.** The project has not
+installed the package: run
+`npm install ./deps/bend-trace-context/packages/trace-context`.
+
+**`ERR_PACKAGE_PATH_NOT_EXPORTED`.** Only the three entries are exported;
+files such as `javascript/codec.mjs` or `entropy/webcrypto.js` are internal.
+Import `bend-trace-context`, `bend-trace-context/node` or
+`bend-trace-context/fetch`.
+
+**A Node request carries no context with `tracedFetch`.** Outside a page
+there is no own origin: pass the destinations in `propagateTo`, or use
+`send` and `fetch` as in [node:http and fetch](#nodehttp-and-fetch).
+
+**A cross-origin request from a page fails.** Its server's CORS preflight
+does not allow `traceparent` and `tracestate`; see
+[Cross-origin requests and CORS](#cross-origin-requests-and-cors).
+
+**A cross-origin request from a page carries no context.** Its origin is not
+in `propagateTo`, or the request is `no-cors`.
+
+**`TypeError: ... must be ... returned by bend-trace-context`.** A function
+received a copy of a handle, or an object shaped like one; pass the handle
+that the facade returned.
+
+**`RangeError: InvalidKey`, `ZeroTraceId`, ...** The package refused a
+value; [Errors and diagnostics](ERRORS.md#javascript) lists every name.
+
+**My tracing backend shows no traces.** The facade records no spans: a
+tracer records them, such as OpenTelemetry, as the
+[OpenTelemetry recipe](#opentelemetry) shows. Its samplers usually follow
+the sampled flag, and new traces start unsampled. To sample the traces that
+a service starts and keep the caller's decision for the others, as the
+[guide](GUIDE.md#sampling) explains, pass
+`sampling: extraction.context === null ? 'sampled' : 'inherit'` to
+`continueOrStart`.
+
+## How the facade works
 
 The compiler's ES module of a `.bend` file (`bend file.bend -o file.mjs`)
 exports the file's definitions as JavaScript functions, but it runs no IO
@@ -605,8 +996,7 @@ operation. An IO operation without parameters, such as `Context.root` of
 generation.bend, is not exported. One with parameters, such as
 `Context.continue_or_start`, returns an unrun IO action: calling it reads
 no word. A definition that takes a template, such as
-`Context.continue_or_start_with`, is not exported at all. A test in the
-facade corpus checks each of these on the compiler's modules. The package
+`Context.continue_or_start_with`, is not exported at all. The package
 therefore gives a host that feeds words itself a pure form of each
 generating operation, described in
 [Host-driven generation](README.md#host-driven-generation):
@@ -623,262 +1013,37 @@ Laws `hosted_service` and `hosted_send` prove that a host that drives the
 plans itself gets what the IO operations give, for every sequence of words.
 The facade is such a host: it only chooses what to wrap and what to throw.
 The laws hold of that host path in Bend; that the facade's JavaScript follows
-it is tested, not proved.
+it is tested, not proved. The facade's conversions, its handle checks and the
+host effects are tested boundaries of foreign code, not formal proofs.
 
-The facade reaches no system binding. The Bend runtime keeps its
-`bun:ffi` bindings behind `globalThis.BEND_SYS`, which the package's ES
-module never names, and a test traps that global while the facade extracts,
-continues, sends, forwards, injects and generates.
-bend-kit's JavaScript transport, which runs on Bun, plays no part here.
+The facade imports [`javascript/trace_context.mjs`](javascript/trace_context.mjs),
+which `./scripts/build-js.sh` builds from the Bend sources with the pinned
+compiler; the qualification requires the committed file to be that build,
+byte for byte. That module exports the compiler's own representations, such
+as tagged objects and erased proof fields: a JavaScript object shaped like
+a `TraceParentV00` is not evidence of validity. The facade therefore
+accepts only wire or scalar inputs and its own handles, and code that calls
+the raw module directly bypasses that boundary. The facade reaches no system
+binding: the Bend runtime keeps its `bun:ffi` bindings behind
+`globalThis.BEND_SYS`, which the package's ES module never names, and a test
+traps that global while the facade works. bend-kit's JavaScript transport,
+which runs on Bun, plays no part here.
 
-## Runtime requirements and support boundaries
+Words come from the package's WebCrypto source, which the facade and Bend
+programs compiled to JavaScript share. It asks `getRandomValues` for one
+32-bit word at a time, from the `crypto` option or `globalThis.crypto` when
+called. It fails with code 1, `unavailable`, when there is no
+`getRandomValues`, and with code 2, `source-failure`, when the call throws
+or answers anything but a 32-bit word. There is no time, counter or
+`Math.random` fallback, and no retry. A provider is trusted to supply
+entropy: validating a returned integer cannot prove its cryptographic origin.
 
-- Node 22.18.0 or a later Node 22 release, or Node 24, the range that the
-  package declares. CI qualifies the current patch release of each line and
-  records its exact version. The facade's tests also passed locally on
-  22.17.1, 22.18.0 and 24.0.0, which CI does not run.
-- Nothing else at run time: no Bend binary, no Bun and no module loader.
-  The facade imports
-  [`javascript/trace_context.mjs`](javascript/trace_context.mjs), which
-  `./scripts/build-js.sh` builds from the Bend sources with the pinned
-  compiler, and the qualification requires the committed file to be that
-  build, byte for byte.
-- In browsers, pages are bundled with the official bundler, as
-  [Browser integration](#browser-integration) describes. The facade is
-  qualified in the [tested engines](#tested-engines).
-- Node's HTTP limits and transformations apply as described
-  [above](#node-http-integration).
-
-## Qualification
-
-- `tests/javascript/facade.test.mjs` exercises the facade with independent
-  vectors from W3C Trace Context Level 2 and spec #1:
-  - deterministic sources whose reads it counts;
-  - forged handles and malformed inputs;
-  - the lenient and strict policies under actual WebCrypto
-    `QuotaExceededError` and `TypeMismatchError` exceptions, an unavailable
-    source and exhausted candidates;
-  - the worst-case word budgets of 48 and 16 words;
-  - every flag byte, 32 and 33 tracestate members, and octet budgets with
-    multibyte characters;
-  - supplied identifiers, limits, tracestate edits, injection, forwarding and
-    cleanup;
-  - arguments read once, even through getters;
-  - a message of ten thousand fields;
-  - what the compiler's modules export, and the absence of any system
-    binding.
-- `tests/javascript/node-http.test.mjs` runs `node:http` servers against an
-  independent observer that records header lines as they arrive, and checks
-  `fetch` and `tracedFetch` outside a page as well.
-- `tests/browser/fetch.spec.mjs` runs the bundled Fetch page in each engine.
-  The page's server renders its context as `<meta>` elements, and an
-  independent observer on another origin records header lines and
-  preflights. It covers:
-  - generation through WebCrypto;
-  - same-origin and cross-origin calls that replace stale fields;
-  - values joined by `Headers`, and repeated or differently cased elements;
-  - allowed, unlisted and refused cross-origin calls, and origins allowed by
-    a `RegExp`;
-  - `no-cors`, redirects, `Request` inputs and a page without an origin of
-    its own;
-  - actual WebCrypto exceptions under both policies;
-  - intact forwarding;
-  - the example page's buttons;
-  - forged values and invalid arguments, refused before any request.
-
-  `./scripts/qualify-js.sh browser` also bundles the pages a second time and
-  requires identical files, and bundles a copy of the sources at another
-  path and requires the same scripts.
-- `./scripts/test-consumer.sh browser` installs the facade from a fresh
-  pinned clone into an independent page,
-  [`tests/consumer/browser`](../../tests/consumer/browser/page.mjs). It
-  bundles the page twice with the clone's bundler, requires identical
-  bundles, and runs the page in the three engines against the observer.
-- `./scripts/test-consumer.sh node` installs the facade from a fresh pinned
-  clone into an independent application. It runs
-  [`tests/consumer/facade.mjs`](../../tests/consumer/facade.mjs) and the
-  [root README example](../../README.md#from-javascript) against expected
-  outputs.
-- `./scripts/qualify-propagation.sh node` installs the facade from a pinned
-  checkout into the Node propagation service,
-  [`tests/propagation/service.mjs`](../../tests/propagation/service.mjs), as
-  an application would. It then runs the repository's 13 propagation checks
-  against an independent observer, the gateway example, and the
-  [W3C Trace Context harness](https://github.com/w3c/trace-context/tree/acab820be9db7b3433668baa5cdd43f57f4c4be0/test)
-  at commit `acab820` with `SPEC_LEVEL=2` and `STRICT_LEVEL=2`. It requires
-  all 41 tests to run and pass. The [native HTTP guide](NATIVE-HTTP.md#propagation)
-  describes the checks and the harness run; evidence goes to
-  `build/propagation-node/`.
-
-CI runs the Node checks on Node 22 and 24, and the browser checks in the three
-engines.
-
-## Codec adapter and foreign values
-
-`inspectTraceparent(value)`, also available from
-[`javascript/codec.mjs`](javascript/codec.mjs), accepts only a primitive
-JavaScript string. It returns:
-
-- `{ ok: true, traceparent: string, sampled: boolean }` on success, preserving
-  every flag bit according to the strict codec.
-- `{ ok: false, error: string }` on failure. Non-string values produce
-  `InvalidInputType`; malformed strings use the Bend codec's [error names](README.md).
-
-Numbers, arrays, boxed strings and tagged constructor objects are rejected
-without coercion. Parsing, formatting, nonzero-ID checks and sampled-bit
-inspection run in the existing Bend implementation.
-
-From this repository's checkout, with Node 22 or 24:
-
-```sh
-node examples/javascript/node.mjs
-```
-
-The output is:
-
-```json
-{"ok":true,"traceparent":"00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01","sampled":true}
-```
-
-The package's raw ES module exports compiler representations, including
-tagged objects and erased proof fields. A JavaScript object shaped like
-`TraceParentV00` with `evidence: null` is not evidence of validity. The
-adapter and the facade therefore accept only wire or scalar inputs and their
-own handles, and return values that the package constructed. Code that calls
-the raw module's exports directly bypasses that boundary.
-
-The package's proofs apply to its typed domain. The facade's conversions,
-its handle checks and the host effects are tested boundaries of foreign code,
-not additional formal proofs.
-
-For a browser application, use the official Bend HTML build path:
-
-```sh
-./bend examples/javascript/index.html -o build/browser
-node tests/browser/server.mjs
-```
-
-Open `http://127.0.0.1:4173/` and inspect a traceparent. Stop the local server
-before running browser tests. The
-[page](../../examples/javascript/index.html) imports the same codec adapter
-used by Node, on the compiler's module of the real `.bend` file; no
-JavaScript codec is maintained separately. A compiled CLI program is not
-treated as a browser module, and the HTML bundle's script is not used as a
-Node library export.
-
-## WebCrypto and explicit effects
-
-JavaScript consumers can import the shared source:
-
-```js
-import entropy from './packages/trace-context/entropy/webcrypto.js';
-const result = entropy.readRandomU32();
-```
-
-`readRandomU32(provider?)` requests one word from `getRandomValues` on a fresh
-`Uint32Array(1)`. By default it resolves `globalThis.crypto` when called. An
-explicit provider has the same `getRandomValues(array)` interface; it is useful
-for integration and deterministic tests. Passing `null` models unavailability.
-Providers are trusted to supply entropy: validating a returned integer cannot
-prove its cryptographic origin. There is no time, counter or `Math.random`
-fallback, and no implicit retries. Zero is valid at this source boundary: ID
-validation and the bounded candidate rules belong to generation. The facade
-reads its words through this function, with the `crypto` option as the
-provider.
-
-| Result | Meaning |
-| --- | --- |
-| `{ $: 'Done', value: number }` | An integer in `0..4294967295` |
-| `{ $: 'Fail', error: { $: 'Tuple', fst: 1, snd: 'unavailable' } }` | Missing source or `getRandomValues` method |
-| `{ $: 'Fail', error: { $: 'Tuple', fst: 2, snd: 'source-failure' } }` | Host lookup/call failure or an invalid returned word |
-
-Bend programs compiled to JavaScript call the same implementation through the
-explicit [`entropy.bend`](entropy.bend) effect:
-
-```bend
-import Base
-import ./packages/trace-context/entropy.bend as Entropy
-
-def display(result: Result<&1, &1, U32 & String, U32>) -> IO(Unit):
-  match result:
-    case Done{word}:
-      IO.print(U32.show(word))
-    case Fail{(code, message)}:
-      IO.print(message)
-
-def main() -> IO(Unit):
-  do IO<Unit>:
-    result : Result<&1, &1, U32 & String, U32> <- Entropy.read_u32()
-    display(result)
-```
-
-Save this as `entropy-example.bend` at the repository root, then run
-`./bend entropy-example.bend -o build/entropy-example.cjs` followed by
-`node build/entropy-example.cjs`.
-
-The same effect has a native twin, [`entropy/native.c`](entropy/native.c), which
-reads one word from the host primitive Base's `IO.random_u32` uses:
-`arc4random_buf` on macOS, which cannot fail, and `getrandom` on Linux,
-returning its error as `Fail` with the `errno` and its `strerror` text. The
-tests do not induce that native failure. Both files register the effect as
-the pinned compiler's
-[effect guide](https://github.com/bendlang/bend/blob/573002f01ec6c52416d44489543f69a9625facf8/guide/EFFECTS.md)
-describes, with `io_eff(CID(read_u32), ...)`, on runtime interfaces that
-carry no compatibility promise, so a compiler update must requalify them.
-
-The shared JavaScript file uses CommonJS because Bend runs a foreign effect's
-file as a script in a closure of its own, where ESM declarations are invalid.
-Node and the official browser bundler import that same file, where no effect
-exists to register. Its conditional `module.exports` also assigns unused
-exports inside a compiled CLI; that CLI has no library interface.
-
-The pinned Base [`random_u32.js`](https://github.com/bendlang/bend/blob/573002f01ec6c52416d44489543f69a9625facf8/bend2/effs/random_u32.js)
-lets WebCrypto exceptions escape instead of returning its declared `Fail`.
-The [reproducer](../../tests/javascript/fixtures/base-entropy.bend) and the
-[qualification tests](../../tests/javascript/entropy.test.mjs) demonstrate that
-behavior alongside the package adapter, whose Bend continuation receives
-`Done` or `Fail`. This adapter resolves the qualification requirement without
-patching the compiler; it does not qualify Base's uncaught failure behavior as
-supported. [Generation](README.md#generated-contexts) reads its words through
-this adapter. The qualification tests compile a generated root to JavaScript
-and run it on real WebCrypto, on each induced host failure (reported as a
-structured `SourceFailure` without fallback), on constant providers and on a
-provider that fails at the third word, counting the words read: six for a
-root, 32 before exhaustion when every word is zero, and three when the third
-fails. The facade generates in browsers through the same adapter, as
-[Browser integration](#browser-integration) describes.
-
-## Reproduce the qualification
-
-```sh
-./scripts/qualify-js.sh node
-./scripts/test-consumer.sh node
-./scripts/qualify-propagation.sh node
-npx --no-install playwright install chromium firefox webkit
-npm run build:browser
-./scripts/qualify-js.sh browser
-./scripts/test-consumer.sh browser
-```
-
-`./scripts/qualify-propagation.sh node` also needs Python 3.13 for the
-harness, whose aiohttp version and hashes `tests/propagation/requirements.txt`
-pins. On Linux CI, Playwright uses `install --with-deps` for its system
-libraries. Playwright is locked to `1.63.0` in `package-lock.json`; its browser
-builds are recorded with each test. Node 22 and 24 run the facade, the module
-and actual compiled Bend effect consumers. Chromium, Firefox and WebKit run the
-bundled pages, the Fetch integration, the shared source and the independent
-browser consumer. The required aggregate CI gate includes every
-target and rejects skips.
-
-Tests exercise genuine WebCrypto success and native `TypeMismatchError` and
-`QuotaExceededError` exceptions induced through providers calling the real host
-API with invalid buffers. Separate fixtures remove the host global or inject
-controlled provider failures. Random smoke checks establish only execution and
-the returned range, not uniqueness or cryptographic strength.
-
-Diagnostics, exact package/compiler/host versions, TAP results, browser JSON
-results and failure traces are retained under `build/javascript/`. CI
-artifacts expire after 14 days. Generated programs and downloaded tools are
-excluded from those reports. Advertised qualification requires a successful
-run for the exact candidate; workflow configuration alone is not evidence of
-success.
+A Bend program that imports generation.bend also runs on Node: build it with
+`-o main.js` and run `node main.js`, as the consumer tests do with the
+[Bend quick start](../../README.md#quick-start-bend). It reads its words
+through the same source, which the package registers as the JavaScript side
+of its `entropy.bend` effect; natively, the effect reads the host's
+generator. `-o main.mjs` builds an ES module of the program's functions
+instead, which runs nothing when Node starts it. The
+[validation record](VALIDATION.md#javascript) describes how the facade, the
+source and the compiled programs are qualified.
