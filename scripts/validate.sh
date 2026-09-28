@@ -15,7 +15,7 @@ cp tests/expected-codec.txt tests/expected-demo.txt tests/expected-generation.tx
   tests/expected-tracestate.txt tests/expected-tracestate-example.txt tests/expected-outgoing.txt \
   tests/expected-outgoing-example.txt tests/expected-extract.txt tests/expected-extract-example.txt \
   tests/expected-inject.txt tests/expected-inject-example.txt tests/expected-continue.txt \
-  tests/expected-continue-example.txt tests/expected-native-http.txt "$build_dir/"
+  tests/expected-continue-example.txt tests/expected-native-http.txt tests/expected-host-defs.txt "$build_dir/"
 {
 echo "Package commit: $(git rev-parse HEAD)"
 echo "Platform: $(uname -s) $(uname -m)"
@@ -96,15 +96,21 @@ check_continue_example() {
   compare_output tests/expected-continue-example.txt "$1.named.txt"
 }
 
+# Bend's verdict on the laws: ALL PROOFS CHECK when its checker accepts a
+# proof of every law and no def that PROOF.bend imports relies on @unsafe or
+# foreign code.
 ./bend packages/trace-context/PROOF.bend --check-only > "$build_dir/proofs.txt" 2>&1 || {
   cat "$build_dir/proofs.txt"; exit 1;
 }
 cat "$build_dir/proofs.txt"
-grep -F 'All terms check.' "$build_dir/proofs.txt" >/dev/null
-if grep -F '@unsafe' "$build_dir/proofs.txt" >/dev/null; then
-  echo "The proof gate must not rely on @unsafe." >&2
-  exit 1
-fi
+[ "$(head -n 1 "$build_dir/proofs.txt")" = 'ALL PROOFS CHECK' ]
+# generation.bend is the package's only module on the host's entropy: its
+# operations, and only those, rely on the foreign effect of entropy.bend.
+status=0
+./bend packages/trace-context/generation.bend --check-only > "$build_dir/host-defs.txt" 2>&1 || status=$?
+[ "$status" -eq 1 ] || { cat "$build_dir/host-defs.txt"; echo "Expected the host operations' verdict." >&2; exit 1; }
+compare_output tests/expected-host-defs.txt "$build_dir/host-defs.txt"
+echo "PASS: only the host operations of generation.bend rely on foreign code"
 
 for fixture in zero_id wrong_length remote_as_local invalid_state_key; do
   status=0
@@ -121,8 +127,8 @@ for fixture in zero_id wrong_length remote_as_local invalid_state_key; do
     grep -E 'expected : .*Digits.Con<0n>' "$build_dir/$fixture.txt" >/dev/null
     grep -E 'observed : .*Digits.Nil' "$build_dir/$fixture.txt" >/dev/null
   else
-    grep -E 'expected : .*trace_context\.LocalContext$' "$build_dir/$fixture.txt" >/dev/null
-    grep -E 'observed : .*trace_context\.RemoteContext$' "$build_dir/$fixture.txt" >/dev/null
+    grep -Fx -- '- expected : TC.LocalContext' "$build_dir/$fixture.txt" >/dev/null
+    grep -Fx -- '- observed : TC.RemoteContext' "$build_dir/$fixture.txt" >/dev/null
   fi
   echo "PASS: compile-time rejection of $fixture"
 done

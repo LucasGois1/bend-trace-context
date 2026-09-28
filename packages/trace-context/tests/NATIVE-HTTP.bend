@@ -3,7 +3,7 @@ import ../trace_context.bend as TC
 import ../native_http.bend as NativeHttp
 
 # The native HTTP adapter through its public names, with header maps as
-# bend-net builds them: one entry per field name, lowercased by its parser,
+# bend-kit builds them: one entry per field name, lowercased by its parser,
 # with the values in arrival order. Expected values are literal fixtures
 # written from W3C Trace Context Level 2 and spec #1, not recomputed by
 # package helpers.
@@ -77,12 +77,12 @@ def Test.received() -> IO(Unit):
       "none")
     IO.print("OK: a received header map keeps every value")
 
-# The values a map holds under `name`, as bend-net's Http.fields reads them.
+# The values a map holds under `name`, as bend-kit's Http.fields reads them.
 def Test.get(+map: Map<&2, List<&2, String>>, name: String) -> List<&2, String>:
   Pair.snd(Map<&2, List<&2, String>>, List<&2, String>, Map.get(List<&2, String>, Nil{}, map, name))
 
 # A carrier becomes a header map with each value added at the end of its
-# name's values, as bend-net's Http.add does, so that repeated fields stay
+# name's values, as bend-kit's Http.add does, so that repeated fields stay
 # repeated and keep their order.
 def Test.written() -> IO(Unit):
   +written = NativeHttp.headers([TC.Header{"accept", "application/json"}, TC.Header{"x-request-id", "42"},
@@ -115,7 +115,7 @@ def Test.third_span(tail: Test.tape()) -> Test.tape():
 def Test.failing() -> Test.tape():
   [Fail{(9, "controlled")}]
 
-# A request this service receives, as bend-net parses it.
+# A request this service receives, as bend-kit parses it.
 def Test.request() -> Map<&2, List<&2, String>>:
   Test.with(Test.with(Test.with(Test.map(), "traceparent",
     ["00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"]), "tracestate", ["rojo=00f067aa0ba902b7",

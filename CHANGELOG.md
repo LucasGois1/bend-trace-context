@@ -8,7 +8,7 @@ generated IDs, Level 2 tracestate parsing within validated limits, tracestate
 updates and emission within the output budget, context extraction from a
 received message's fields, participant injection and transparent forwarding
 into the fields of a message to send, the continue-or-start and sending
-operations of a service, an adapter for the native HTTP transport bend-net
+operations of a service, an adapter for bend-kit's native HTTP package
 qualified against the W3C Trace Context harness, a JavaScript facade for Node
 with `node:http` integration qualified against the same harness, Fetch
 integration for browser pages qualified in Playwright's builds of Chromium,
@@ -144,27 +144,30 @@ qualified JavaScript/entropy boundaries; it is not a published release.
   nothing of a received context, and that a message reports a new operation
   exactly when one was generated for it. A runnable example is added.
 - Add the native HTTP adapter `packages/trace-context/native_http.bend` for
-  bend-net's header maps, a Base `Map` from each field name to its values in
+  bend-kit's header maps, a Base `Map` from each field name to its values in
   arrival order. `NativeHttp.carrier` and `NativeHttp.headers` translate a
-  map to the package's carrier and back; `NativeHttp.continue_or_start` and
-  `NativeHttp.send` take a service's operation from a received request's
-  map and give each request to send a new child, returning an `Outbound`
-  with the `Sent` diagnostics and the header map to send. The `*_with`
-  variants take a caller's source. The adapter imports only `Base` and the
-  package, and decides no Trace Context rule: laws prove that its carrier
+  map to the package's carrier and back; `NativeHttp.continue_or_start_with`
+  and `NativeHttp.send_with` take a service's operation from a received
+  request's map and give each request to send a new child, on a caller's
+  source, returning an `Outbound` with the `Sent` diagnostics and the header
+  map to send. `NativeHttp.continue_or_start` and `NativeHttp.send` of
+  generation.bend do the same on the host's source. The adapter imports only
+  `Base` and trace_context.bend, and decides no Trace Context rule: laws
+  prove that its carrier
   keeps every value of every name in order, that the map it writes for a
   carrier does too given the contract of Base's `Map`, and that its
   shortcuts are the package's operations on that carrier. Its translations
   are loops, so a head of 64 KiB needs no deep stack. `scripts/qualify-propagation.sh`
   builds a service and the new gateway example from a pinned checkout, runs
-  them over bend-net against an independent observer, and runs the W3C
+  them over bend-kit against an independent observer, and runs the W3C
   harness at commit `acab820` with `SPEC_LEVEL=2` and `STRICT_LEVEL=2`: 41
   tests, none failed or skipped. Native CI jobs run it on macOS ARM64 and
   Linux x86_64.
 - Add a JavaScript facade for Node 22 and 24, the `bend-trace-context`
   package in `packages/trace-context`, installed from a pinned checkout with
-  `npm install` and run on the official Bend module loader, without Bun. It
-  mirrors the package's operations with plain JavaScript data:
+  `npm install` and run on Node alone: it carries the package as the ES
+  module that the pinned compiler builds. It mirrors the package's
+  operations with plain JavaScript data:
   - `extract`, `continueOrStart` and `send`;
   - `inject`, `forward`, `clear` and `outgoing`;
   - `getState`, `setState` and `removeState`;
@@ -175,12 +178,11 @@ qualified JavaScript/entropy boundaries; it is not a published release.
   The package's values stay behind frozen handles that only the facade
   creates, named after the package's types, so copied or forged objects are
   refused, and arguments are read once. It needs Node 22.18.0 or later, or
-  Node 24, whose type stripping runs the loader. Generation reads
-  WebCrypto words one at a time, and the policies follow the package: the
-  lenient path proceeds with diagnostics, and the strict one throws a
-  `GenerationError`. `bend-trace-context/node` reads received `node:http`
-  requests from their raw header lines and writes the headers of requests to
-  send; `fetch` takes the fields directly.
+  Node 24. Generation reads WebCrypto words one at a time, and the policies
+  follow the package: the lenient path proceeds with diagnostics, and the
+  strict one throws a `GenerationError`. `bend-trace-context/node` reads
+  received `node:http` requests from their raw header lines and writes the
+  headers of requests to send; `fetch` takes the fields directly.
 - Add Fetch integration for browser pages, `bend-trace-context/fetch`:
   - `documentFields(document)` reads the context that a page's server
     rendered as `<meta name="traceparent">` and `<meta name="tracestate">`
@@ -230,14 +232,32 @@ qualified JavaScript/entropy boundaries; it is not a published release.
   unchanged.
 - Establish reproducible Bend 2.0.27 setup, Git-pinned consumption, MIT licensing
   and baseline validation on native and Node targets.
+- Move to Bend 2.0.32. The proof gate reads its verdict, `ALL PROOFS CHECK`,
+  which also requires that nothing `PROOF.bend` imports relies on `@unsafe`
+  or foreign code. The host shortcuts of the native HTTP adapter therefore
+  moved to generation.bend, so native_http.bend has no host effect, and the
+  validation pins the host operations that rely on the entropy effect. Both
+  entropy effects register with `io_eff(CID(read_u32), ...)`, as Bend's
+  effect interface now requires. The JavaScript facade imports
+  `javascript/trace_context.mjs`, the ES module that `scripts/build-js.sh`
+  builds with the pinned compiler and that the qualification requires to be
+  current, instead of loading `.bend` files through Bend's Node module
+  loader: the loader of 2.0.32 uses TypeScript syntax that Node 22 and 24 do
+  not strip by default. `scripts/setup-bend-source.sh` is removed. The
+  native HTTP programs move from paymog/bend-net, which does not build on
+  Bend 2.0.32, to its successor bend-kit, `bend-kit-http` 0.23.0.1 with
+  `bend-kit-json` 0.5.0.1, which they import from BendHub by content hash;
+  the `vendor/bend-net` submodule is removed.
 - Standardize documentation and package paths in English, including the public
   entry `packages/trace-context/trace_context.bend` and `examples/` directory.
-- Qualify pure module consumption in Node 22/24 and Chromium/Firefox/WebKit with
-  the official Bend loader and HTML bundler. Add primitive-string inspection and
-  a shared WebCrypto source whose explicit Bend JS effect returns structured
-  failures. HTTP/Fetch integration remains a separate planned capability.
-- Pin `paymog/bend-net` at `274591f1d1fcca2e4aa39ba65e505b32e2dbff21` and
-  qualify its native HTTP client/server on macOS ARM64 and Linux x86_64 with a
+- Qualify pure module consumption in Node 22/24 and Chromium/Firefox/WebKit
+  with the package's compiled ES module and the official HTML bundler. Add
+  primitive-string inspection and a shared WebCrypto source whose explicit
+  Bend JS effect returns structured failures. HTTP/Fetch integration remains
+  a separate planned capability.
+- Qualify bend-kit's native HTTP client/server, `bend-kit-http` 0.23.0.1
+  from BendHub (paymog/bend-net at `274591f1d1fcca2e4aa39ba65e505b32e2dbff21`
+  before Bend 2.0.32), on macOS ARM64 and Linux x86_64 with a
   real loopback observer, repeated trace-header values, whitespace handling,
   no-redirect behavior and the listener's header-size limit. This is a
   development transport fixture, not Trace Context propagation or a tracer.
@@ -255,7 +275,19 @@ host-driven generation add new types and functions only; no public name or
 behavior changes. Internal helpers behind continue-or-start and sending
 changed, as internal helpers may. `scripts/qualify-propagation.sh` now takes
 the mode before the commit, and its evidence moved to
-`build/propagation-native/`.
+`build/propagation-native/`. With Bend 2.0.32, `NativeHttp.continue_or_start`
+and `NativeHttp.send` moved from native_http.bend to generation.bend, with
+the same names, parameters and results: prefix them with generation.bend's
+alias, as in `Generate.NativeHttp.send`. Bend 2.0.32 answers
+`SOME PROOFS FAIL` for a file that imports generation.bend, whose host
+operations rely on the entropy effect's foreign code, so an application's
+proof gate should not import it: state the laws over a caller's source, as
+this package's laws do. A JavaScript
+application runs with `node` alone: drop the `--import` of Bend's loader and
+`scripts/setup-bend-source.sh`. A native service imports bend-kit's HTTP
+package instead of bend-net: its bodies are bytes (`Http.Body()`, with
+`Http.from_string` and `Http.to_string`), `Http.fetch.how` answers
+`Result<&1, &1, Http.Err, Http.Res>`, and no submodule is needed.
 
 ## Versioning and compatibility
 
@@ -268,8 +300,9 @@ The documented Bend entries are `packages/trace-context/trace_context.bend`,
 which performs no host effect of its own,
 `packages/trace-context/generation.bend`, which generates on the host's
 cryptographic source, and `packages/trace-context/native_http.bend`, which
-adapts the header maps of the native HTTP transport bend-net. Their documented types, constructors, functions and
-error behavior form the current API contract. Internal parsing, generation
+adapts the header maps of bend-kit's native HTTP package. Their documented
+types, constructors, functions and error behavior form the current API
+contract. Internal parsing, generation
 machine (`Draw`/`Step`), tracestate reading machine (`Scan`/`Member`),
 extraction steps (`Carrier`, `Text`, `Read`, `Extract`), forwarding steps
 (`Forward`), continue-or-start and sending steps (`Policy`, `Serve`, `Send`),

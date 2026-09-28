@@ -1,6 +1,6 @@
 // Start a compiled Bend HTTP program and wait until it prints its listening
-// URL, as bend-net's server does. The returned handle stops the program and
-// gives what it printed so far.
+// URL, as bend-kit's HTTP server does. The returned handle stops the program
+// and gives what it printed so far.
 import { spawn } from 'node:child_process';
 
 export const launch = (path, url) => new Promise((resolve, reject) => {

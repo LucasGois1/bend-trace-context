@@ -1,10 +1,34 @@
 # Validation performed
 
-**2026-09-24 — Bend 2.0.27, macOS ARM64.** The results below correspond to the
-final ID representation: an `evidence` field is available for composing proofs.
-Run the commands from the repository root.
+## 2026-09-28 — Bend 2.0.32, macOS ARM64
 
-## Proofs
+The move to Bend 2.0.32 ran every repository gate from the repository root,
+on macOS 26.7 ARM64 with Apple clang 21, Node 24.16.0, Python 3.13 and
+Playwright 1.63.0. CI runs the same gates on Linux x86_64 and on Node 22 and
+24 for each commit, and records their exact versions.
+
+| Gate | Result |
+| --- | --- |
+| `./scripts/validate.sh native` and `node` | `PROOF.bend` prints `ALL PROOFS CHECK`; the host operations of `generation.bend`, and only those, rely on foreign code; the static rejections, corpora and examples give their expected outputs |
+| `./scripts/test-installer.sh` | 9 installer cases pass |
+| `./scripts/qualify-js.sh node` | the committed ES module is the pinned compiler's build; 43 tests, none failed or skipped |
+| `./scripts/qualify-js.sh browser` | 75 tests in Chromium, Firefox and WebKit; a rebuild is byte-identical, and a relocated build gives the same scripts |
+| `./scripts/test-consumer.sh native`, `node` and `browser` | the independent consumer, the README programs, the facade and the page from a fresh clone; the page's bundle is reproducible |
+| `./scripts/qualify-native-http.sh` | 2 transport tests on `bend-kit-http` 0.23.0.1 |
+| `./scripts/qualify-propagation.sh native` and `node` | 13 propagation checks, the gateway check and the W3C harness: 41 tests, none failed or skipped |
+
+The facade's tests also pass on Node 22.17.1, 22.18.0 and 24.0.0. Bend's
+`--verdict` does not cover the package yet, as the
+[package reference](README.md#proofs) explains.
+
+## 2026-09-24 — Bend 2.0.27, macOS ARM64
+
+The first validation of the codec. The results below correspond to the final
+ID representation: an `evidence` field is available for composing proofs.
+Run the commands from the repository root. Bend 2.0.32 prints
+`ALL PROOFS CHECK` where 2.0.27 printed `All terms check.`.
+
+### Proofs
 
 ```sh
 ./bend packages/trace-context/PROOF.bend --check-only
@@ -15,7 +39,7 @@ The gate imports proofs for hexadecimal, indexed sequences, strings, sequence
 reading and the complete context. Public laws: length 55 and
 `parse(format(context)) == Done{context}` for any typed context.
 
-## Tests and consumer
+### Tests and consumer
 
 ```sh
 ./bend packages/trace-context/tests/TEST.bend
@@ -53,7 +77,7 @@ The separate consumer produced this output in all three modes:
 sampled: True
 ```
 
-## Expected static rejections
+### Expected static rejections
 
 These commands **must exit with status 1**:
 
@@ -68,7 +92,7 @@ to supply `{==}` for a zero ID. The second was rejected for supplying
 the examples readable; these are the same type families used for 32- and
 16-position IDs.
 
-## Scope
+### Scope
 
 We did not run the complete W3C HTTP suite, GPU execution, other operating
 systems, benchmarks or performance assessments. The current consumer is local,

@@ -1,6 +1,6 @@
 #!/bin/sh
-# Qualify Trace Context propagation over HTTP on one host: natively, over the
-# pinned HTTP transport bend-net, or in Node, over node:http through the
+# Qualify Trace Context propagation over HTTP on one host: natively, over
+# bend-kit's HTTP package, or in Node, over node:http through the
 # JavaScript facade. From a pinned checkout of this repository, build or
 # install the propagation service and the gateway example as an application
 # would, run the repository's propagation checks against an independent
@@ -16,17 +16,11 @@ revision=${2:-$(git -C "$repo_dir" rev-parse HEAD)}
 case "$mode" in native|node) ;; *) echo "$usage" >&2; exit 2 ;; esac
 case "$revision" in *[!0-9a-f]*|'') echo "Use a full lowercase Git commit SHA." >&2; exit 2 ;; esac
 [ "${#revision}" -eq 40 ] || { echo "Use a full 40-character Git commit SHA." >&2; exit 2; }
-bend_net_pin=274591f1d1fcca2e4aa39ba65e505b32e2dbff21
 harness_pin=acab820be9db7b3433668baa5cdd43f57f4c4be0
 harness_url=https://github.com/w3c/trace-context
 harness_tests=41
 cd "$repo_dir"
-if [ "$mode" = native ]; then
-  [ -f vendor/bend-net/http.bend ] || {
-    echo "Initialize the pinned HTTP dependency with: git submodule update --init --recursive" >&2
-    exit 1
-  }
-else
+if [ "$mode" = node ]; then
   node_major=$(node -p 'process.versions.node.split(".")[0]')
   case "$node_major" in 22|24) ;; *) echo "Node 22 or 24 is required." >&2; exit 1 ;; esac
 fi
@@ -56,25 +50,17 @@ run_logged() {
 }
 
 # The service and the example come from a pinned checkout of the exact
-# revision, as an application takes them. Natively, its bend-net submodule
-# comes from the local pinned checkout; in Node, the facade needs no
-# submodule, and the checkout installs its own Bend module loader. Only the
-# loader, the harness and aiohttp are downloaded.
+# revision, as an application takes them. Natively, they import bend-kit's
+# packages from BendHub by content hash, into a fresh package cache; in Node,
+# the facade needs neither bend-kit nor Bend. Beyond those packages, only the
+# harness and aiohttp are downloaded.
 dependency="$work_dir/deps/bend-trace-context"
 mkdir -p "$work_dir/deps" "$work_dir/package-cache"
 git clone --quiet --no-local --no-checkout "$repo_dir" "$dependency"
 git -C "$dependency" checkout --quiet --detach "$revision"
 [ "$(git -C "$dependency" rev-parse HEAD)" = "$revision" ]
 if [ "$mode" = native ]; then
-  git -C "$dependency" config submodule.vendor/bend-net.url "$repo_dir/vendor/bend-net"
-  git -C "$dependency" -c protocol.file.allow=always submodule --quiet update --init vendor/bend-net
-  [ "$(git -C "$dependency/vendor/bend-net" rev-parse HEAD)" = "$bend_net_pin" ] || {
-    echo "Unexpected bend-net source in the pinned checkout" >&2
-    exit 1
-  }
   cp tests/propagation/service.bend "$work_dir/service.bend"
-else
-  run_logged loader "$dependency/scripts/setup-bend-source.sh"
 fi
 export BEND_LIB="$work_dir/package-cache"
 export BEND_NO_TELEMETRY=1
@@ -100,10 +86,9 @@ python3 -m venv "$work_dir/venv"
   if [ "$(uname -s)" = Darwin ]; then sw_vers; else cat /etc/os-release; fi
   if [ "$mode" = native ]; then
     ./bend version
-    printf 'bend-net commit: %s\n' "$bend_net_pin"
+    grep -E '^import 0x' tests/propagation/service.bend
     "${CC:-clang}" --version
   else
-    printf 'Bend module loader commit: %s\n' "$(git -C "$dependency/.tools/bend-source-2.0.27" rev-parse HEAD)"
     printf 'npm %s\n' "$(npm --version)"
   fi
   node --version
@@ -117,6 +102,11 @@ if [ "$mode" = native ]; then
     cat "$result_dir/service-compile.txt" >&2
     exit 1
   }
+  # Every package that BendHub resolved by name for the build, with its hash.
+  for name in "$BEND_LIB"/names/*; do
+    printf '%s %s\n' "$(basename "$name")" "$(cat "$name")"
+  done > "$result_dir/hub-names.txt"
+  cat "$result_dir/hub-names.txt"
   "$repo_dir/bend" "$dependency/packages/trace-context/examples/gateway.bend" -o "$result_dir/gateway" \
     > "$result_dir/gateway-compile.txt" 2>&1 || {
       cat "$result_dir/gateway-compile.txt" >&2
@@ -126,7 +116,7 @@ if [ "$mode" = native ]; then
   source_failure='SourceFailure 5 entropy unavailable'
 else
   # The service installs the facade from the pinned checkout as a package,
-  # and both programs run on the checkout's own loader.
+  # and both programs run on Node alone.
   app_dir="$work_dir/app"
   mkdir -p "$app_dir"
   cp tests/propagation/service.mjs "$app_dir/service.mjs"
@@ -136,10 +126,9 @@ else
       cat "$result_dir/service-install.txt" >&2
       exit 1
     }
-  loader="$dependency/.tools/bend-source-2.0.27/bend2/main.ts"
-  printf '#!/bin/sh\nexec node --import "%s" "%s"\n' "$loader" "$app_dir/service.mjs" > "$result_dir/service"
-  printf '#!/bin/sh\nexec node --import "%s" "%s"\n' "$loader" \
-    "$dependency/packages/trace-context/examples/gateway.mjs" > "$result_dir/gateway"
+  printf '#!/bin/sh\nexec node "%s"\n' "$app_dir/service.mjs" > "$result_dir/service"
+  printf '#!/bin/sh\nexec node "%s"\n' "$dependency/packages/trace-context/examples/gateway.mjs" \
+    > "$result_dir/gateway"
   chmod +x "$result_dir/service" "$result_dir/gateway"
   # An unavailable WebCrypto, as the facade reports it.
   source_failure='SourceFailure 1 unavailable'

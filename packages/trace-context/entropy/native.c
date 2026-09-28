@@ -26,5 +26,5 @@ Term read_u32_run(Env e, Term* f, IoWork* w) {
 }
 
 static void __attribute__((constructor)) read_u32_use(void) {
-  io_eff(CID_READ_U32, read_u32_run, 0);
+  io_eff(CID(read_u32), read_u32_run, 0);
 }

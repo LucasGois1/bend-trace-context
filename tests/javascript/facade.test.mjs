@@ -1,9 +1,15 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { webcrypto } from 'node:crypto';
+import { pathToFileURL } from 'node:url';
 import * as TC from '../../packages/trace-context/javascript/index.mjs';
-import Package from '../../packages/trace-context/trace_context.bend';
-import Generate from '../../packages/trace-context/generation.bend';
+import Package from '../../packages/trace-context/javascript/trace_context.mjs';
+import { compile } from './compile.mjs';
+
+// The compiler's ES module of a Bend file, compiled into build/.
+async function moduleOf(source, output) {
+  return (await import(pathToFileURL(compile(source, output)).href)).default;
+}
 
 const TRACEPARENT = '00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01';
 
@@ -426,14 +432,18 @@ test('fields are read once, so that what the facade checks is what reaches the p
   assert.equal(valueReads, 1);
 });
 
-test('the loader runs no IO operation and exports no template, so the facade drives the pure form', () => {
+test('the ES module exports no template and no IO operation to run, so the facade drives the pure form', async () => {
   // Definitions that take a template are not exported at all.
   for (const name of ['Context.root_with', 'Context.child_with', 'Context.restart_with', 'Context.continue_or_start_with',
     'Context.send_with', 'Generation.run_with']) {
     assert.equal(Package[name], undefined, name);
   }
-  // An IO operation without parameters is not exported either, and one with
-  // parameters comes back as an unrun IO action: it reads no word.
+  // The compiler's ES module of generation.bend exports no IO operation
+  // without parameters, and one with parameters comes back as an unrun IO
+  // action: it reads no word. The module names the constructors and
+  // definitions of trace_context.bend as it sees them, with their module's
+  // name, and takes no value of trace_context.mjs (bendlang/bend#1105).
+  const Generate = await moduleOf('packages/trace-context/generation.bend', 'build/javascript-modules/generation.mjs');
   assert.equal(Generate['Context.root'], undefined);
   const descriptor = Object.getOwnPropertyDescriptor(globalThis, 'crypto');
   let reads = 0;
@@ -442,8 +452,10 @@ test('the loader runs no IO operation and exports no template, so the facade dri
       configurable: true,
       value: { getRandomValues(array) { reads += 1; array[0] = 7; return array; } },
     });
-    const action = Generate['Context.continue_or_start'](Package['Context.extract'](Package['Limits.default'](),
-      { $: 'Nil' }, { $: 'None' }), { $: 'Continue' }, { $: 'InheritSampled' }, { $: 'Lenient' });
+    const extraction = Generate['trace_context.Context.extract'](Generate['trace_context.Limits.default'](),
+      { $: 'Nil' }, { $: 'None' });
+    const action = Generate['Context.continue_or_start'](extraction, { $: 'trace_context.Continue' },
+      { $: 'trace_context.InheritSampled' }, { $: 'trace_context.Lenient' });
     assert.equal(typeof action, 'function');
     assert.equal(reads, 0);
   } finally {

@@ -504,7 +504,7 @@ def strict_service(words: Words(), +extraction: TC.Extraction) -> IO(Unit):
       ~TC.Source.tape, words, extraction, TC.Continue{}, TC.InheritSampled{}, TC.Strict{})
     IO.print("strict service: " ++ refusal(Pair.snd(Words(), Result<&2, &2, TC.GenerationError, TC.Service>, done)))
 
-# A bend-net header map through the native HTTP adapter: the received
+# A bend-kit header map through the native HTTP adapter: the received
 # request's context is continued, and the request sent on gets a child in
 # place of a reused container's old context fields.
 def http_joined.rest(values: List<&2, String>) -> String:

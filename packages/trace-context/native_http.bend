@@ -1,31 +1,33 @@
 # bend-trace-context: native HTTP headers
 # =======================================
 #
-# The reference adapter for the native HTTP transport bend-net
-# (paymog/bend-net, pinned as the vendor/bend-net submodule). bend-net keeps
-# the header fields of a request or a response in a Base Map from each field
-# name to its values in arrival order; its parser lowercases the names and
-# trims the values. This module turns such a map into the carrier of
-# trace_context.bend and back, and gives a service its receive-to-send
-# shortcuts around bend-net's server and client.
+# The reference adapter for native HTTP on bend-kit's HTTP package
+# (paymog/bend-kit, bend-kit-http on BendHub). bend-kit keeps the header
+# fields of a request or a response in a Base Map from each field name to its
+# values in arrival order; its parser lowercases the names and trims the
+# values. This module turns such a map into the carrier of trace_context.bend
+# and back, and gives a service its receive-to-send shortcuts around
+# bend-kit's server and client on a caller's source.
+# generation.bend gives the same shortcuts on the host's cryptographic source
+# (NativeHttp.continue_or_start and NativeHttp.send there).
 #
 # The module decides nothing about Trace Context. Which fields are context
 # fields, how they are read and what is written all come from
 # trace_context.bend: the shortcuts are the package's operations on the
 # carrier of a map (laws http_continue and http_send), the carrier keeps
 # every value of every name (law http_carrier), and the map of a carrier
-# holds every value of every name (law http_headers). It imports only Base's Map
-# and the package, not bend-net itself, so it builds wherever the package
-# builds; a service imports bend-net for the transport.
+# holds every value of every name (law http_headers). It imports only Base
+# and trace_context.bend, not bend-kit or the host's entropy, so it builds
+# wherever the package builds and every def in it is pure; a service imports
+# bend-kit for the transport.
 #
 # Names in the Headers namespace are internal: Bend lets any module import
 # them, but they are not a compatibility contract.
 
 import Base
 import ./trace_context.bend as TC
-import ./generation.bend as Generate
 
-# The header fields of a bend-net request or response: each name, as bend-net
+# The header fields of a bend-kit request or response: each name, as bend-kit
 # stores it, with its values in arrival order.
 def HeaderMap() -> Data:
   Map<&2, List<&2, String>>
@@ -82,10 +84,10 @@ def Headers.write(fields: List<&2, TC.Header>, +headers: HeaderMap()) -> HeaderM
 
 # The header map of a carrier, such as the one TC.Sent.carrier gives for a
 # message to send: under each name, the carrier's values of that name in
-# order (law http_headers), as bend-net's Http.add would add them one by one,
+# order (law http_headers), as bend-kit's Http.add would add them one by one,
 # with the names as the carrier spells them. The fields are put in from the
 # last, each value first among its name's, which leaves every name's values
-# in order. bend-net writes one header line for each value.
+# in order. bend-kit writes one header line for each value.
 def headers(carrier: List<&2, TC.Header>) -> HeaderMap():
   Headers.write(List.reverse(&2, TC.Header, carrier), Map.new(&2, List<&2, String>))
 
@@ -98,13 +100,6 @@ def continue_or_start_with(~S: Type, ~read: S -> IO(S & Result<&1, &1, U32 & Str
   sampling: TC.Sampling, +policy: TC.FailurePolicy) -> IO(S & TC.FailurePolicy.result(policy, TC.Service)):
   TC.Context.continue_or_start_with(~S, ~read, source, TC.Context.extract(limits, carrier(headers), base), reception,
     sampling, policy)
-
-# The same on the host's cryptographic source
-# (Generate.Context.continue_or_start).
-def continue_or_start(+limits: TC.Limits, headers: HeaderMap(), base: Maybe<&2, TC.BaseContext>,
-  reception: TC.Reception, sampling: TC.Sampling, +policy: TC.FailurePolicy) ->
-  IO(TC.FailurePolicy.result(policy, TC.Service)):
-  Generate.Context.continue_or_start(TC.Context.extract(limits, carrier(headers), base), reception, sampling, policy)
 
 # The request to send for a message: the message with the map of the fields
 # that TC.Sent.carrier gives.
@@ -147,13 +142,6 @@ def send_with(~S: Type, ~read: S -> IO(S & Result<&1, &1, U32 & String, U32>), s
   IO.bind(S & TC.FailurePolicy.result(policy, TC.Sent), S & TC.FailurePolicy.result(policy, Outbound),
     TC.Context.send_with(~S, ~read, source, limits, service, sampling, policy, carrier(headers)),
     done => IO.pure(S & TC.FailurePolicy.result(policy, Outbound), Headers.written.done(S, policy, done)))
-
-# The same on the host's cryptographic source (Generate.Context.send).
-def send(+limits: TC.Limits, service: TC.Service, sampling: TC.Sampling, +policy: TC.FailurePolicy,
-  headers: HeaderMap()) -> IO(TC.FailurePolicy.result(policy, Outbound)):
-  IO.bind(TC.FailurePolicy.result(policy, TC.Sent), TC.FailurePolicy.result(policy, Outbound),
-    Generate.Context.send(limits, service, sampling, policy, carrier(headers)),
-    result => IO.pure(TC.FailurePolicy.result(policy, Outbound), Headers.written(policy, result)))
 
 # The context fields that the package gave the request.
 def Outbound.sent(outbound: Outbound) -> TC.Sent:

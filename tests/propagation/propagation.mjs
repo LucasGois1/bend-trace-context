@@ -1,12 +1,13 @@
 // Complementary propagation checks for a service on real HTTP: the native
 // service (tests/propagation/service.bend, compiled from a pinned checkout)
-// over bend-net, or the Node service (tests/propagation/service.mjs, on the
-// JavaScript facade installed from a pinned checkout) over node:http. The
-// service receives requests from this driver and sends its callbacks to an
-// independent Node observer, which records the header lines exactly as they
-// arrive. Expected values follow W3C Trace Context Level 2 and spec #1; they
-// are not computed by the package. BEND_PROPAGATION_SOURCE_FAILURE is the
-// failure the service's unavailable source gives, as its host reports it.
+// over bend-kit's HTTP package, or the Node service
+// (tests/propagation/service.mjs, on the JavaScript facade installed from a
+// pinned checkout) over node:http. The service receives requests from this
+// driver and sends its callbacks to an independent Node observer, which
+// records the header lines exactly as they arrive. Expected values follow
+// W3C Trace Context Level 2 and spec #1; they are not computed by the
+// package. BEND_PROPAGATION_SOURCE_FAILURE is the failure the service's
+// unavailable source gives, as its host reports it.
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { createServer } from 'node:http';

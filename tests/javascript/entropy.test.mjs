@@ -3,22 +3,16 @@ import test from 'node:test';
 import { webcrypto } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import entropy from '../../packages/trace-context/entropy/webcrypto.js';
+import { compile, root } from './compile.mjs';
 
-const root = fileURLToPath(new URL('../../', import.meta.url));
-
+// A compiled program is CommonJS, which its directory's package.json says.
 function compileFixture(name) {
   const directory = join(root, 'build/effect-programs');
   mkdirSync(directory, { recursive: true });
   writeFileSync(join(directory, 'package.json'), '{"type":"commonjs"}\n');
-  const output = join(directory, `${name}.js`);
-  const compile = spawnSync(join(root, 'bend'), [
-    `tests/javascript/fixtures/${name}.bend`, '-o', output,
-  ], { cwd: root, encoding: 'utf8', timeout: 30000 });
-  assert.equal(compile.status, 0, `${name}: ${compile.stdout}\n${compile.stderr}`);
-  return output;
+  return compile(`tests/javascript/fixtures/${name}.bend`, `build/effect-programs/${name}.js`);
 }
 
 function runFixture(output, mode) {

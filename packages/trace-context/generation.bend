@@ -11,11 +11,17 @@
 # caller's source instead.
 #
 # The generation machine itself is pure: section 6 of LAWS.bend states its
-# behavior over replayed tapes. This file only connects it to the host source
-# of entropy.bend.
+# behavior over replayed tapes. This file only connects it, and the native
+# HTTP shortcuts of native_http.bend, to the host source of entropy.bend.
+#
+# Every operation here relies on entropy.bend's foreign effect, so a check of
+# a file that imports this module reports them and answers SOME PROOFS FAIL.
+# No law imports it: the laws state the same operations on a caller's
+# source, which is how PROOF.bend proves them without host code.
 
 import Base
 import ./trace_context.bend as TC
+import ./native_http.bend as Adapter
 import ./entropy.bend as Entropy
 
 # The host source as the machine reads it: each read returns one word result
@@ -59,3 +65,22 @@ def Context.send(+limits: TC.Limits, service: TC.Service, sampling: TC.Sampling,
   +carrier: List<&2, TC.Header>) -> IO(TC.FailurePolicy.result(policy, TC.Sent)):
   on_host(TC.FailurePolicy.result(policy, TC.Sent),
     TC.Context.send_with(~Unit, ~Source.host, Unit{}, limits, service, sampling, policy, carrier))
+
+# The service's own operation for a received request, from the header map of
+# the request, on the host's cryptographic source: native_http.bend's
+# continue_or_start_with on Source.host. `base` is the context to keep when
+# the request carries no usable traceparent.
+def NativeHttp.continue_or_start(+limits: TC.Limits, headers: Adapter.HeaderMap(), base: Maybe<&2, TC.BaseContext>,
+  reception: TC.Reception, sampling: TC.Sampling, +policy: TC.FailurePolicy) ->
+  IO(TC.FailurePolicy.result(policy, TC.Service)):
+  on_host(TC.FailurePolicy.result(policy, TC.Service),
+    Adapter.continue_or_start_with(~Unit, ~Source.host, Unit{}, limits, headers, base, reception, sampling, policy))
+
+# Give one request that the service sends the context of a new operation, on
+# the host's cryptographic source: native_http.bend's send_with on
+# Source.host, which replaces the context fields of `headers`, the request's
+# own header map.
+def NativeHttp.send(+limits: TC.Limits, service: TC.Service, sampling: TC.Sampling, +policy: TC.FailurePolicy,
+  headers: Adapter.HeaderMap()) -> IO(TC.FailurePolicy.result(policy, Adapter.Outbound)):
+  on_host(TC.FailurePolicy.result(policy, Adapter.Outbound),
+    Adapter.send_with(~Unit, ~Source.host, Unit{}, limits, service, sampling, policy, headers))

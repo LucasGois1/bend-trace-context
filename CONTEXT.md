@@ -96,7 +96,7 @@ Reading tracing information from an incoming message and interpreting its fields
 Writing trace context information into the fields of an outgoing message.
 
 **Header map**:
-A transport's own grouping of a message's fields by name, such as bend-net's map from each name to its values in arrival order. A transport adapter turns it into a carrier and back.
+A transport's own grouping of a message's fields by name, such as bend-kit's map from each name to its values in arrival order. A transport adapter turns it into a carrier and back.
 _Avoid_: Carrier
 
 **Transport adapter**:
@@ -150,7 +150,7 @@ _Avoid_: Trusted origins
 
 **Handle**:
 A frozen JavaScript object that only the facade creates, standing for a value of the package. An object that merely looks like a handle is refused.
-_Avoid_: Wrapper object, raw loader value
+_Avoid_: Wrapper object, raw module value
 
 **Failure policy**:
 How an operation that needs a new identifier reports a generation failure: leniently, letting the business operation proceed without a new operation, or strictly, returning the error so that the caller can refuse the operation.

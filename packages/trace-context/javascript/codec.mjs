@@ -1,4 +1,4 @@
-import Codec from '../trace_context.bend';
+import Codec from './trace_context.mjs';
 
 // Keep proof-carrying values inside Bend. Foreign callers receive wire data only.
 export function inspectTraceparent(text) {

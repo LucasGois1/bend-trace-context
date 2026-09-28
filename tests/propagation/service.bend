@@ -1,8 +1,12 @@
 import Base
 import ./deps/bend-trace-context/packages/trace-context/trace_context.bend as TC
 import ./deps/bend-trace-context/packages/trace-context/native_http.bend as NativeHttp
-import ./deps/bend-trace-context/vendor/bend-net/http.bend as Http
-import ./deps/bend-trace-context/vendor/bend-net/json/json.bend as Json
+import ./deps/bend-trace-context/packages/trace-context/generation.bend as Generate
+import ./deps/bend-trace-context/tests/harness/actions.bend as Harness
+# bend-kit-http 0.23.0.1 and bend-kit-json 0.5.0.1, the JSON package that it
+# uses, from BendHub by content hash.
+import 0x1cef8a5fb1d9142ca5c6b2cb43629b21/http.bend as Http
+import 0x584fc27920487ceab242392391418d7f/json.bend as Json
 
 # The service under test for the W3C Trace Context harness and for the
 # repository's own propagation checks, built from a pinned checkout of the
@@ -39,11 +43,30 @@ import ./deps/bend-trace-context/vendor/bend-net/json/json.bend as Json
 def limits() -> TC.Limits:
   TC.Limits.default()
 
+# The harness actions of a request.
+def Actions() -> Data:
+  List<&2, Harness.Action>
+
 def json.response(status: U32, body: Json.Val) -> Http.Res:
-  Http.Res{status, Http.set(Http.empty(), "content-type", "application/json"), Json.encode(body)}
+  Http.Res{status, Http.set(Http.empty(), "content-type", "application/json"), Json.encode.bytes(body)}
 
 def text.response(status: U32, body: String) -> Http.Res:
-  Http.Res{status, Http.set(Http.empty(), "content-type", "text/plain"), body}
+  Http.Res{status, Http.set(Http.empty(), "content-type", "text/plain"), Http.from_string(body)}
+
+# A JSON string, and one field of a JSON object, whose key is bytes: bend-kit
+# keeps JSON text in its byte string, the type of Http.Body().
+def json.text(text: String) -> Json.Val:
+  Json.Str{Json.utf8(text)}
+
+def json.field(name: String, value: Json.Val) -> Http.Body() & Json.Val:
+  (Json.utf8(name), value)
+
+def json.texts(texts: List<&2, String>) -> List<&1, Json.Val>:
+  match texts:
+    case Nil{}:
+      Nil{}
+    case Con{text, rest}:
+      Con{json.text(text), json.texts(rest)}
 
 # An entropy source that always fails, as a platform without a generator.
 def unavailable(state: Unit) -> IO(Unit & Result<&1, &1, U32 & String, U32>):
@@ -66,29 +89,7 @@ def container.copied(+headers: NativeHttp.HeaderMap()) -> NativeHttp.HeaderMap()
     "traceparent", Http.fields(headers, "traceparent")), "tracestate", Http.fields(headers, "tracestate")),
     "x-request-id", Http.fields(headers, "x-request-id"))
 
-def action.url.of(value: Maybe<&2, Json.Val>) -> Maybe<&2, String>:
-  match value:
-    case Some{Json.Str{url}}:
-      Some{url}
-    case Some{other}:
-      None{}
-    case None{}:
-      None{}
-
-def action.body.of(value: Maybe<&2, Json.Val>) -> String:
-  match value:
-    case Some{arguments}:
-      Json.encode(arguments)
-    case None{}:
-      "[]"
-
-def action.url(action: Json.Val) -> Maybe<&2, String>:
-  action.url.of(Json.get(action, "url"))
-
-def action.body(action: Json.Val) -> String:
-  action.body.of(Json.get(action, "arguments"))
-
-def callback.ok(result: Result<&2, &2, Http.Err, Http.Res>) -> Bool:
+def callback.ok(result: Result<&1, &1, Http.Err, Http.Res>) -> Bool:
   match result:
     case Fail{err}:
       False{}
@@ -103,18 +104,18 @@ def callback(url: Maybe<&2, String>, body: String, +outbound: NativeHttp.Outboun
       IO.pure(Bool, False{})
     case Some{target}:
       do IO<Bool>:
-        result : Result<&2, &2, Http.Err, Http.Res> <- Http.fetch.how("POST", target,
-          NativeHttp.Outbound.headers(outbound), body, 3000, Http.ModeManual{})
+        result : Result<&1, &1, Http.Err, Http.Res> <- Http.fetch.how("POST", target,
+          NativeHttp.Outbound.headers(outbound), Http.from_string(body), 3000, Http.ModeManual{})
         return callback.ok(result)
 
 # The diagnostics of the requests sent, and whether every callback succeeded.
 type Callbacks is Data:
-  Callbacks{sent: List<&2, Json.Val>, ok: Bool}
+  Callbacks{sent: List<&2, String>, ok: Bool}
 
 def callbacks.done(+outbound: NativeHttp.Outbound, ok: Bool, later: Callbacks) -> Callbacks:
   match later:
     case Callbacks{sent, fine}:
-      Callbacks{Con{Json.Str{TC.Sent.show(NativeHttp.Outbound.sent(outbound))}, sent}, Bool.and(ok, fine)}
+      Callbacks{Con{TC.Sent.show(NativeHttp.Outbound.sent(outbound)), sent}, Bool.and(ok, fine)}
 
 # The fields the next request starts from: the same container, or, when
 # reusing, the fields the previous request was sent with.
@@ -127,23 +128,24 @@ def callbacks.next(reuse: Bool, +container: NativeHttp.HeaderMap(), +outbound: N
       container
 
 # Send every action's request, each with a new child of the service's
-# operation (NativeHttp.send), or its fallback when the service has none.
-def callbacks(+service: TC.Service, actions: List<&2, Json.Val>, +container: NativeHttp.HeaderMap(), +reuse: Bool) ->
+# operation (Generate.NativeHttp.send), or its fallback when the service has
+# none.
+def callbacks(+service: TC.Service, actions: Actions(), +container: NativeHttp.HeaderMap(), +reuse: Bool) ->
   IO(Callbacks):
   match actions:
     case Nil{}:
       IO.pure(Callbacks, Callbacks{Nil{}, True{}})
     case Con{+action, rest}:
       do IO<Callbacks>:
-        +outbound : NativeHttp.Outbound <- NativeHttp.send(limits(), service, TC.InheritSampled{}, TC.Lenient{},
-          container)
-        ok : Bool <- callback(action.url(action), action.body(action), outbound)
+        +outbound : NativeHttp.Outbound <- Generate.NativeHttp.send(limits(), service, TC.InheritSampled{},
+          TC.Lenient{}, container)
+        ok : Bool <- callback(Harness.Action.url(action), Harness.Action.body(action), outbound)
         later : Callbacks <- callbacks(service, rest, callbacks.next(reuse, container, outbound), reuse)
         return callbacks.done(outbound, ok, later)
 
 # Send every action's request with a child from the failing source: an
 # operating service's lenient fallback.
-def callbacks.unavailable(+service: TC.Service, actions: List<&2, Json.Val>, +container: NativeHttp.HeaderMap()) ->
+def callbacks.unavailable(+service: TC.Service, actions: Actions(), +container: NativeHttp.HeaderMap()) ->
   IO(Callbacks):
   match actions:
     case Nil{}:
@@ -153,44 +155,31 @@ def callbacks.unavailable(+service: TC.Service, actions: List<&2, Json.Val>, +co
         done : Unit & NativeHttp.Outbound <- NativeHttp.send_with(~Unit, ~unavailable, Unit{}, limits(), service,
           TC.InheritSampled{}, TC.Lenient{}, container)
         +outbound : NativeHttp.Outbound = Pair.snd(Unit, NativeHttp.Outbound, done)
-        ok : Bool <- callback(action.url(action), action.body(action), outbound)
+        ok : Bool <- callback(Harness.Action.url(action), Harness.Action.body(action), outbound)
         later : Callbacks <- callbacks.unavailable(service, rest, container)
         return callbacks.done(outbound, ok, later)
 
 def report(+extraction: String, +service: String, done: Callbacks) -> Http.Res:
   match done:
     case Callbacks{sent, +ok}:
-      json.response(Bool.pick(U32, ok, 200, 502), Json.Obj{Map.set(&2, Json.Val, Map.set(&2, Json.Val,
-        Map.set(&2, Json.Val, Map.set(&2, Json.Val, Map.new(&2, Json.Val), "extraction", Json.Str{extraction}),
-          "service", Json.Str{service}), "sent", Json.Arr{sent}), "ok", Json.Flag{ok})})
+      json.response(Bool.pick(U32, ok, 200, 502), Json.Obj{[json.field("extraction", json.text(extraction)),
+        json.field("service", json.text(service)), json.field("sent", Json.Arr{json.texts(sent)}),
+        json.field("ok", Json.Flag{ok})]})
 
 # What extraction found in the received request, for the diagnostics.
 def extraction(+headers: NativeHttp.HeaderMap()) -> String:
   TC.Extraction.show(TC.Context.extract(limits(), NativeHttp.carrier(headers), None{}))
 
 # Send the actions' requests for a service's operation and report.
-def respond(+headers: NativeHttp.HeaderMap(), +service: TC.Service, actions: List<&2, Json.Val>,
+def respond(+headers: NativeHttp.HeaderMap(), +service: TC.Service, actions: Actions(),
   +container: NativeHttp.HeaderMap(), reuse: Bool) -> IO(Http.Res):
   do IO<Http.Res>:
     done : Callbacks <- callbacks(service, actions, container, reuse)
     return report(extraction(headers), TC.Service.show(service), done)
 
-# The actions of a request body: a JSON array.
-def actions.of(parsed: Maybe<&2, Json.Val>) -> Maybe<&2, List<&2, Json.Val>>:
-  match parsed:
-    case Some{Json.Arr{actions}}:
-      Some{actions}
-    case Some{other}:
-      None{}
-    case None{}:
-      None{}
-
-def actions(+body: String) -> Maybe<&2, List<&2, Json.Val>>:
-  actions.of(Json.parse(body))
-
 # The service's own operation on the host's source.
 def host(+headers: NativeHttp.HeaderMap(), reception: TC.Reception) -> IO(TC.Service):
-  NativeHttp.continue_or_start(limits(), headers, None{}, reception, TC.InheritSampled{}, TC.Lenient{})
+  Generate.NativeHttp.continue_or_start(limits(), headers, None{}, reception, TC.InheritSampled{}, TC.Lenient{})
 
 # The service's own operation on the failing source, lenient.
 def unavailable.lenient(+headers: NativeHttp.HeaderMap()) -> IO(TC.Service):
@@ -199,7 +188,7 @@ def unavailable.lenient(+headers: NativeHttp.HeaderMap()) -> IO(TC.Service):
       None{}, TC.Continue{}, TC.InheritSampled{}, TC.Lenient{})
     return Pair.snd(Unit, TC.Service, done)
 
-def served(+headers: NativeHttp.HeaderMap(), actions: List<&2, Json.Val>, reception: TC.Reception,
+def served(+headers: NativeHttp.HeaderMap(), actions: Actions(), reception: TC.Reception,
   +container: NativeHttp.HeaderMap(), reuse: Bool) -> IO(Http.Res):
   do IO<Http.Res>:
     +service : TC.Service <- host(headers, reception)
@@ -212,13 +201,13 @@ def exhausted(+headers: NativeHttp.HeaderMap()) -> IO(TC.Service):
       TC.Continue{}, TC.InheritSampled{}, TC.Lenient{})
     return Pair.snd(Unit, TC.Service, done)
 
-def served.exhausted(+headers: NativeHttp.HeaderMap(), actions: List<&2, Json.Val>) -> IO(Http.Res):
+def served.exhausted(+headers: NativeHttp.HeaderMap(), actions: Actions()) -> IO(Http.Res):
   do IO<Http.Res>:
     +service : TC.Service <- exhausted(headers)
     respond(headers, service, actions, container.copied(headers), True{})
 
 # An operating service whose children cannot be generated.
-def served.unavailable.send(+headers: NativeHttp.HeaderMap(), actions: List<&2, Json.Val>) -> IO(Http.Res):
+def served.unavailable.send(+headers: NativeHttp.HeaderMap(), actions: Actions()) -> IO(Http.Res):
   do IO<Http.Res>:
     +service : TC.Service <- host(headers, TC.Continue{})
     done : Callbacks <- callbacks.unavailable(service, actions, container.copied(headers))
@@ -227,11 +216,10 @@ def served.unavailable.send(+headers: NativeHttp.HeaderMap(), actions: List<&2, 
 def refused.send(result: Result<&2, &2, TC.GenerationError, NativeHttp.Outbound>) -> Http.Res:
   match result:
     case Fail{error}:
-      json.response(503, Json.Obj{Map.set(&2, Json.Val, Map.new(&2, Json.Val), "refused",
-        Json.Str{TC.GenerationError.show(error)})})
+      json.response(503, Json.Obj{[json.field("refused", json.text(TC.GenerationError.show(error)))]})
     case Done{outbound}:
-      json.response(500, Json.Obj{Map.set(&2, Json.Val, Map.new(&2, Json.Val), "unexpected",
-        Json.Str{TC.Sent.show(NativeHttp.Outbound.sent(outbound))})})
+      json.response(500, Json.Obj{[json.field("unexpected",
+        json.text(TC.Sent.show(NativeHttp.Outbound.sent(outbound))))]})
 
 # The strict policy refuses the request when a child cannot be generated:
 # nothing is sent.
@@ -242,7 +230,7 @@ def served.unavailable.send.strict(+headers: NativeHttp.HeaderMap()) -> IO(Http.
       ~unavailable, Unit{}, limits(), service, TC.InheritSampled{}, TC.Strict{}, container.empty())
     return refused.send(Pair.snd(Unit, Result<&2, &2, TC.GenerationError, NativeHttp.Outbound>, done))
 
-def served.unavailable(+headers: NativeHttp.HeaderMap(), actions: List<&2, Json.Val>) -> IO(Http.Res):
+def served.unavailable(+headers: NativeHttp.HeaderMap(), actions: Actions()) -> IO(Http.Res):
   do IO<Http.Res>:
     +service : TC.Service <- unavailable.lenient(headers)
     respond(headers, service, actions, container.copied(headers), True{})
@@ -250,11 +238,9 @@ def served.unavailable(+headers: NativeHttp.HeaderMap(), actions: List<&2, Json.
 def refused(result: Result<&2, &2, TC.GenerationError, TC.Service>) -> Http.Res:
   match result:
     case Fail{error}:
-      json.response(503, Json.Obj{Map.set(&2, Json.Val, Map.new(&2, Json.Val), "refused",
-        Json.Str{TC.GenerationError.show(error)})})
+      json.response(503, Json.Obj{[json.field("refused", json.text(TC.GenerationError.show(error)))]})
     case Done{service}:
-      json.response(500, Json.Obj{Map.set(&2, Json.Val, Map.new(&2, Json.Val), "unexpected",
-        Json.Str{TC.Service.show(service)})})
+      json.response(500, Json.Obj{[json.field("unexpected", json.text(TC.Service.show(service)))]})
 
 # The strict policy refuses the request when the service gets no operation.
 def served.refused(+headers: NativeHttp.HeaderMap()) -> IO(Http.Res):
@@ -263,14 +249,14 @@ def served.refused(+headers: NativeHttp.HeaderMap()) -> IO(Http.Res):
       ~unavailable, Unit{}, limits(), headers, None{}, TC.Continue{}, TC.InheritSampled{}, TC.Strict{})
     return refused(Pair.snd(Unit, Result<&2, &2, TC.GenerationError, TC.Service>, done))
 
-def route.exhausted(matched: Bool, +headers: NativeHttp.HeaderMap(), actions: List<&2, Json.Val>) -> IO(Http.Res):
+def route.exhausted(matched: Bool, +headers: NativeHttp.HeaderMap(), actions: Actions()) -> IO(Http.Res):
   match matched:
     case True{}:
       served.exhausted(headers, actions)
     case False{}:
       IO.pure(Http.Res, text.response(404, "not found"))
 
-def route.send.strict(matched: Bool, +path: String, +headers: NativeHttp.HeaderMap(), actions: List<&2, Json.Val>) ->
+def route.send.strict(matched: Bool, +path: String, +headers: NativeHttp.HeaderMap(), actions: Actions()) ->
   IO(Http.Res):
   match matched:
     case True{}:
@@ -278,7 +264,7 @@ def route.send.strict(matched: Bool, +path: String, +headers: NativeHttp.HeaderM
     case False{}:
       route.exhausted(String.eq(path, "/test/exhausted"), headers, actions)
 
-def route.send(matched: Bool, +path: String, +headers: NativeHttp.HeaderMap(), actions: List<&2, Json.Val>) ->
+def route.send(matched: Bool, +path: String, +headers: NativeHttp.HeaderMap(), actions: Actions()) ->
   IO(Http.Res):
   match matched:
     case True{}:
@@ -286,7 +272,7 @@ def route.send(matched: Bool, +path: String, +headers: NativeHttp.HeaderMap(), a
     case False{}:
       route.send.strict(String.eq(path, "/test/unavailable/send/strict"), path, headers, actions)
 
-def route.strict(matched: Bool, +path: String, +headers: NativeHttp.HeaderMap(), actions: List<&2, Json.Val>) ->
+def route.strict(matched: Bool, +path: String, +headers: NativeHttp.HeaderMap(), actions: Actions()) ->
   IO(Http.Res):
   match matched:
     case True{}:
@@ -294,7 +280,7 @@ def route.strict(matched: Bool, +path: String, +headers: NativeHttp.HeaderMap(),
     case False{}:
       route.send(String.eq(path, "/test/unavailable/send"), path, headers, actions)
 
-def route.unavailable(matched: Bool, +path: String, +headers: NativeHttp.HeaderMap(), actions: List<&2, Json.Val>) ->
+def route.unavailable(matched: Bool, +path: String, +headers: NativeHttp.HeaderMap(), actions: Actions()) ->
   IO(Http.Res):
   match matched:
     case True{}:
@@ -302,7 +288,7 @@ def route.unavailable(matched: Bool, +path: String, +headers: NativeHttp.HeaderM
     case False{}:
       route.strict(String.eq(path, "/test/unavailable/strict"), path, headers, actions)
 
-def route.stale(matched: Bool, +path: String, +headers: NativeHttp.HeaderMap(), actions: List<&2, Json.Val>) ->
+def route.stale(matched: Bool, +path: String, +headers: NativeHttp.HeaderMap(), actions: Actions()) ->
   IO(Http.Res):
   match matched:
     case True{}:
@@ -310,7 +296,7 @@ def route.stale(matched: Bool, +path: String, +headers: NativeHttp.HeaderMap(), 
     case False{}:
       route.unavailable(String.eq(path, "/test/unavailable"), path, headers, actions)
 
-def route.restart(matched: Bool, +path: String, +headers: NativeHttp.HeaderMap(), actions: List<&2, Json.Val>) ->
+def route.restart(matched: Bool, +path: String, +headers: NativeHttp.HeaderMap(), actions: Actions()) ->
   IO(Http.Res):
   match matched:
     case True{}:
@@ -318,7 +304,7 @@ def route.restart(matched: Bool, +path: String, +headers: NativeHttp.HeaderMap()
     case False{}:
       route.stale(String.eq(path, "/test/stale"), path, headers, actions)
 
-def route.test(matched: Bool, +path: String, +headers: NativeHttp.HeaderMap(), actions: List<&2, Json.Val>) ->
+def route.test(matched: Bool, +path: String, +headers: NativeHttp.HeaderMap(), actions: Actions()) ->
   IO(Http.Res):
   match matched:
     case True{}:
@@ -327,10 +313,10 @@ def route.test(matched: Bool, +path: String, +headers: NativeHttp.HeaderMap(), a
       route.restart(String.eq(path, "/test/restart"), path, headers, actions)
 
 # The route for a path and its actions.
-def route.actions(+path: String, +headers: NativeHttp.HeaderMap(), actions: List<&2, Json.Val>) -> IO(Http.Res):
+def route.actions(+path: String, +headers: NativeHttp.HeaderMap(), actions: Actions()) -> IO(Http.Res):
   route.test(String.eq(path, "/test"), path, headers, actions)
 
-def route(+path: String, +headers: NativeHttp.HeaderMap(), actions: Maybe<&2, List<&2, Json.Val>>) -> IO(Http.Res):
+def route(+path: String, +headers: NativeHttp.HeaderMap(), actions: Maybe<&2, Actions()>) -> IO(Http.Res):
   match actions:
     case None{}:
       IO.pure(Http.Res, text.response(400, "expected a JSON array of actions"))
@@ -338,8 +324,8 @@ def route(+path: String, +headers: NativeHttp.HeaderMap(), actions: Maybe<&2, Li
       route.actions(path, headers, list)
 
 def handle(req: Http.Req) -> IO(Http.Res):
-  Http.Req{method, +path, +headers, +body} = req
-  route(path, headers, actions(body))
+  Http.Req{method, +path, +headers, body} = req
+  route(path, headers, Harness.parse(body))
 
 def main() -> IO(Unit):
   Http.serve.with(~handle, 18775, 1048576n)

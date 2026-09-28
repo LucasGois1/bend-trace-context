@@ -8,8 +8,7 @@
     "@playwright/test": "1.63.0"
   },
   "scripts": {
-    "setup:source": "./scripts/setup-bend-source.sh",
-    "test:node": "node --import ./.tools/bend-source-2.0.27/bend2/main.ts --test --test-reporter=tap tests/javascript/*.test.mjs",
+    "test:node": "node --test --test-reporter=tap tests/javascript/*.test.mjs",
     "build:browser": "./bend examples/javascript/index.html -o \"${BROWSER_OUT:-build/browser}\" && ./bend examples/javascript/fetch.html -o \"${BROWSER_OUT:-build/browser}\"",
     "test:browser": "playwright test"
   }

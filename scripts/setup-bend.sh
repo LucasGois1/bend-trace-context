@@ -4,19 +4,19 @@ set -eu
 
 repo_dir=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 [ "$#" -le 1 ] || { echo "Usage: $0 [destination]" >&2; exit 2; }
-destination=${1:-$repo_dir/.tools/bend-2.0.27}
-version=2.0.27
-release_commit=63bee70b55a71024d6bdcb49a745111bc54b114e
-# https://github.com/bendlang/bend/releases/tag/v2.0.27
+version=2.0.32
+destination=${1:-$repo_dir/.tools/bend-$version}
+release_commit=573002f01ec6c52416d44489543f69a9625facf8
+# https://github.com/bendlang/bend/releases/tag/v2.0.32
 # Digests are pinned from the release body and GitHub release asset metadata.
 case "$(uname -s)/$(uname -m)" in
   Darwin/arm64)
     platform=darwin-arm64
-    digest=de1f0a8b8db18c336edfb9385234b34f7da60fa4c79a4261e3be4a9674a2ffd7
+    digest=d7debc002f59264f648dc94e45c2a9fab23e4b1ee0a390bf2acd8b1673e0cf55
     ;;
   Linux/x86_64)
     platform=linux-x64
-    digest=58adc86af6605ed0c48f7d84e4c23028f78893ce4a867a20a4f004b11582687b
+    digest=5c365ddb12954d0933cef751802e0f7d9875f842edcb80f9661f89cd1a9ff7b6
     ;;
   *) echo "Supported compiler hosts: macOS ARM64 and Linux x86_64." >&2; exit 1 ;;
 esac

@@ -12,7 +12,9 @@ trap 'rm -rf "$work_dir"' EXIT
 trap 'exit 130' INT
 trap 'exit 143' HUP TERM
 
-version=2.0.27
+# The release that setup-bend.sh pins.
+version=$(sed -n 's/^version=//p' "$repo_dir/scripts/setup-bend.sh")
+[ -n "$version" ] || { echo "No version in scripts/setup-bend.sh" >&2; exit 1; }
 case "$(uname -s)/$(uname -m)" in
   Darwin/arm64) platform=darwin-arm64 ;;
   Linux/x86_64) platform=linux-x64 ;;
