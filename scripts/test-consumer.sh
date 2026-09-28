@@ -260,15 +260,21 @@ if [ "$mode" = native ]; then
 fi
 if [ "$mode" = node ]; then
   # The application installs the facade from the checkout as a package, as
-  # the root README shows, with the recipes' frameworks and TypeScript at
-  # the versions that the repository's tooling locks, from the npm cache.
-  # shellcheck disable=SC2317,SC2329
-  locked() { node -p "require('$repo_dir/package.json').devDependencies['$1']"; }
+  # the root README shows. The recipes' frameworks and TypeScript are the
+  # versions that the repository's package-lock.json locks: `npm ci`
+  # installed them in the repository, and the application links them from
+  # there, so that no registry is needed and no dependency floats.
   printf '{"name": "bend-consumer", "private": true, "type": "module"}\n' > package.json
   run_logged facade-install npm install --offline --ignore-scripts --no-audit --no-fund \
-    "$dependency/packages/trace-context" "express@$(locked express)" "fastify@$(locked fastify)" \
-    "@opentelemetry/api@$(locked @opentelemetry/api)" "typescript@$(locked typescript)" \
-    "typescript-5@$(locked typescript-5)"
+    "$dependency/packages/trace-context"
+  for tool in express fastify @opentelemetry/api typescript typescript-5; do
+    [ -d "$repo_dir/node_modules/$tool" ] || {
+      echo "Run npm ci --ignore-scripts in the repository first: $tool is missing." >&2
+      exit 1
+    }
+    mkdir -p "node_modules/$(dirname "$tool")"
+    ln -s "$repo_dir/node_modules/$tool" "node_modules/$tool"
+  done
   for program in facade readme-javascript $javascript_programs; do
     run_logged "$program" node "$program.mjs"
     compare_output "$program-diff" "$evidence_dir/$program.expected" "$evidence_dir/$program.stdout"

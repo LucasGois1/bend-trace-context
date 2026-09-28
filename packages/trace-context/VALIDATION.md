@@ -186,8 +186,8 @@ qualify it, its WebCrypto source and Bend programs compiled to JavaScript.
   shows, and checks that the quick start's request belongs to the trace that
   the server rendered, with a span ID of its own.
 - `./scripts/test-consumer.sh node` installs the facade from a fresh pinned
-  clone into an independent application, with the recipes' frameworks and
-  TypeScript. It runs [`tests/consumer/facade.mjs`](../../tests/consumer/facade.mjs),
+  clone into an independent application, which links the recipes'
+  frameworks and TypeScript from the repository's locked tooling. It runs [`tests/consumer/facade.mjs`](../../tests/consumer/facade.mjs),
   the [root README example](../../README.md#quick-start-javascript) and the
   JavaScript guide's log correlation, OpenTelemetry and inspection programs
   against the output that the documents show. It runs the
