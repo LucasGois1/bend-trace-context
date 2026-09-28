@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Bend Trace Context with Fetch</title>
+  </head>
+  <body>
+    <h1>Propagate a trace with Fetch</h1>
+    <p>This page continues the trace that its server rendered into it, or starts one, and calls APIs
+      with a child of its operation.</p>
+    <p>Operation: <output id="operation"></output></p>
+    <button id="same-origin" type="button">Call the same-origin API</button>
+    <button id="partner" type="button">Call the partner API</button>
+    <button id="joined" type="button">Show what Fetch hands over</button>
+    <pre role="status" id="result"></pre>
+    <script type="module" src="./fetch.mjs"></script>
+  </body>
+</html>

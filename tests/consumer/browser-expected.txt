@@ -1,0 +1,8 @@
+extracted: TraceParentAccepted, StateAccepted
+service: Continued 00-0af7651916cd43dd8448eb211c80319c-00f067aa0ba902b7-01
+same origin: Fresh | traceparent: 00-0af7651916cd43dd8448eb211c80319c-53995c3f42cd8ad8-01 | tracestate: congo=t61rcWkgMzE
+partner: 200 Fresh 00-0af7651916cd43dd8448eb211c80319c-a3ce929d0e0e4736-01
+unlisted origin: 200 no context
+strict: GenerationError SourceFailure 1 unavailable
+copied handle: TypeError
+generated root: true

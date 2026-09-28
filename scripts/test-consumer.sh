@@ -1,15 +1,19 @@
 #!/bin/sh
 # Exercise a fresh pinned dependency checkout from an independent application.
 # In node mode, the application also installs the JavaScript facade from the
-# checkout and runs it on the checkout's own Bend module loader.
+# checkout and runs it on the checkout's own Bend module loader. In browser
+# mode, it installs the facade into a page, bundles the page twice with the
+# checkout's official bundler, requires identical bundles, and runs the page
+# in Chromium, Firefox and WebKit.
 set -eu
 
 repo_dir=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 mode=${1:-native}
 source_repo=${2:-$repo_dir}
 revision=${3:-$(git -C "$repo_dir" rev-parse HEAD)}
-[ "$#" -le 3 ] || { echo "Usage: $0 [native|node] [repository] [full-commit-sha]" >&2; exit 2; }
-case "$mode" in native|node) ;; *) echo "Usage: $0 [native|node] [repository] [full-commit-sha]" >&2; exit 2 ;; esac
+usage="Usage: $0 [native|node|browser] [repository] [full-commit-sha]"
+[ "$#" -le 3 ] || { echo "$usage" >&2; exit 2; }
+case "$mode" in native|node|browser) ;; *) echo "$usage" >&2; exit 2 ;; esac
 case "$revision" in *[!0-9a-f]*|'') echo "Use a full lowercase Git commit SHA." >&2; exit 2 ;; esac
 [ "${#revision}" -eq 40 ] || { echo "Use a full 40-character Git commit SHA." >&2; exit 2; }
 
@@ -96,6 +100,10 @@ if [ "$mode" = node ]; then
   cp "$repo_dir/tests/consumer/facade-expected.txt" "$evidence_dir/facade.expected"
   cp "$repo_dir/tests/readme/javascript-expected.txt" "$evidence_dir/readme-javascript.expected"
 fi
+if [ "$mode" = browser ]; then
+  mkdir -p "$test_dir/page"
+  cp "$repo_dir/tests/consumer/browser/index.html" "$repo_dir/tests/consumer/browser/page.mjs" "$test_dir/page/"
+fi
 [ ! -e "$dependency/.tools" ] || { echo "Fresh checkout inherited ignored tools." >&2; exit 1; }
 export BEND_LIB="$test_dir/package-cache"
 export BEND_NO_TELEMETRY=1
@@ -104,10 +112,13 @@ export BEND_NO_TELEMETRY=1
   echo "Consumer platform: $(uname -s) $(uname -m)"
   uname -a
   if [ "$(uname -s)" = Darwin ]; then sw_vers; else cat /etc/os-release; fi
-  if [ "$mode" = node ]; then
+  if [ "$mode" = node ] || [ "$mode" = browser ]; then
     node_major=$(node -p 'process.versions.node.split(".")[0]')
     case "$node_major" in 22|24) ;; *) echo "Node 22 or 24 is required." >&2; exit 1 ;; esac
     node --version
+    if [ "$mode" = browser ]; then
+      (cd "$repo_dir" && node -p '"Playwright " + require("@playwright/test/package.json").version')
+    fi
   else
     CC=${CC:-clang}
     export CC
@@ -118,6 +129,31 @@ cat "$evidence_dir/environment.txt"
 run_logged setup "$dependency/scripts/setup-bend.sh"
 run_logged compiler "$dependency/bend" version
 cd "$test_dir"
+if [ "$mode" = browser ]; then
+  # The page installs the facade from the checkout as a package and is
+  # bundled by the checkout's own bundler. A second bundle of the same page
+  # must be byte-identical to the one the browsers run.
+  # shellcheck disable=SC2329 # run_logged invokes these functions.
+  page_install() { (cd page && npm install --offline --ignore-scripts --no-audit --no-fund "$dependency/packages/trace-context"); }
+  # shellcheck disable=SC2329
+  page_hashes() { (cd page/dist && for file in *; do cksum "$file"; done); }
+  # shellcheck disable=SC2329
+  page_tests() {
+    (cd "$repo_dir" && BEND_BROWSER_CONSUMER="$test_dir/page/dist" BEND_BROWSER_EVIDENCE="$evidence_dir" \
+      npx --no-install playwright test --config tests/consumer/playwright.config.mjs)
+  }
+  printf '{"name": "bend-browser-consumer", "private": true, "type": "module"}\n' > page/package.json
+  run_logged facade-install page_install
+  run_logged bundle "$dependency/bend" page/index.html -o page/dist
+  run_logged rebundle "$dependency/bend" page/index.html -o page/rebuilt
+  run_logged bundle-reproducible diff -r page/dist page/rebuilt
+  run_logged bundle-hashes page_hashes
+  echo "PASS: independent pinned page bundle is reproducible"
+  run_logged browser-tests page_tests
+  node "$repo_dir/tests/browser/check-results.mjs" "$evidence_dir/browser-results.json" 3
+  echo "PASS: independent pinned page (Chromium, Firefox and WebKit)"
+  exit 0
+fi
 for program in consumer readme; do
   run_logged "$program-direct" "$dependency/bend" "$program.bend"
   run_logged "$program-direct-diff" diff -u "$evidence_dir/$program.expected" "$evidence_dir/$program-direct.stdout"

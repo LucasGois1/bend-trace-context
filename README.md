@@ -20,9 +20,11 @@ generated. Over the native HTTP transport bend-net, a service built on the
 package's adapter passes the W3C Trace Context harness at its pinned commit.
 On Node 22 and 24, a JavaScript facade gives JavaScript applications the same
 operations, with WebCrypto as the identifier source and `node:http`
-integration, and a Node service built on it passes the same harness. Browser
-generation and propagation are not implemented yet. No BendHub or npm
-package has been published.
+integration, and a Node service built on it passes the same harness. In
+Playwright's builds of Chromium, Firefox and WebKit, which the
+[JavaScript guide](packages/trace-context/JAVASCRIPT.md#tested-engines) lists,
+a page bundled with the official Bend bundler uses the same facade, with
+Fetch integration and a same-origin default for the context fields. No BendHub or npm package has been published.
 
 ## Try the codec
 
@@ -214,10 +216,14 @@ Fresh content-type traceparent tracestate
 ```
 
 `bend-trace-context/node` reads the fields of a `node:http` request and
-writes the headers of one to send. The
+writes the headers of one to send. In a browser page, bundled with
+`./deps/bend-trace-context/bend page.html -o dist`, `bend-trace-context/fetch`
+reads the context that the server rendered into the page and sends each
+request with a child of the page's operation. The
 [JavaScript guide](packages/trace-context/JAVASCRIPT.md) documents the facade,
-its errors, its Node HTTP integration, its runtime requirements and the
-[gateway example](packages/trace-context/examples/gateway.mjs).
+its errors, its Node HTTP and Fetch integrations, CORS, its runtime
+requirements, the [gateway example](packages/trace-context/examples/gateway.mjs)
+and the [Fetch page](examples/javascript/fetch.html).
 
 ## Validation
 
@@ -228,6 +234,8 @@ its errors, its Node HTTP integration, its runtime requirements and the
 ./scripts/test-consumer.sh native
 ./scripts/test-consumer.sh node
 ./scripts/qualify-js.sh node
+./scripts/qualify-js.sh browser
+./scripts/test-consumer.sh browser
 ./scripts/qualify-native-http.sh
 ./scripts/qualify-propagation.sh native
 ./scripts/qualify-propagation.sh node
@@ -243,7 +251,12 @@ expected static rejections, deterministic generation from replayed tapes,
 real-source generation smoke checks, the tracestate, outgoing, extraction,
 injection, continue-or-start and native HTTP header corpora, the examples,
 the exact README examples above and a consumer outside the repository; in
-`node` mode, the consumer also installs and runs the JavaScript facade. The
+`node` mode, the consumer also installs and runs the JavaScript facade, and in
+`browser` mode it bundles a page on the facade and runs it in three engines.
+The browser commands need Playwright's engines:
+`npm ci --ignore-scripts` and
+`npx --no-install playwright install chromium firefox webkit`, then
+`npm run build:browser`. The
 native HTTP transport script and the `native` propagation mode need the
 `vendor/bend-net` submodule. Both propagation modes run the W3C harness: over
 bend-net natively, and over `node:http` through the JavaScript facade.
@@ -279,14 +292,15 @@ conformance.
 ## JavaScript and browser consumers
 
 The [JavaScript guide](packages/trace-context/JAVASCRIPT.md) documents the
-facade for Node: extraction, continue-or-start, sending, injection,
-forwarding, tracestate edits and generation with explicit failure policies,
-with `node:http` integration and a harness-qualified service. It also covers
-the input-validating codec adapter, the shared WebCrypto source with
-structured failures, the official Node loader, the Bend HTML bundler and the
-boundary between JavaScript values and the package's proof-carrying values.
-Browser generation and propagation remain in
-[#14](https://github.com/LucasGois1/bend-trace-context/issues/14).
+facade for Node and browsers: extraction, continue-or-start, sending,
+injection, forwarding, tracestate edits and generation with explicit failure
+policies. Its `node:http` integration has a harness-qualified service, and
+its Fetch integration a same-origin default, an allowlist for other origins
+and CORS guidance. It also covers the input-validating codec adapter, the
+shared WebCrypto source with structured failures, the official Node loader,
+the Bend HTML bundler, what browsers do to header fields, the engines tested
+and the boundary between JavaScript values and the package's proof-carrying
+values.
 
 The [native HTTP guide](packages/trace-context/NATIVE-HTTP.md) documents the
 pinned `bend-net` route and its native macOS/Linux checks. Its transport

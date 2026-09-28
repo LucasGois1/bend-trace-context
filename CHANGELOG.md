@@ -10,7 +10,9 @@ received message's fields, participant injection and transparent forwarding
 into the fields of a message to send, the continue-or-start and sending
 operations of a service, an adapter for the native HTTP transport bend-net
 qualified against the W3C Trace Context harness, a JavaScript facade for Node
-with `node:http` integration qualified against the same harness, and
+with `node:http` integration qualified against the same harness, Fetch
+integration for browser pages qualified in Playwright's builds of Chromium,
+Firefox and WebKit, and
 qualified JavaScript/entropy boundaries; it is not a published release.
 
 - Preserve the pure Bend codec, dependent ID representation, universal
@@ -179,6 +181,33 @@ qualified JavaScript/entropy boundaries; it is not a published release.
   `GenerationError`. `bend-trace-context/node` reads received `node:http`
   requests from their raw header lines and writes the headers of requests to
   send; `fetch` takes the fields directly.
+- Add Fetch integration for browser pages, `bend-trace-context/fetch`:
+  - `documentFields(document)` reads the context that a page's server
+    rendered as `<meta name="traceparent">` and `<meta name="tracestate">`
+    elements;
+  - `tracedFetch(service, input, init, options)` sends one request with a
+    new child of the service's operation and returns `{ response, sent }`.
+
+  Only the page's own origin, and origins or URLs that `propagateTo`
+  allows, receive the context fields. Any other request, and every
+  `no-cors` request, goes without them, so that a CORS preflight that does
+  not allow them cannot fail the business request. A redirect that `fetch`
+  follows keeps the fields, and the guide shows how to control it. Pages are
+  bundled with the official Bend bundler from a pinned checkout; bundling
+  the same checkout again gives byte-identical files. The browser
+  qualification runs in Playwright's builds of Chromium, Firefox and WebKit,
+  with exact versions, against an independent cross-origin observer:
+  - headers joined by Fetch;
+  - stale fields;
+  - intact forwarding;
+  - actual WebCrypto exceptions;
+  - allowed, unlisted and refused cross-origin calls;
+  - `no-cors` and redirects.
+
+  `scripts/test-consumer.sh browser` bundles an independent page from a
+  pinned clone and runs it in the three engines. The facade's handle
+  registry and option checks moved into internal modules shared by its
+  entries.
 - Give hosts that feed words themselves a pure form of the generating
   operations in `trace_context.bend`: `Generation` with `needs`, `feed` and
   `result`, and the plans `ServicePlan` and `SendPlan`, on which
@@ -213,7 +242,7 @@ qualified JavaScript/entropy boundaries; it is not a published release.
   no-redirect behavior and the listener's header-size limit. This is a
   development transport fixture, not Trace Context propagation or a tracer.
 
-Browser generation and propagation are planned under
+The remaining work toward 0.1.0 is planned under
 [specification #1](https://github.com/LucasGois1/bend-trace-context/issues/1).
 
 **Migration within 0.1.0-dev:** `Field` gains `SpanIdField{}`, so

@@ -4,15 +4,19 @@
 // feeds WebCrypto words to the package's generation machine and wraps the
 // package's values in handles.
 //
-// A handle is a frozen object that only this module creates. It carries wire
+// A handle is a frozen object that only the facade creates. It carries wire
 // text and diagnostics as plain properties, and it stands for a package value
-// kept in a module-private WeakMap, so an object that merely looks like a
-// handle is refused wherever a handle is expected. Handle kinds are named
-// after the package's types: LocalContext, IncomingContext, OutgoingContext,
-// Extraction, Service, Sent and Limits.
+// kept in the private registry of handles.mjs, so an object that merely
+// looks like a handle is refused wherever a handle is expected. Handle kinds
+// are named after the package's types: LocalContext, IncomingContext,
+// OutgoingContext, Extraction, Service, Sent and Limits.
 import TC from '../trace_context.bend';
 import entropy from '../entropy/webcrypto.js';
 import { copyFields } from './fields.mjs';
+import { entryOf, handle, unwrap } from './handles.mjs';
+import {
+  DEFAULT_LIMITS, RECEPTIONS, SAMPLINGS, STRICT, choice, cryptoOf, flag, limitsOf, optionsOf, sendOptions,
+} from './options.mjs';
 
 export { inspectTraceparent } from './codec.mjs';
 
@@ -29,28 +33,6 @@ export class GenerationError extends Error {
 
 // Handles
 // =======
-
-const handles = new WeakMap();
-
-function handle(kind, value, properties) {
-  const object = { ...properties };
-  Object.defineProperty(object, Symbol.toStringTag, { value: kind });
-  handles.set(Object.freeze(object), { kind, value });
-  return object;
-}
-
-// The kind and package value of a handle of one of `kinds`.
-function entryOf(kinds, object, name) {
-  const entry = typeof object === 'object' && object !== null ? handles.get(object) : undefined;
-  if (entry === undefined || !kinds.includes(entry.kind)) {
-    throw new TypeError(`${name} must be ${kinds.join(' or ')} returned by bend-trace-context`);
-  }
-  return entry;
-}
-
-function unwrap(kind, object, name) {
-  return entryOf([kind], object, name).value;
-}
 
 function localHandle(context) {
   const traceId = TC['LocalContext.trace_id'](context);
@@ -156,53 +138,6 @@ function fieldsOf(list) {
 
 function keysOf(list) {
   return array(list, (key) => TC['StateKey.to_string'](key));
-}
-
-function optionsOf(options) {
-  if (options === undefined) return {};
-  if (typeof options !== 'object' || options === null) throw new TypeError('options must be an object');
-  return options;
-}
-
-// The package value that an option names, or the fallback's.
-function choice(value, fallback, choices, name) {
-  if (value === undefined) return choices[fallback];
-  if (typeof value !== 'string') throw new TypeError(`${name} must be a string`);
-  if (!Object.hasOwn(choices, value)) {
-    throw new RangeError(`${name} must be ${Object.keys(choices).map((option) => `'${option}'`).join(' or ')}`);
-  }
-  return choices[value];
-}
-
-function flag(value, name) {
-  if (value === undefined) return false;
-  if (typeof value !== 'boolean') throw new TypeError(`${name} must be a boolean`);
-  return value;
-}
-
-const RECEPTIONS = { continue: { $: 'Continue' }, restart: { $: 'Restart' } };
-const SAMPLINGS = {
-  inherit: { $: 'InheritSampled' },
-  sampled: { $: 'SetSampled', sampled: true },
-  unsampled: { $: 'SetSampled', sampled: false },
-};
-const STRICT = { lenient: false, strict: true };
-const DEFAULT_LIMITS = TC['Limits.default']();
-
-function limitsOf(value) {
-  return value === undefined ? DEFAULT_LIMITS : unwrap('Limits', value, 'options.limits');
-}
-
-// The `crypto` option: undefined for the host's globalThis.crypto, null for
-// an unavailable source, or an object with WebCrypto's getRandomValues. The
-// method is only looked up, not read, so that a failing getter still reaches
-// the WebCrypto adapter, which reports it as a source failure.
-function cryptoOf(value) {
-  if (value === undefined || value === null) return value;
-  if ((typeof value !== 'object' && typeof value !== 'function') || !('getRandomValues' in value)) {
-    throw new TypeError('options.crypto must be an object with getRandomValues, or null');
-  }
-  return value;
 }
 
 // Generation
@@ -374,12 +309,9 @@ export function continueOrStart(extraction, options) {
 // Under the strict policy a message without a new operation throws a
 // GenerationError.
 export function send(service, fields, options) {
-  const { limits: given, sampling, policy, crypto } = optionsOf(options);
-  const source = cryptoOf(crypto);
-  const plan = TC['SendPlan.new'](limitsOf(given), unwrap('Service', service, 'service'),
-    choice(sampling, 'inherit', SAMPLINGS, 'options.sampling'), carrier(fields));
-  const strict = choice(policy, 'lenient', STRICT, 'options.policy');
-  const sent = TC['SendPlan.sent'](plan, generate(TC['SendPlan.generation'](plan), source));
+  const { limits, sampling, strict, crypto } = sendOptions(options);
+  const plan = TC['SendPlan.new'](limits, unwrap('Service', service, 'service'), sampling, carrier(fields));
+  const sent = TC['SendPlan.sent'](plan, generate(TC['SendPlan.generation'](plan), crypto));
   return sentHandle(strict ? orThrow(TC['Send.strict'](sent)) : sent);
 }
 
