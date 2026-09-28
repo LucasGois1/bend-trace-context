@@ -1,7 +1,7 @@
 # Traceparent codec, contexts and tracestate
 
 The currently implemented part of **bend-trace-context 0.1.0-dev** is a pure,
-strict v00 codec for Bend 2.0.27, validated trace and span IDs, root, child
+strict v00 codec for Bend 2.0.32, validated trace and span IDs, root, child
 and restarted local contexts, either from IDs the caller supplies or from IDs
 generated on a cryptographic source, a bounded Level 2 `tracestate` parser
 with validated limits, the operations that update a local operation's
@@ -10,13 +10,14 @@ message's context from its fields, the injection and forwarding of a context
 into the fields of a message to send, and the operations that continue or
 start a service's own operation for each message it receives and give each
 message it sends a child of that operation, with an adapter for the header
-maps of the native HTTP transport bend-net and a JavaScript facade for Node
-and browser pages.
+maps of bend-kit's native HTTP package and a JavaScript facade for Node and
+browser pages.
 It has no external package dependencies beyond the compiler's bundled `Base`.
 The public entries are [trace_context.bend](trace_context.bend), which
 performs no host effect of its own, [generation.bend](generation.bend), which
 adds the host's cryptographic source, [native_http.bend](native_http.bend),
-which adapts bend-net's header maps, and the JavaScript modules of
+which adapts bend-kit's header maps without any host effect, and the
+JavaScript modules of
 [javascript](javascript), which the [JavaScript guide](JAVASCRIPT.md)
 documents.
 See the root [installation guide](../../README.md) to consume them from a pinned
@@ -845,9 +846,9 @@ strict, without entropy: refused after SourceFailure 5 entropy unavailable
 The operations above read their words from a source that they drive
 themselves: the host's, or one that a caller passes as a template. A host
 that cannot pass a source as a template feeds the words itself, as
-JavaScript code calling the package through the official loader does: the
-loader runs no IO operation and exports no definition that takes a
-template. The [JavaScript facade](JAVASCRIPT.md) is such a host. The package gives
+JavaScript code calling the package's compiled ES module does: the module
+runs no IO operation and exports no definition that takes a template. The
+[JavaScript facade](JAVASCRIPT.md) is such a host. The package gives
 such a host a pure form of each generating operation. Names below are
 qualified by the alias `TC` for trace_context.bend:
 
@@ -898,26 +899,30 @@ every sequence of words.
 
 ## Native HTTP integration
 
-[native_http.bend](native_http.bend) connects the package to bend-net, the
-native HTTP transport that this repository pins as the `vendor/bend-net`
-submodule and [qualifies](NATIVE-HTTP.md). bend-net keeps the header fields of
-a request or response in a Base `Map` from each field name to its values in
-arrival order; its parser lowercases the names and trims the values. The
+[native_http.bend](native_http.bend) connects the package to the HTTP
+package of [bend-kit](https://github.com/paymog/bend-kit/tree/main/http),
+`bend-kit-http` on BendHub, the native HTTP transport that this repository
+[qualifies](NATIVE-HTTP.md) at version 0.23.0.1. bend-kit keeps the header
+fields of a request or response in a Base `Map` from each field name to its
+values in arrival order; its parser lowercases the names and trims the
+values. The
 adapter turns such a map into the package's carrier and back, and gives a
-service two shortcuts. It decides no Trace Context rule itself, and it
-imports only `Base` and the package, so it builds wherever the package
-builds; the service imports bend-net for the transport. Names below are
-qualified by the aliases `NativeHttp` for native_http.bend, `TC` for
-trace_context.bend and `Http` for bend-net's `http.bend`:
+service two shortcuts on a caller's source; generation.bend gives the same
+shortcuts on the host's source. The adapter decides no Trace Context rule
+itself, and it imports only `Base` and trace_context.bend, so it builds
+wherever the package builds and has no host effect; the service imports
+bend-kit for the transport. Names below are qualified by the aliases
+`NativeHttp` for native_http.bend, `Generate` for generation.bend, `TC` for
+trace_context.bend and `Http` for bend-kit's `http.bend`:
 
 ```bend
-NativeHttp.HeaderMap() -> Data   # Map<&2, List<&2, String>>, as bend-net's Req and Res hold
+NativeHttp.HeaderMap() -> Data   # Map<&2, List<&2, String>>, as bend-kit's Req and Res hold
 NativeHttp.carrier(headers: NativeHttp.HeaderMap()) -> List<&2, TC.Header>
 NativeHttp.headers(carrier: List<&2, TC.Header>) -> NativeHttp.HeaderMap()
-NativeHttp.continue_or_start(limits: TC.Limits, headers: NativeHttp.HeaderMap(), base: Maybe<&2, TC.BaseContext>,
-  reception: TC.Reception, sampling: TC.Sampling, policy: TC.FailurePolicy) ->
+Generate.NativeHttp.continue_or_start(limits: TC.Limits, headers: NativeHttp.HeaderMap(),
+  base: Maybe<&2, TC.BaseContext>, reception: TC.Reception, sampling: TC.Sampling, policy: TC.FailurePolicy) ->
   IO(TC.FailurePolicy.result(policy, TC.Service))
-NativeHttp.send(limits: TC.Limits, service: TC.Service, sampling: TC.Sampling, policy: TC.FailurePolicy,
+Generate.NativeHttp.send(limits: TC.Limits, service: TC.Service, sampling: TC.Sampling, policy: TC.FailurePolicy,
   headers: NativeHttp.HeaderMap()) -> IO(TC.FailurePolicy.result(policy, NativeHttp.Outbound))
 NativeHttp.Outbound{sent: TC.Sent, headers: NativeHttp.HeaderMap()}
 NativeHttp.Outbound.sent(outbound: NativeHttp.Outbound) -> TC.Sent
@@ -935,38 +940,42 @@ NativeHttp.send_with(~S, ~read, source: S, limits: TC.Limits, service: TC.Servic
   repeated tracestate fields in order. The order between different names is
   the map's own, and no Trace Context rule depends on it.
 - `headers` builds a map from a carrier that holds, under each name, the
-  carrier's values of that name in order, as bend-net's `Http.add` would add
-  them one by one, with the names as the carrier spells them. bend-net writes
+  carrier's values of that name in order, as bend-kit's `Http.add` would add
+  them one by one, with the names as the carrier spells them. bend-kit writes
   one header line per value.
 - Both are loops, so the thousands of values that a head of 64 KiB can hold
   need no deep stack.
-- `continue_or_start` gives the service's operation for a received request
-  from the request's header map: `TC.Context.extract` of the map's carrier,
-  followed by [`Context.continue_or_start`](#continuing-or-starting-a-trace).
-- `send` gives one request to send a new child of the service's operation:
-  `Context.send` on the carrier of the request's own header map, followed by
-  the map of the carrier the package gives back. The request's old context
-  fields go, whatever the case of their names. The `Outbound` holds the
-  `TC.Sent` diagnostics and the header map to send the request with.
-- `continue_or_start_with` and `send_with` take a caller's source, as the
-  package's own operations do.
+- `continue_or_start_with` gives the service's operation for a received
+  request from the request's header map: `TC.Context.extract` of the map's
+  carrier, followed by
+  [`Context.continue_or_start_with`](#continuing-or-starting-a-trace) on a
+  caller's source.
+- `send_with` gives one request to send a new child of the service's
+  operation: `Context.send_with` on the carrier of the request's own header
+  map, followed by the map of the carrier the package gives back. The
+  request's old context fields go, whatever the case of their names. The
+  `Outbound` holds the `TC.Sent` diagnostics and the header map to send the
+  request with.
+- `Generate.NativeHttp.continue_or_start` and `Generate.NativeHttp.send`
+  are the same on the host's cryptographic source, which is what a service
+  normally uses.
 
 A service handles each request in three steps:
 
 ```bend
-+service : TC.Service <- NativeHttp.continue_or_start(TC.Limits.default(), headers, None{}, TC.Continue{},
++service : TC.Service <- Generate.NativeHttp.continue_or_start(TC.Limits.default(), headers, None{}, TC.Continue{},
   TC.InheritSampled{}, TC.Lenient{})
-+outbound : NativeHttp.Outbound <- NativeHttp.send(TC.Limits.default(), service, TC.InheritSampled{},
++outbound : NativeHttp.Outbound <- Generate.NativeHttp.send(TC.Limits.default(), service, TC.InheritSampled{},
   TC.Lenient{}, Http.set(Http.empty(), "content-type", "application/json"))
-result : Result<&2, &2, Http.Err, Http.Res> <- Http.fetch.how("POST", url,
+result : Result<&1, &1, Http.Err, Http.Res> <- Http.fetch.how("POST", url,
   NativeHttp.Outbound.headers(outbound), body, 3000, Http.ModeManual{})
 ```
 
-`continue_or_start` returns only the service. A service that also logs why
-it continued or started a trace, which spec #1's diagnostics distinguish
-(an absent or a rejected traceparent, a discarded state), extracts first and
-passes the extraction on, as the [gateway example](examples/gateway.bend)
-does:
+`Generate.NativeHttp.continue_or_start` returns only the service. A
+service that also logs why it continued or started a trace, which spec #1's
+diagnostics distinguish (an absent or a rejected traceparent, a discarded
+state), extracts first and passes the extraction on, as the
+[gateway example](examples/gateway.bend) does:
 
 ```bend
 +extraction = TC.Context.extract(TC.Limits.default(), NativeHttp.carrier(headers), None{})
@@ -990,32 +999,38 @@ Errors are handled at three levels:
 
 Support boundaries:
 
-- The supported path is native Bend 2.0.27 on macOS ARM64 and Linux x86_64,
-  with bend-net at the pinned commit. bend-net's own JavaScript transport,
-  which runs on Bun, is not qualified. JavaScript applications on Node use
+- The supported path is native Bend 2.0.32 on macOS ARM64 and Linux x86_64,
+  with `bend-kit-http` 0.23.0.1. bend-kit's own JavaScript transport, which
+  runs on Bun, is not qualified. JavaScript applications on Node use
   the [facade's `node:http` integration](JAVASCRIPT.md#node-http-integration)
   instead, and browser pages its
   [Fetch integration](JAVASCRIPT.md#browser-integration).
-- An application that uses the adapter clones the repository with its
-  submodules: `git clone --recurse-submodules`, or
-  `git submodule update --init --recursive` in an existing checkout.
-- bend-net's server lowercases names and trims values before the package
+- An application that uses the adapter imports bend-kit itself, by content
+  hash as the [gateway example](examples/gateway.bend) does,
+  `import 0x1cef8a5fb1d9142ca5c6b2cb43629b21/http.bend as Http`, or by name,
+  `import bend-kit-http@0.23.0.1/http.bend as Http`. Bend fetches it from
+  BendHub on the first build and checks its files against the hash; its own
+  dependencies come by name and version, which BendHub resolves, as the
+  [native HTTP guide](NATIVE-HTTP.md) describes. A check of such a program
+  answers `SOME PROOFS FAIL`, since bend-kit relies on foreign code and
+  `@unsafe` definitions of its own.
+- bend-kit's server lowercases names and trims values before the package
   sees them; extraction reads the rest. It refuses a request head over
   64 KiB with 431 before any Trace Context code runs, whatever the package's
   input budgets allow.
-- bend-net's client lowercases the names of the map it sends, so of two keys
+- bend-kit's client lowercases the names of the map it sends, so of two keys
   that differ only in case it sends one, and it drops `host`, `connection`,
   `content-length` and `transfer-encoding`, which it writes itself. The
   context fields that the package writes have lowercase names already.
-- bend-net follows redirects by default. `Http.ModeManual{}` keeps each call a
+- bend-kit follows redirects by default. `Http.ModeManual{}` keeps each call a
   single operation, so that a redirect is not sent with the same child.
 
-The gateway listens on `127.0.0.1:18777` and calls
-`http://127.0.0.1:18776/downstream`. From the repository root, build it and
-start an observer that prints what reaches downstream:
+The gateway listens on port 18777 of every interface, as bend-kit's
+`Http.serve` does, and calls `http://127.0.0.1:18776/downstream`. From the
+repository root, build it and start an observer that prints what reaches
+downstream:
 
 ```sh
-git submodule update --init --recursive
 ./bend packages/trace-context/examples/gateway.bend -o build/gateway
 OBSERVER_PORT=18776 node tests/native/fixtures/observer.mjs
 ```
@@ -1109,7 +1124,25 @@ placeholder field per ID. There is no claim of zero representation overhead.
 ## Proofs
 
 [LAWS.bend](LAWS.bend) states, and [PROOF.bend](PROOF.bend) proves, laws over
-every value of their types, not over examples:
+every value of their types, not over examples. From the repository root,
+
+```sh
+./bend packages/trace-context/PROOF.bend
+```
+
+prints `ALL PROOFS CHECK`: Bend's checker accepts a proof of every law, and
+no definition PROOF.bend imports relies on `@unsafe` or foreign code. The
+host operations of generation.bend rely on the foreign effect of
+entropy.bend, so no law imports them: the laws state the same operations on
+a caller's source, and a check of a file that imports generation.bend
+answers `SOME PROOFS FAIL`, naming those operations, which the validation
+pins.
+
+Bend offers a second check, `--verdict`, which rechecks the proofs with
+BendTT, a small kernel that has a proof in Lean. That recheck has not run on
+this package: its translation has no model for the template assumptions
+about Base's `Map` that law `http_headers` takes, which the end of this
+section describes, and the kernel needs Lean 4.34.
 
 - **Codec:** `String.length(format(context)) == 55n`;
   `parse(format(context)) == Done{context}`, including the IDs, their evidence
@@ -1380,7 +1413,7 @@ forwarded pair, the cleared fields and a strict failure.
 The [propagation qualification](../../scripts/qualify-propagation.sh) takes a
 service and the gateway example from a pinned checkout of the repository, as
 an application would: in `native` mode it builds them on the adapter and
-runs them over the real bend-net transport, and in `node` mode it installs
+runs them over bend-kit's real transport, and in `node` mode it installs
 the [JavaScript facade](JAVASCRIPT.md) into a Node service and runs them over
 `node:http`. Its own checks, against an independent Node observer, cover:
 
@@ -1419,15 +1452,14 @@ commands and the separate clean consumer.
 
 The strict v00 format follows
 [W3C Trace Context Level 1](https://www.w3.org/TR/2021/REC-trace-context-1-20211123/#traceparent-header).
-The planned propagator targets the pinned
+The propagator targets the pinned
 [Level 2 Candidate Recommendation Draft](https://www.w3.org/TR/2024/CRD-trace-context-2-20240328/).
 The random-trace-id flag `0x02` still uses wire version `00`.
 
-This package does not yet implement browser generation, or HTTP
-integration in JavaScript and in browsers. Its faithful formatter does not mask reserved bits of a parsed
-value; `LocalContext.to_traceparent` emits only known flags. There is no claim of
-complete W3C propagator conformance or a full OpenTelemetry SDK.
+The codec's faithful formatter does not mask reserved bits of a parsed
+value; `LocalContext.to_traceparent` emits only known flags. There is no
+claim of complete W3C propagator conformance or a full OpenTelemetry SDK.
 
-See the [initial codec validation record](VALIDATION.md) for the original
-execution evidence and [CHANGELOG.md](../../CHANGELOG.md) for versioning
-and migration.
+See the [validation record](VALIDATION.md) for the execution evidence of the
+first codec and of the move to Bend 2.0.32, and
+[CHANGELOG.md](../../CHANGELOG.md) for versioning and migration.

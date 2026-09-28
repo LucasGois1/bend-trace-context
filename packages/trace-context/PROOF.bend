@@ -10,9 +10,10 @@
 #
 #   ./bend packages/trace-context/PROOF.bend --check-only
 #
-# is the proof gate of the package: it prints "All terms check.".
-# scripts/validate.sh runs it on every backend and refuses any reliance on
-# `@unsafe`, which would skip the termination check and void the proofs.
+# is the proof gate of the package: it prints "ALL PROOFS CHECK", which
+# Bend prints only when no definition this file imports relies on `@unsafe`,
+# which would skip the termination check and void the proofs, or on foreign
+# code. scripts/validate.sh runs it on every backend.
 #
 # Most proofs here call a lemma from proofs/, where the work is done. The
 # notation used there:

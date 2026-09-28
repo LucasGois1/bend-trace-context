@@ -1,6 +1,6 @@
 # bend-trace-context
 
-A pure, strict `traceparent` v00 codec for **Bend 2.0.27**, using dependent ID
+A pure, strict `traceparent` v00 codec for **Bend 2.0.32**, using dependent ID
 types and checked proofs. Licensed under [MIT](LICENSE).
 
 **Status: 0.1.0-dev.** The complete Trace Context propagator is being developed
@@ -16,7 +16,7 @@ no usable traceparent, injects a local operation into the fields of a
 message to send or forwards a received context unchanged, and gives a service
 its own operation for each message it receives, a child for each message it
 sends, and a lenient or strict outcome when an identifier cannot be
-generated. Over the native HTTP transport bend-net, a service built on the
+generated. Over bend-kit's native HTTP package, a service built on the
 package's adapter passes the W3C Trace Context harness at its pinned commit.
 On Node 22 and 24, a JavaScript facade gives JavaScript applications the same
 operations, with WebCrypto as the identifier source and `node:http`
@@ -49,12 +49,12 @@ sampled: True
 ```
 
 Setup downloads the exact official release, verifies its SHA-256 before
-extraction and installs it under `.tools/bend-2.0.27/`. It does not install
+extraction and installs it under `.tools/bend-2.0.32/`. It does not install
 global shell configuration.
 The [installer](scripts/setup-bend.sh) records the platform archive hashes for
-the official [Bend 2.0.27 release](https://github.com/bendlang/bend/releases/tag/v2.0.27),
-whose tag resolves to `63bee70b55a71024d6bdcb49a745111bc54b114e`. Setup rejects
-an existing destination that differs from the verified release.
+the official [Bend 2.0.32 release](https://github.com/bendlang/bend/releases/tag/v2.0.32),
+whose tag resolves to `573002f01ec6c52416d44489543f69a9625facf8`. Setup
+rejects an existing destination that differs from the verified release.
 
 ## Use it from another project
 
@@ -158,12 +158,14 @@ instead, and `TC.Restart{}` starts a new trace at a trust boundary.
 policies and a trust boundary, and the
 [consumer example](tests/consumer/main.bend) also sets its own entry.
 
-On the native HTTP transport bend-net, pinned as the `vendor/bend-net`
-submodule, `packages/trace-context/native_http.bend` takes these steps from a
-request's header map: `NativeHttp.continue_or_start(limits, headers, base,
-TC.Continue{}, TC.InheritSampled{}, TC.Lenient{})` for the service's
-operation, and `NativeHttp.send(limits, service, TC.InheritSampled{},
-TC.Lenient{}, headers)` for the header map of each request it sends. The
+On bend-kit's native HTTP package, `bend-kit-http` on BendHub,
+`packages/trace-context/native_http.bend` adapts a request's header map to
+these steps, and generation.bend takes them on the host's source. With
+`Generate` for generation.bend, `Generate.NativeHttp.continue_or_start(limits,
+headers, base, TC.Continue{}, TC.InheritSampled{}, TC.Lenient{})` gives the
+service's operation, and `Generate.NativeHttp.send(limits, service,
+TC.InheritSampled{}, TC.Lenient{}, headers)` the header map of each request
+it sends. The
 [gateway example](packages/trace-context/examples/gateway.bend) is a complete
 service on it.
 
@@ -174,11 +176,11 @@ parsing semantics, typed values, generation rules and proof scope. See
 ### From JavaScript
 
 The package's JavaScript facade runs on Node 22.18.0 or later, or Node 24,
-through the official Bend module loader. In the pinned checkout above, install the loader, then
-install the facade into your project as the `bend-trace-context` package:
+with no Bend at run time: it carries the package as the ES module that the
+pinned compiler builds. From the pinned checkout above, install it into your
+project as the `bend-trace-context` package:
 
 ```sh
-./deps/bend-trace-context/scripts/setup-bend-source.sh
 npm install ./deps/bend-trace-context/packages/trace-context
 ```
 
@@ -203,11 +205,10 @@ console.log(sent.show, sent.fields.map(([name]) => name).join(' '));
 ```
 <!-- test:readme-javascript:end -->
 
-Then run
-`node --import ./deps/bend-trace-context/.tools/bend-source-2.0.27/bend2/main.ts main.mjs`.
-The service continues the received trace, and the request it sends carries a
-child of the service's operation with the received state. The span IDs are
-generated anew on each run, so the example prints only what does not change:
+Then run `node main.mjs`. The service continues the received trace, and the
+request it sends carries a child of the service's operation with the
+received state. The span IDs are generated anew on each run, so the example
+prints only what does not change:
 
 ```text
 TraceParentAccepted, StateAccepted
@@ -257,9 +258,9 @@ The browser commands need Playwright's engines:
 `npm ci --ignore-scripts` and
 `npx --no-install playwright install chromium firefox webkit`, then
 `npm run build:browser`. The
-native HTTP transport script and the `native` propagation mode need the
-`vendor/bend-net` submodule. Both propagation modes run the W3C harness: over
-bend-net natively, and over `node:http` through the JavaScript facade.
+native HTTP transport script and the `native` propagation mode fetch
+bend-kit from BendHub. Both propagation modes run the W3C harness: over
+bend-kit natively, and over `node:http` through the JavaScript facade.
 Consumer logs and outputs are saved under `build/consumer-native/` or
 `build/consumer-node/`. CI exercises native macOS ARM64/Linux x86_64 and
 Node 22/24, recording exact runtime versions. Configuring a job is distinct
@@ -297,13 +298,13 @@ injection, forwarding, tracestate edits and generation with explicit failure
 policies. Its `node:http` integration has a harness-qualified service, and
 its Fetch integration a same-origin default, an allowlist for other origins
 and CORS guidance. It also covers the input-validating codec adapter, the
-shared WebCrypto source with structured failures, the official Node loader,
-the Bend HTML bundler, what browsers do to header fields, the engines tested
-and the boundary between JavaScript values and the package's proof-carrying
-values.
+shared WebCrypto source with structured failures, the package's compiled ES
+module, the Bend HTML bundler, what browsers do to header fields, the
+engines tested and the boundary between JavaScript values and the package's
+proof-carrying values.
 
 The [native HTTP guide](packages/trace-context/NATIVE-HTTP.md) documents the
-pinned `bend-net` route and its native macOS/Linux checks. Its transport
+bend-kit route and its native macOS/Linux checks. Its transport
 fixtures relay header values opaquely and claim nothing about Trace Context.
 Its propagation qualification builds a service on the package's
 [native HTTP adapter](packages/trace-context/README.md#native-http-integration)

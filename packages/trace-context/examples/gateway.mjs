@@ -15,8 +15,8 @@
 // path and the package's diagnostics, which include no received context
 // value: the gateway never logs header values.
 //
-// Run it from the repository root, after ./scripts/setup-bend-source.sh:
-//   node --import ./.tools/bend-source-2.0.27/bend2/main.ts packages/trace-context/examples/gateway.mjs
+// Run it from the repository root:
+//   node packages/trace-context/examples/gateway.mjs
 // It listens on 127.0.0.1:18777 and calls http://127.0.0.1:18776/downstream.
 import http from 'node:http';
 import * as TC from '../javascript/index.mjs';

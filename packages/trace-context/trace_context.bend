@@ -10,7 +10,7 @@
 # and the operations that continue or start a service's operation for a
 # received message and give each message it sends a child of it.
 # generation.bend adds the host's cryptographic source on top of it, and
-# native_http.bend the header maps of the native HTTP transport bend-net. The
+# native_http.bend the header maps of bend-kit's native HTTP package. The
 # claims this code must satisfy are stated in LAWS.bend and proved in
 # PROOF.bend, beside this file. The tests in tests/*.bend here and the
 # repository's consumer in tests/consumer exercise it through the same public

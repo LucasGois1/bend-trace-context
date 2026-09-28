@@ -8,7 +8,7 @@ import { once } from 'node:events';
 const servicePath = process.env.BEND_NATIVE_HTTP_SERVICE;
 assert.ok(servicePath, 'pass the compiled Bend HTTP service path');
 
-test('native Bend service issues W3C-shaped JSON callbacks through bend-net', async t => {
+test('native Bend service issues W3C-shaped JSON callbacks through bend-kit http', async t => {
   const observations = [];
   const observer = createServer((request, response) => {
     const chunks = [];

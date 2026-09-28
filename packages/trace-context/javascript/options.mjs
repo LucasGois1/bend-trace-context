@@ -1,6 +1,6 @@
 // The options that the facade's operations take, checked before any package
 // code runs.
-import TC from '../trace_context.bend';
+import TC from './trace_context.mjs';
 import { unwrap } from './handles.mjs';
 
 export function optionsOf(options) {

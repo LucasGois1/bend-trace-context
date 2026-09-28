@@ -1,8 +1,8 @@
 // The JavaScript facade of bend-trace-context. Every Trace Context rule runs
-// in the Bend package (trace_context.bend, loaded by the official Bend Node
-// loader): this module only converts JavaScript values at the boundary,
-// feeds WebCrypto words to the package's generation machine and wraps the
-// package's values in handles.
+// in the Bend package (trace_context.bend, compiled by the pinned Bend
+// compiler into trace_context.mjs): this module only converts JavaScript
+// values at the boundary, feeds WebCrypto words to the package's generation
+// machine and wraps the package's values in handles.
 //
 // A handle is a frozen object that only the facade creates. It carries wire
 // text and diagnostics as plain properties, and it stands for a package value
@@ -10,7 +10,7 @@
 // looks like a handle is refused wherever a handle is expected. Handle kinds
 // are named after the package's types: LocalContext, IncomingContext,
 // OutgoingContext, Extraction, Service, Sent and Limits.
-import TC from '../trace_context.bend';
+import TC from './trace_context.mjs';
 import entropy from '../entropy/webcrypto.js';
 import { copyFields } from './fields.mjs';
 import { entryOf, handle, unwrap } from './handles.mjs';

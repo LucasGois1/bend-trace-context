@@ -75,8 +75,9 @@ not a property proved by the package.
 ## Approved contracts
 
 Baseline: W3C Trace Context Level 2, the CR Draft published on 2024-03-28, with
-Bend initially pinned to 2.0.27. The technical choices in this section were
-approved together with the direction on completeness, adoption and sampling.
+Bend initially pinned to 2.0.27 and now to 2.0.32. The technical choices in
+this section were approved together with the direction on completeness,
+adoption and sampling.
 
 ### Extraction, creation and injection
 
@@ -208,7 +209,16 @@ The library does not collect spans on its own.
 | Consumption by a JS application | Pure module exports and conversion/validation at the boundaries | Actual import and host integration, without trusting externally constructed JS objects |
 | Browser | Official loader, WebCrypto bridge and Fetch adapter | Reproducible bundle, root/child contexts, observing server, failures and CORS in Chromium/Firefox/WebKit with recorded versions |
 
-This is the target matrix, not a claim of support already achieved. The paymog
+This is the target matrix, not a claim of support already achieved. Since
+its approval, an ES module has replaced the loader in the JavaScript rows,
+since the loader of Bend 2.0.32 no longer runs on Node's default type
+stripping: the facade imports the ES module that the pinned compiler builds
+from trace_context.bend, and pages are still bundled with the official
+bundler.
+The native row's HTTP transport is now bend-kit, paymog/bend-net's
+successor, at `bend-kit-http` 0.23.0.1, since the pinned bend-net does not
+build on Bend 2.0.32. The [changelog](../../CHANGELOG.md) records both
+moves. The paymog
 HTTP integration uses Bun FFI in its JS backend and must not be advertised as a
 Node transport. For Node/browser, investigate integration through the host's
 HTTP/Fetch facilities and the pure module. Actually supported versions and

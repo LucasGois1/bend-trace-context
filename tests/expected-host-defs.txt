@@ -1,0 +1,11 @@
+SOME PROOFS FAIL
+Error: 9 defs rely on unsafe or foreign code:
+- entropy.read_u32
+- Source.host
+- Context.root
+- Context.child
+- Context.restart
+- Context.continue_or_start
+- Context.send
+- NativeHttp.continue_or_start
+- NativeHttp.send

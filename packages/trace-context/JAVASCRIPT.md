@@ -32,21 +32,18 @@ An application uses an exact commit of this repository, as the
 mkdir -p deps
 git clone https://github.com/LucasGois1/bend-trace-context.git deps/bend-trace-context
 git -C deps/bend-trace-context checkout --detach FULL_COMMIT_SHA
-./deps/bend-trace-context/scripts/setup-bend-source.sh
 npm install ./deps/bend-trace-context/packages/trace-context
 ```
 
-`setup-bend-source.sh` installs the official Bend module loader,
-[`bend2/main.ts`](https://github.com/bendlang/bend/blob/63bee70b55a71024d6bdcb49a745111bc54b114e/bend2/main.ts)
-of release commit `63bee70b55a71024d6bdcb49a745111bc54b114e`, into the
-checkout. It verifies the commit and refuses an existing destination that
-differs from it. The loader compiles `.bend` files when they are imported, so
-the facade needs neither the Bend binary nor Bun. `npm install` links the
-package directory into `node_modules` as `bend-trace-context`; the package
-has no dependencies. Run the application with the loader:
+`npm install` links the package directory into `node_modules` as
+`bend-trace-context`; the package has no dependencies. The facade runs the
+package as [`javascript/trace_context.mjs`](javascript/trace_context.mjs), the
+ES module that the pinned compiler builds from `trace_context.bend`, so an
+application needs neither the Bend binary, nor Bun, nor a module loader. Run
+it with Node:
 
 ```sh
-node --import ./deps/bend-trace-context/.tools/bend-source-2.0.27/bend2/main.ts main.mjs
+node main.mjs
 ```
 
 The package offers three entries:
@@ -362,9 +359,8 @@ What Node does before and after the package:
 ### Gateway walkthrough
 
 The [gateway](examples/gateway.mjs) listens on `127.0.0.1:18777` and calls
-`http://127.0.0.1:18776/downstream`. From the repository root, after
-`./scripts/setup-bend-source.sh`, start an observer that prints what reaches
-downstream:
+`http://127.0.0.1:18776/downstream`. From the repository root, start an
+observer that prints what reaches downstream:
 
 ```sh
 OBSERVER_PORT=18776 node tests/native/fixtures/observer.mjs
@@ -374,7 +370,7 @@ Then, in two more terminals, start the gateway and send it a traced request
 and an untraced one:
 
 ```sh
-node --import ./.tools/bend-source-2.0.27/bend2/main.ts packages/trace-context/examples/gateway.mjs
+node packages/trace-context/examples/gateway.mjs
 ```
 
 ```sh
@@ -416,14 +412,15 @@ npm install ./deps/bend-trace-context/packages/trace-context
 ```
 
 The bundler follows the page's `<script type="module">`, resolves
-`bend-trace-context` through `node_modules`, compiles the package's `.bend`
-files and writes the page and its script to `dist`. The browser needs no
-loader, no Bend binary and no Bun. Bundling the same checkout again gives
-byte-identical files. A copy of the sources at another path gives the same
-scripts under other names, because the bundler names its chunks by a hash
-that depends on where the sources are; the qualification checks both. Other
-bundlers, such as Vite, webpack or esbuild, cannot compile `.bend` files and
-are not supported.
+`bend-trace-context` through `node_modules` and writes the page and its
+script to `dist`. The browser needs no Bend binary and no Bun. Bundling the
+same checkout again gives byte-identical files. A copy of the sources at
+another path gives the same scripts under other names, because the bundler
+names its chunks by a hash that depends on where the sources are; the
+qualification checks both. The facade itself is plain JavaScript: an ES
+module of the package, which the pinned compiler builds, and the CommonJS
+[WebCrypto source](#webcrypto-and-explicit-effects). Other bundlers, such as
+Vite, webpack or esbuild, are not qualified.
 
 A page's module continues the context that its server rendered, or starts a
 trace without one, and sends its requests with a child of that operation:
@@ -602,15 +599,17 @@ repeated name joined, and what extraction makes of them.
 
 ## How the facade reaches the package
 
-The official loader exports a `.bend` module's definitions as JavaScript
-functions, but it runs no IO operation. An IO operation without parameters,
-such as `Context.root` of generation.bend, is not exported. One with
-parameters, such as `Context.continue_or_start`, returns an unrun IO action:
-calling it reads no word and performs nothing. A definition that takes a
-template, such as `Context.continue_or_start_with`, is not exported at all.
-A test in the facade corpus shows each of these. The package therefore gives
-a host that feeds words itself a pure form of each generating operation,
-described in [Host-driven generation](README.md#host-driven-generation):
+The compiler's ES module of a `.bend` file (`bend file.bend -o file.mjs`)
+exports the file's definitions as JavaScript functions, but it runs no IO
+operation. An IO operation without parameters, such as `Context.root` of
+generation.bend, is not exported. One with parameters, such as
+`Context.continue_or_start`, returns an unrun IO action: calling it reads
+no word. A definition that takes a template, such as
+`Context.continue_or_start_with`, is not exported at all. A test in the
+facade corpus checks each of these on the compiler's modules. The package
+therefore gives a host that feeds words itself a pure form of each
+generating operation, described in
+[Host-driven generation](README.md#host-driven-generation):
 
 1. `Generation.needs`, `Generation.feed` and `Generation.result` drive one
    generation, a word at a time.
@@ -627,27 +626,26 @@ The laws hold of that host path in Bend; that the facade's JavaScript follows
 it is tested, not proved.
 
 The facade reaches no system binding. The Bend runtime keeps its
-`bun:ffi` bindings behind `globalThis.BEND_SYS`, and a test traps that global
-while the facade extracts, continues, sends, forwards, injects and generates.
-bend-net's JavaScript transport, which runs on Bun, plays no part here.
+`bun:ffi` bindings behind `globalThis.BEND_SYS`, which the package's ES
+module never names, and a test traps that global while the facade extracts,
+continues, sends, forwards, injects and generates.
+bend-kit's JavaScript transport, which runs on Bun, plays no part here.
 
 ## Runtime requirements and support boundaries
 
-- Node 22.18.0 or a later Node 22 release, or Node 24. Node runs the
-  loader's TypeScript by stripping its types, which Node enables by default
-  from 22.18.0 and in every Node 24 release. Node 22.17.1 refuses the loader
-  with `ERR_UNKNOWN_FILE_EXTENSION`; 22.18.0 and 24.0.0 pass the facade's
-  tests. CI qualifies the current patch release of each line and records its
-  exact version.
-- The loader of the pinned release commit, installed in the checkout by
-  `setup-bend-source.sh`.
-- The loader compiles the package when the facade is first imported, which
-  adds a fraction of a second to startup.
-- Node warns that the loader's package type is unspecified
-  (`MODULE_TYPELESS_PACKAGE_JSON`). The warning is harmless, and
-  `node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON` silences it.
-- In browsers, the bundled page needs no loader. The facade is qualified in
-  the [tested engines](#tested-engines).
+- Node 22.18.0 or a later Node 22 release, or Node 24, the range that the
+  package declares. CI qualifies the current patch release of each line and
+  records its exact version. The facade's tests also passed locally on
+  22.17.1, 22.18.0 and 24.0.0, which CI does not run.
+- Nothing else at run time: no Bend binary, no Bun and no module loader.
+  The facade imports
+  [`javascript/trace_context.mjs`](javascript/trace_context.mjs), which
+  `./scripts/build-js.sh` builds from the Bend sources with the pinned
+  compiler, and the qualification requires the committed file to be that
+  build, byte for byte.
+- In browsers, pages are bundled with the official bundler, as
+  [Browser integration](#browser-integration) describes. The facade is
+  qualified in the [tested engines](#tested-engines).
 - Node's HTTP limits and transformations apply as described
   [above](#node-http-integration).
 
@@ -667,7 +665,8 @@ bend-net's JavaScript transport, which runs on Bun, plays no part here.
     cleanup;
   - arguments read once, even through getters;
   - a message of ten thousand fields;
-  - what the loader exports, and the absence of any system binding.
+  - what the compiler's modules export, and the absence of any system
+    binding.
 - `tests/javascript/node-http.test.mjs` runs `node:http` servers against an
   independent observer that records header lines as they arrive, and checks
   `fetch` and `tracedFetch` outside a page as well.
@@ -732,10 +731,7 @@ inspection run in the existing Bend implementation.
 From this repository's checkout, with Node 22 or 24:
 
 ```sh
-./scripts/setup-bend.sh
-./scripts/setup-bend-source.sh
-npm ci --ignore-scripts
-node --import ./.tools/bend-source-2.0.27/bend2/main.ts examples/javascript/node.mjs
+node examples/javascript/node.mjs
 ```
 
 The output is:
@@ -744,12 +740,12 @@ The output is:
 {"ok":true,"traceparent":"00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01","sampled":true}
 ```
 
-The raw Bend loader exports compiler representations, including tagged objects
-and erased proof fields. A JavaScript object shaped like `TraceParentV00` with
-`evidence: null` is not evidence of validity. The adapter and the facade
-therefore accept only wire or scalar inputs and their own handles, and return
-values that the package constructed. Code that calls the raw loader's exports
-directly bypasses that boundary.
+The package's raw ES module exports compiler representations, including
+tagged objects and erased proof fields. A JavaScript object shaped like
+`TraceParentV00` with `evidence: null` is not evidence of validity. The
+adapter and the facade therefore accept only wire or scalar inputs and their
+own handles, and return values that the package constructed. Code that calls
+the raw module's exports directly bypasses that boundary.
 
 The package's proofs apply to its typed domain. The facade's conversions,
 its handle checks and the host effects are tested boundaries of foreign code,
@@ -765,9 +761,10 @@ node tests/browser/server.mjs
 Open `http://127.0.0.1:4173/` and inspect a traceparent. Stop the local server
 before running browser tests. The
 [page](../../examples/javascript/index.html) imports the same codec adapter
-used by Node. Bend bundles the real `.bend` module; no JavaScript codec is
-maintained separately. A compiled CLI program is not treated as a browser
-module, and the HTML bundle's script is not used as a Node library export.
+used by Node, on the compiler's module of the real `.bend` file; no
+JavaScript codec is maintained separately. A compiled CLI program is not
+treated as a browser module, and the HTML bundle's script is not used as a
+Node library export.
 
 ## WebCrypto and explicit effects
 
@@ -823,16 +820,19 @@ The same effect has a native twin, [`entropy/native.c`](entropy/native.c), which
 reads one word from the host primitive Base's `IO.random_u32` uses:
 `arc4random_buf` on macOS, which cannot fail, and `getrandom` on Linux,
 returning its error as `Fail` with the `errno` and its `strerror` text. The
-tests do not induce that native failure. The twin uses the pinned compiler's
-documented [C effect interface](https://github.com/bendlang/bend/blob/63bee70b55a71024d6bdcb49a745111bc54b114e/guide/EFFECTS.md),
-so a compiler update must requalify it.
+tests do not induce that native failure. Both files register the effect as
+the pinned compiler's
+[effect guide](https://github.com/bendlang/bend/blob/573002f01ec6c52416d44489543f69a9625facf8/guide/EFFECTS.md)
+describes, with `io_eff(CID(read_u32), ...)`, on runtime interfaces that
+carry no compatibility promise, so a compiler update must requalify them.
 
-The shared JavaScript file uses CommonJS because Bend embeds foreign effect
-functions in a generated closure, where ESM declarations are invalid. Node and the official
-browser bundler import that same file. Its conditional `module.exports` also
-assigns unused exports inside a compiled CLI; that CLI has no library interface.
+The shared JavaScript file uses CommonJS because Bend runs a foreign effect's
+file as a script in a closure of its own, where ESM declarations are invalid.
+Node and the official browser bundler import that same file, where no effect
+exists to register. Its conditional `module.exports` also assigns unused
+exports inside a compiled CLI; that CLI has no library interface.
 
-The pinned Base [`random_u32.js`](https://github.com/bendlang/bend/blob/63bee70b55a71024d6bdcb49a745111bc54b114e/bend2/effs/random_u32.js)
+The pinned Base [`random_u32.js`](https://github.com/bendlang/bend/blob/573002f01ec6c52416d44489543f69a9625facf8/bend2/effs/random_u32.js)
 lets WebCrypto exceptions escape instead of returning its declared `Fail`.
 The [reproducer](../../tests/javascript/fixtures/base-entropy.bend) and the
 [qualification tests](../../tests/javascript/entropy.test.mjs) demonstrate that
@@ -858,7 +858,6 @@ npx --no-install playwright install chromium firefox webkit
 npm run build:browser
 ./scripts/qualify-js.sh browser
 ./scripts/test-consumer.sh browser
-./tests/installer-source/test.sh
 ```
 
 `./scripts/qualify-propagation.sh node` also needs Python 3.13 for the
@@ -878,8 +877,8 @@ controlled provider failures. Random smoke checks establish only execution and
 the returned range, not uniqueness or cryptographic strength.
 
 Diagnostics, exact package/compiler/host versions, TAP results, browser JSON
-results and failure traces are retained under `build/javascript/`; source
-installer reports use `build/installer-source/`. CI artifacts expire after
-14 days. Generated programs and downloaded tools are excluded from those
-reports. Advertised qualification requires a successful run for the exact
-candidate; workflow configuration alone is not evidence of success.
+results and failure traces are retained under `build/javascript/`. CI
+artifacts expire after 14 days. Generated programs and downloaded tools are
+excluded from those reports. Advertised qualification requires a successful
+run for the exact candidate; workflow configuration alone is not evidence of
+success.

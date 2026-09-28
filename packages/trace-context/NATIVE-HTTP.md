@@ -2,10 +2,17 @@
 
 ## Transport
 
-The repository qualifies the pinned [`paymog/bend-net`](https://github.com/paymog/bend-net/tree/274591f1d1fcca2e4aa39ba65e505b32e2dbff21)
-HTTP/1.1 client and server on native Bend 2.0.27 for macOS ARM64 and Linux
-x86_64. The tested revision is recorded by the Git submodule at
-`vendor/bend-net`.
+The repository qualifies the HTTP/1.1 client and server of
+[bend-kit](https://github.com/paymog/bend-kit/tree/main/http), version
+0.23.0.1 of `bend-kit-http` on BendHub, on native Bend 2.0.32 for macOS
+ARM64 and Linux x86_64. The programs that use it import it by content hash,
+`0x1cef8a5fb1d9142ca5c6b2cb43629b21`, together with `bend-kit-json` 0.5.0.1,
+`0x584fc27920487ceab242392391418d7f`, the JSON package that it uses, and
+Bend checks the files of each against its hash. `bend-kit-http` imports its
+other dependencies, such as `bend-kit-wire` 0.4.2.0 and `bend-kit-dns`
+0.4.0.2, by name and version, which BendHub resolves to hashes when a build
+fetches them. The qualification records each resolution, and the propagation
+qualification records those of its own build.
 
 This part qualifies the transport alone. It adds no Trace Context parsing,
 context creation, ID generation, propagation policy or tracer; the
@@ -19,31 +26,41 @@ The envelope follows the harness pinned at
 [`w3c/trace-context` commit `acab820`](https://github.com/w3c/trace-context/tree/acab820be9db7b3433668baa5cdd43f57f4c4be0/test).
 
 The dependency is a Bend-native HTTP implementation with explicit `IO` effects
-and a small foreign runtime seam. Its JavaScript runtime path targets Bun; this
-qualification builds and executes its native C backend directly and makes no
-Node.js transport claim. Node 24 is used only as an independent local HTTP
-observer and raw-socket test driver.
+and foreign runtime code of its own, so a check of a program that imports it
+answers `SOME PROOFS FAIL` and names those definitions. Its JavaScript
+runtime path targets Bun; this qualification builds and executes its native
+C backend directly and makes no Node.js transport claim. Node 24 is used only
+as an independent local HTTP observer and raw-socket test driver.
 
-Initialize the exact dependency and install the pinned compiler:
+Install the pinned compiler, then run the qualification on macOS ARM64 or
+Linux x86_64 (Clang 14+ and Node 24 required):
 
 ```sh
-git submodule update --init --recursive
 ./scripts/setup-bend.sh
-```
-
-Run the full offline qualification on macOS ARM64 or Linux x86_64 (Clang 14+
-and Node 24 required):
-
-```sh
 ./scripts/qualify-native-http.sh
 ```
 
-The script checks the submodule SHA and dependency proofs, builds
-`tests/native/fixtures/transport-service.bend` as a native executable, then runs
-real loopback HTTP tests. Evidence is written under `build/native-http/`.
-Nothing in this route calls an external service.
-The suite checks the dependency's 431 oversized-header response and 413
-declared-body-limit response, plus repeated field ordering and trimming.
+The script:
+
+1. checks that every native HTTP program imports the same bend-kit
+   packages;
+2. builds `tests/native/fixtures/transport-service.bend` as a native
+   executable, fetching bend-kit from BendHub into a fresh package cache;
+3. clones bend-kit at commit `31912fbd99e9090df43bf2ef70da4340241e9e51`,
+   which published `bend-kit-http` 0.23.0.1, requires its `http/http.bend`
+   to be byte for byte the file that BendHub serves, and runs its laws and
+   checks there. Its laws hold as bend-kit's own check requires: `PROOF.bend`
+   answers `SOME PROOFS FAIL` only for definitions that rely on `@unsafe` or
+   foreign code, and no law is among them;
+4. runs real loopback HTTP tests against the fixture.
+
+Evidence is written under `build/native-http/`. Apart from the BendHub and
+GitHub fetches, nothing in this route calls an external service. The suite
+checks the dependency's 431 response to a head over 64 KiB and its 413
+response to a declared body over the fixture's limit, plus repeated field
+ordering and trimming. bend-kit's `Http.serve` binds every interface
+(`0.0.0.0`), so the fixture, the propagation service and the gateway example
+listen on every interface while they run.
 
 To try the two local processes manually after building:
 
@@ -69,7 +86,7 @@ production tracing API.
 
 ## Propagation
 
-[native_http.bend](native_http.bend) adapts bend-net's header maps to the
+[native_http.bend](native_http.bend) adapts bend-kit's header maps to the
 package, as the [package reference](README.md#native-http-integration)
 documents. `./scripts/qualify-propagation.sh native` qualifies that path end
 to end, from the exact commit given, or `HEAD` by default, in three steps.
@@ -79,11 +96,12 @@ the same harness run; only the first step differs.
 
 1. It clones that commit. Natively, it builds
    [the propagation service](../../tests/propagation/service.bend) and the
-   [gateway example](examples/gateway.bend) from the clone, with the pinned
-   bend-net checkout, as an application builds them. In Node, it installs
-   the clone's own Bend module loader and the facade from the clone into
+   [gateway example](examples/gateway.bend) from the clone, with bend-kit
+   from BendHub, as an application builds them. In Node, it installs
+   the facade from the clone into
    [the Node propagation service](../../tests/propagation/service.mjs), and
-   runs the [gateway example](examples/gateway.mjs) from the clone.
+   runs it and the [gateway example](examples/gateway.mjs) from the clone on
+   Node alone.
 2. It runs the repository's own checks,
    [propagation.mjs](../../tests/propagation/propagation.mjs) and
    [gateway.mjs](../../tests/propagation/gateway.mjs), against an independent
@@ -129,17 +147,17 @@ disagreement with spec #1; the package's extraction and tracestate corpora
 already use the harness's inputs.
 
 Run it natively on macOS ARM64 or Linux x86_64 with the transport's
-requirements, Python 3.13 or later with `venv`, and network access to GitHub
-for the harness and to PyPI for aiohttp:
+requirements, Python 3.13 or later with `venv`, and network access to
+BendHub for bend-kit, to GitHub for the harness and to PyPI for aiohttp:
 
 ```sh
-git submodule update --init --recursive
 ./scripts/setup-bend.sh
 ./scripts/qualify-propagation.sh native
 ```
 
 The Node mode needs Node 22.18.0 or later, or Node 24, instead of the
-transport, the Bend binary and the submodule: `./scripts/qualify-propagation.sh node`. Evidence is written under
-`build/propagation-native/` or `build/propagation-node/`: the environment,
-including the Python and aiohttp versions, the compile or install logs, both
-TAP reports, and the harness output.
+transport and the Bend binary: `./scripts/qualify-propagation.sh node`.
+Evidence is written under `build/propagation-native/` or
+`build/propagation-node/`: the environment, including the Python and
+aiohttp versions and, natively, the packages that BendHub resolved, the
+compile or install logs, both TAP reports, and the harness output.

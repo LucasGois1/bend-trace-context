@@ -33,14 +33,15 @@ run_logged() {
   node -p '"Playwright " + require("@playwright/test/package.json").version'
   node_major=$(node -p 'process.versions.node.split(".")[0]')
   case "$node_major" in 22|24) ;; *) echo "Node 22 or 24 is required." >&2; exit 1 ;; esac
-  if [ "$mode" = node ]; then
-    ./scripts/setup-bend-source.sh
-  fi
 } > "$output_dir/$mode-environment.txt" 2>&1 || {
   cat "$output_dir/$mode-environment.txt" >&2
   exit 1
 }
 cat "$output_dir/$mode-environment.txt"
+
+# The facade runs the committed ES module of trace_context.bend, which must be
+# the pinned compiler's build of the sources under test.
+run_logged "$mode-module" ./scripts/build-js.sh --check
 
 if [ "$mode" = node ]; then
   run_logged node-tests npm run test:node

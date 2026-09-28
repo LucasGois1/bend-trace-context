@@ -1,7 +1,7 @@
 #!/bin/sh
 # Exercise a fresh pinned dependency checkout from an independent application.
 # In node mode, the application also installs the JavaScript facade from the
-# checkout and runs it on the checkout's own Bend module loader. In browser
+# checkout and runs it on Node alone, with no Bend at run time. In browser
 # mode, it installs the facade into a page, bundles the page twice with the
 # checkout's official bundler, requires identical bundles, and runs the page
 # in Chromium, Firefox and WebKit.
@@ -169,14 +169,12 @@ for program in consumer readme; do
 done
 if [ "$mode" = node ]; then
   # The application installs the facade from the checkout as a package, as
-  # the root README shows, and runs on the checkout's own module loader.
-  run_logged loader "$dependency/scripts/setup-bend-source.sh"
+  # the root README shows, and runs it on Node alone.
   printf '{"name": "bend-consumer", "private": true, "type": "module"}\n' > package.json
   run_logged facade-install npm install --offline --ignore-scripts --no-audit --no-fund \
     "$dependency/packages/trace-context"
-  run_logged loader-commit git -C "$dependency/.tools/bend-source-2.0.27" rev-parse HEAD
   for program in facade readme-javascript; do
-    run_logged "$program" node --import "$dependency/.tools/bend-source-2.0.27/bend2/main.ts" "$program.mjs"
+    run_logged "$program" node "$program.mjs"
     run_logged "$program-diff" diff -u "$evidence_dir/$program.expected" "$evidence_dir/$program.stdout"
     echo "PASS: independent pinned $program (JavaScript facade on Node)"
   done

@@ -8,11 +8,11 @@
 #
 #   ./bend packages/trace-context/PROOF.bend --check-only
 #
-# prints "All terms check." only when every law in this file is proved.
-# scripts/validate.sh runs that gate on every backend and also refuses proofs
-# that rely on `@unsafe`. By Bend's convention the project owner reviews and
-# owns these statements; the proofs may change freely as long as the
-# statements hold.
+# prints "ALL PROOFS CHECK" only when every law in this file is proved and
+# no definition PROOF.bend imports relies on `@unsafe` or foreign code.
+# scripts/validate.sh runs that gate on every backend. By Bend's convention
+# the project owner reviews and owns these statements; the proofs may change
+# freely as long as the statements hold.
 #
 # Every law is documented with the same headings:
 #
@@ -2990,8 +2990,8 @@ law hosted_send:
 # 15. Native HTTP headers
 # =======================
 #
-# native_http.bend adapts the header maps of the native HTTP transport
-# bend-net to the package (ticket #12): a Base Map from each field name to its
+# native_http.bend adapts the header maps of bend-kit's native HTTP package
+# to the package (ticket #12): a Base Map from each field name to its
 # values in arrival order. These laws state that the adapter adds no Trace
 # Context behavior of its own. The carrier it reads from a map keeps every
 # value of every name, the map it writes for a carrier holds every value of
@@ -3065,7 +3065,7 @@ def map_values(+headers: Map<&2, List<&2, String>>, key: String) -> List<&2, Str
 #   Requirement: spec #1, "They retain repeated context fields, replace old
 #     outgoing fields and perform only necessary host translation".
 #   Why: the fields that the package writes for a message to send, a
-#     repeated one included, reach bend-net as written and in order.
+#     repeated one included, reach bend-kit as written and in order.
 #   Reading: `found` and `kept` state Base's Map contract, which Base does
 #     not prove. They are templates (`~`), so that a proof may use them at
 #     every field; map_values and http_values are defined above.

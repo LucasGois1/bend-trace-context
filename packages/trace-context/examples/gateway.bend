@@ -2,17 +2,19 @@ import Base
 import ../trace_context.bend as TC
 import ../generation.bend as Generate
 import ../native_http.bend as NativeHttp
-import ../../../vendor/bend-net/http.bend as Http
+# bend-kit-http 0.23.0.1, from BendHub by content hash.
+import 0x1cef8a5fb1d9142ca5c6b2cb43629b21/http.bend as Http
 
-# A gateway that takes part in the traces of the requests it handles, on the
-# native HTTP transport bend-net. For each request it extracts the context
+# A gateway that takes part in the traces of the requests it handles, on
+# bend-kit's native HTTP package. For each request it extracts the context
 # from the request's header map and gives itself an operation of its own: a
 # child of the request's context, or a root when the request has none. It
 # then calls the downstream service with a new child of that operation among
-# the call's headers (NativeHttp.send), and returns the downstream response.
-# It extracts first, rather than calling NativeHttp.continue_or_start, so
-# that its log can say why it continued or started a trace: an absent or a
-# rejected traceparent, or a discarded state.
+# the call's headers (Generate.NativeHttp.send), and returns the downstream
+# response. It extracts first, rather than calling
+# Generate.NativeHttp.continue_or_start, so that its log can say why it
+# continued or started a trace: an absent or a rejected traceparent, or a
+# discarded state.
 #
 # Tracing never fails a request here (TC.Lenient{}). When no identifier can
 # be generated, the call downstream forwards the received context unchanged
@@ -21,19 +23,20 @@ import ../../../vendor/bend-net/http.bend as Http
 # package's diagnostics, which include no received context value: the
 # gateway never logs header values.
 #
-# Build it natively from the repository root, after
-# `git submodule update --init --recursive`:
+# Build it natively from the repository root; the first build fetches
+# bend-kit from BendHub:
 #   ./bend packages/trace-context/examples/gateway.bend -o build/gateway
-# It listens on 127.0.0.1:18777 and calls http://127.0.0.1:18776/downstream.
+# It listens on port 18777 of every interface, as bend-kit's Http.serve does,
+# and calls http://127.0.0.1:18776/downstream.
 
 def downstream() -> String:
   "http://127.0.0.1:18776/downstream"
 
 def text(status: U32, body: String) -> Http.Res:
-  Http.Res{status, Http.set(Http.empty(), "content-type", "text/plain"), body}
+  Http.Res{status, Http.set(Http.empty(), "content-type", "text/plain"), Http.from_string(body)}
 
 # The downstream response, or 502 when the call failed.
-def answer(result: Result<&2, &2, Http.Err, Http.Res>) -> Http.Res:
+def answer(result: Result<&1, &1, Http.Err, Http.Res>) -> Http.Res:
   match result:
     case Done{Http.Res{status, headers, body}}:
       Http.Res{status, Http.set(Http.empty(), "content-type", "application/json"), body}
@@ -41,9 +44,9 @@ def answer(result: Result<&2, &2, Http.Err, Http.Res>) -> Http.Res:
       text(502, "downstream unavailable")
 
 # Call the downstream service with the fields that the adapter wrote.
-def call(+outbound: NativeHttp.Outbound, body: String) -> IO(Http.Res):
+def call(+outbound: NativeHttp.Outbound, body: Http.Body()) -> IO(Http.Res):
   do IO<Http.Res>:
-    result : Result<&2, &2, Http.Err, Http.Res> <- Http.fetch.how("POST", downstream(),
+    result : Result<&1, &1, Http.Err, Http.Res> <- Http.fetch.how("POST", downstream(),
       NativeHttp.Outbound.headers(outbound), body, 3000, Http.ModeManual{})
     return answer(result)
 
@@ -53,7 +56,7 @@ def handle(req: Http.Req) -> IO(Http.Res):
   do IO<Http.Res>:
     +service : TC.Service <- Generate.Context.continue_or_start(extraction, TC.Continue{}, TC.InheritSampled{},
       TC.Lenient{})
-    +outbound : NativeHttp.Outbound <- NativeHttp.send(TC.Limits.default(), service, TC.InheritSampled{},
+    +outbound : NativeHttp.Outbound <- Generate.NativeHttp.send(TC.Limits.default(), service, TC.InheritSampled{},
       TC.Lenient{}, Http.set(Http.empty(), "content-type", "application/json"))
     Unit <- IO.print(method ++ " " ++ path ++ ": " ++ TC.Extraction.show(extraction) ++ "; " ++
       TC.Service.show(service) ++ ", downstream " ++ TC.Sent.show(NativeHttp.Outbound.sent(outbound)))

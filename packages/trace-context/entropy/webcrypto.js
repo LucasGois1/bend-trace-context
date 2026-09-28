@@ -1,3 +1,13 @@
+// The JavaScript twin of entropy/native.c: one word from WebCrypto's
+// getRandomValues, as the Result of entropy.bend's read_u32. The failure is
+// (1, "unavailable") when the host has no WebCrypto and (2,
+// "source-failure") when the call throws or answers anything but one U32.
+//
+// A compiled Bend program runs this file as a script and registers the
+// effect with io_eff(CID(read_u32), ...), as the pinned compiler's effect
+// guide (guide/EFFECTS.md) describes; a compiler update must requalify it.
+// The JavaScript facade imports the same file as CommonJS for readRandomU32,
+// with a caller's provider, and no effect exists there to register.
 function readRandomU32(provider) {
   try {
     const source = provider === undefined ? globalThis.crypto : provider;
@@ -14,13 +24,15 @@ function readRandomU32(provider) {
   }
 }
 
-// Bend's effect loader finds this exact name inside its generated closure.
 function read_u32() {
   return readRandomU32();
 }
 
-// The browser bundler and Node import the same implementation as CommonJS.
-// In a compiled CLI this assigns unused CLI exports; it does not run an effect.
+if (typeof io_eff === 'function') {
+  io_eff(CID(read_u32), read_u32);
+}
+
+// In a compiled program this assigns unused exports; it runs no effect.
 if (typeof module !== 'undefined') {
   module.exports = { readRandomU32 };
 }

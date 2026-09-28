@@ -28,7 +28,7 @@ jobs:
       - name: Check workflow syntax and shell scripts
         run: |
           shellcheck --version
-          shellcheck bend scripts/*.sh tests/installer/curl tests/installer-source/*.sh
+          shellcheck bend scripts/*.sh tests/installer/curl
           "$RUNNER_TEMP/quality-bin/actionlint" -color
       - name: Check JavaScript syntax
         run: |
@@ -76,7 +76,6 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          submodules: true
           persist-credentials: false
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
@@ -92,7 +91,7 @@ jobs:
         run: |
           test "$(uname -s)" = "$EXPECTED_SYSTEM"
           test "$(uname -m)" = "$EXPECTED_ARCHITECTURE"
-      - name: Install verified Bend 2.0.27
+      - name: Install the verified Bend release
         run: ./scripts/setup-bend.sh
       - name: Installer integrity and destination preservation
         run: ./scripts/test-installer.sh
@@ -137,15 +136,10 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.13'
-      - name: Install verified Bend 2.0.27
+      - name: Install the verified Bend release
         run: ./scripts/setup-bend.sh
       - name: Install locked JavaScript qualification tooling
         run: npm ci --ignore-scripts
-      - name: Source installer integrity and destination preservation
-        if: matrix.node == '24'
-        run: ./tests/installer-source/test.sh
-      - name: Install verified Bend JavaScript module loader
-        run: npm run setup:source
       - name: Public JavaScript imports and WebCrypto boundary
         run: ./scripts/qualify-js.sh node
       - name: Proofs, protocol corpus and static rejection gates
@@ -163,7 +157,6 @@ jobs:
             build/validation-node/*.txt
             build/consumer-node/
             build/propagation-node/
-            build/installer-source/
             build/javascript/
           if-no-files-found: error
           retention-days: 14
@@ -180,7 +173,7 @@ jobs:
         with:
           node-version: '24'
           package-manager-cache: false
-      - name: Install verified Bend 2.0.27
+      - name: Install the verified Bend release
         run: ./scripts/setup-bend.sh
       - name: Install locked JavaScript qualification tooling
         run: npm ci --ignore-scripts
