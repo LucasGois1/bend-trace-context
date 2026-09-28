@@ -133,11 +133,11 @@ if [ "$mode" = browser ]; then
   # The page installs the facade from the checkout as a package and is
   # bundled by the checkout's own bundler. A second bundle of the same page
   # must be byte-identical to the one the browsers run.
-  # shellcheck disable=SC2329 # run_logged invokes these functions.
+  # shellcheck disable=SC2317,SC2329 # run_logged invokes these functions.
   page_install() { (cd page && npm install --offline --ignore-scripts --no-audit --no-fund "$dependency/packages/trace-context"); }
-  # shellcheck disable=SC2329
+  # shellcheck disable=SC2317,SC2329
   page_hashes() { (cd page/dist && for file in *; do cksum "$file"; done); }
-  # shellcheck disable=SC2329
+  # shellcheck disable=SC2317,SC2329
   page_tests() {
     (cd "$repo_dir" && BEND_BROWSER_CONSUMER="$test_dir/page/dist" BEND_BROWSER_EVIDENCE="$evidence_dir" \
       npx --no-install playwright test --config tests/consumer/playwright.config.mjs)

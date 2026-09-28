@@ -60,12 +60,12 @@ else
   mkdir -p "$relocated/examples" "$relocated/packages"
   cp -R examples/javascript "$relocated/examples/"
   cp -R packages/trace-context "$relocated/packages/"
-  # shellcheck disable=SC2329 # run_logged invokes these functions.
+  # shellcheck disable=SC2317,SC2329 # run_logged invokes these functions.
   relocated_build() {
     ./bend "$relocated/examples/javascript/index.html" -o "$relocated/out" &&
       ./bend "$relocated/examples/javascript/fetch.html" -o "$relocated/out"
   }
-  # shellcheck disable=SC2329
+  # shellcheck disable=SC2317,SC2329
   scripts_of() { for script in "$1"/*.js; do cksum < "$script"; done | sort; }
   run_logged browser-relocated relocated_build
   scripts_of build/browser > "$output_dir/browser-scripts.txt"
