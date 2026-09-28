@@ -50,13 +50,18 @@ mkdir -p "$test_dir/deps" "$test_dir/package-cache" "$test_dir/build"
 run_logged clone git clone --quiet --no-local --no-checkout "$source_repo" "$dependency"
 run_logged checkout git -C "$dependency" checkout --quiet --detach "$revision"
 [ "$(git -C "$dependency" rev-parse HEAD)" = "$revision" ]
-# The README programs come from the exact dependency revision being exercised.
-# A missing, duplicate or malformed marked fence must fail, not skip the check.
+# The code of the README and the guides comes from the exact dependency
+# revision being exercised: each block is marked in its document, and a block
+# marked NAME-output holds what NAME prints. A missing, duplicate or
+# malformed marked fence must fail, not skip the check. A document shows the
+# span IDs of one run in `span_id=` log fields, and every run prints new
+# ones, so the comparison masks them.
 extract_example() {
   marker=$1
   fence=$2
+  document=${3:-README.md}
   # shellcheck disable=SC2016 # $0 belongs to awk, not the shell.
-  run_logged "$marker-extract" awk -v marker="$marker" -v fence="$fence" '
+  run_logged "$marker-extract" awk -v marker="$marker" -v fence="$fence" -v document="$document" '
     $0 == "<!-- test:" marker ":start -->" {
       if (state != 0) { invalid = 1; exit 1 }
       state = 1
@@ -81,28 +86,87 @@ extract_example() {
     state == 3 { invalid = 1; exit 1 }
     END {
       if (invalid || state != 4 || !lines) {
-        print "Expected exactly one marked " marker " example in README.md." > "/dev/stderr"
+        print "Expected exactly one marked " marker " example in " document "." > "/dev/stderr"
         exit 1
       }
     }
-  ' "$dependency/README.md"
+  ' "$dependency/$document"
 }
-extract_example readme-consumer bend
-cp "$evidence_dir/readme-consumer-extract.stdout" "$test_dir/readme.bend"
-# Independent fixtures and expectations are test inputs, never package internals.
-cp "$repo_dir/tests/consumer/main.bend" "$test_dir/consumer.bend"
-cp "$repo_dir/tests/consumer/expected.txt" "$evidence_dir/consumer.expected"
-cp "$repo_dir/tests/readme/expected.txt" "$evidence_dir/readme.expected"
+# A program in a FENCE block of DOCUMENT and the output that the document
+# shows for it, into the test directory as NAME.EXTENSION and into the
+# evidence as NAME.expected.
+extract_program() {
+  name=$1
+  fence=$2
+  document=$3
+  extension=$4
+  extract_example "$name" "$fence" "$document"
+  cp "$evidence_dir/$name-extract.stdout" "$test_dir/$name.$extension"
+  extract_example "$name-output" text "$document"
+  cp "$evidence_dir/$name-output-extract.stdout" "$evidence_dir/$name.expected"
+}
+# What a program printed, with the new span IDs of its log fields masked.
+# The span IDs that the documents give as received parents stay, so that a
+# program that logs the parent's ID instead of a new one fails.
+masked() {
+  sed -e 's/span_id=00f067aa0ba902b7/span_id=received-00f067aa0ba902b7/g' \
+    -e 's/span_id=b7ad6b7169203331/span_id=received-b7ad6b7169203331/g' \
+    -e 's/span_id=[0-9a-f]\{16\}/span_id=<new span ID>/g' -e 's/span_id=received-/span_id=/g' "$1"
+}
+# Compare what a program printed with what its document shows.
+compare_output() {
+  masked "$2" > "$evidence_dir/$1.expected-masked"
+  masked "$3" > "$evidence_dir/$1.printed-masked"
+  run_logged "$1" diff -u "$evidence_dir/$1.expected-masked" "$evidence_dir/$1.printed-masked"
+}
+guide=packages/trace-context/GUIDE.md
+javascript_guide=packages/trace-context/JAVASCRIPT.md
+# The Bend programs of the README and the guide, the JavaScript programs of
+# the JavaScript guide that print, and its recipes that serve requests.
+bend_programs="readme-bend guide-log guide-job guide-sampled guide-vendor guide-boundary guide-relay
+  guide-worker guide-supplied guide-tape"
+javascript_programs="javascript-log javascript-opentelemetry javascript-inspect"
+recipes="javascript-http javascript-express javascript-fastify javascript-context"
+if [ "$mode" != browser ]; then
+  extract_program readme-bend bend README.md bend
+  for program in $bend_programs; do
+    [ "$program" = readme-bend ] || extract_program "$program" bend "$guide" bend
+  done
+  # Independent fixtures and expectations are test inputs, never package
+  # internals.
+  cp "$repo_dir/tests/consumer/main.bend" "$test_dir/consumer.bend"
+  cp "$repo_dir/tests/consumer/expected.txt" "$evidence_dir/consumer.expected"
+fi
+if [ "$mode" = native ]; then
+  extract_example guide-gateway bend "$guide"
+fi
 if [ "$mode" = node ]; then
-  extract_example readme-javascript js
-  cp "$evidence_dir/readme-javascript-extract.stdout" "$test_dir/readme-javascript.mjs"
+  extract_program readme-javascript js README.md mjs
+  for program in $javascript_programs; do
+    extract_program "$program" js "$javascript_guide" mjs
+  done
+  mkdir -p "$test_dir/recipes"
+  for recipe in $recipes; do
+    extract_example "$recipe" js "$javascript_guide"
+    cp "$evidence_dir/$recipe-extract.stdout" "$test_dir/recipes/$recipe.mjs"
+  done
+  extract_example javascript-typescript ts "$javascript_guide"
+  cp "$evidence_dir/javascript-typescript-extract.stdout" "$test_dir/typescript.ts"
+  cp "$repo_dir/tests/consumer/types.ts" "$repo_dir/tests/consumer/fetch-types.ts" "$test_dir/"
   cp "$repo_dir/tests/consumer/facade.mjs" "$test_dir/facade.mjs"
   cp "$repo_dir/tests/consumer/facade-expected.txt" "$evidence_dir/facade.expected"
-  cp "$repo_dir/tests/readme/javascript-expected.txt" "$evidence_dir/readme-javascript.expected"
 fi
 if [ "$mode" = browser ]; then
-  mkdir -p "$test_dir/page"
+  mkdir -p "$test_dir/page" "$test_dir/quickstart"
   cp "$repo_dir/tests/consumer/browser/index.html" "$repo_dir/tests/consumer/browser/page.mjs" "$test_dir/page/"
+  # The README's browser quick start, served by the JavaScript guide's
+  # server for it.
+  extract_example readme-page-html html README.md
+  cp "$evidence_dir/readme-page-html-extract.stdout" "$test_dir/quickstart/page.html"
+  extract_program readme-page js README.md mjs
+  mv "$test_dir/readme-page.mjs" "$test_dir/quickstart/page.mjs"
+  extract_example javascript-server js "$javascript_guide"
+  cp "$evidence_dir/javascript-server-extract.stdout" "$test_dir/quickstart/server.mjs"
 fi
 [ ! -e "$dependency/.tools" ] || { echo "Fresh checkout inherited ignored tools." >&2; exit 1; }
 export BEND_LIB="$test_dir/package-cache"
@@ -134,48 +198,104 @@ if [ "$mode" = browser ]; then
   # bundled by the checkout's own bundler. A second bundle of the same page
   # must be byte-identical to the one the browsers run.
   # shellcheck disable=SC2317,SC2329 # run_logged invokes these functions.
-  page_install() { (cd page && npm install --offline --ignore-scripts --no-audit --no-fund "$dependency/packages/trace-context"); }
+  page_install() { (cd "$1" && npm install --offline --ignore-scripts --no-audit --no-fund "$dependency/packages/trace-context"); }
   # shellcheck disable=SC2317,SC2329
   page_hashes() { (cd page/dist && for file in *; do cksum "$file"; done); }
   # shellcheck disable=SC2317,SC2329
   page_tests() {
     (cd "$repo_dir" && BEND_BROWSER_CONSUMER="$test_dir/page/dist" BEND_BROWSER_EVIDENCE="$evidence_dir" \
+      BEND_BROWSER_QUICKSTART="$test_dir/quickstart" BEND_QUICKSTART_EXPECTED="$evidence_dir/readme-page.expected" \
       npx --no-install playwright test --config tests/consumer/playwright.config.mjs)
   }
+  # shellcheck disable=SC2317,SC2329
+  bundle_pages() { "$dependency/bend" page/index.html -o "$1"; }
+  # shellcheck disable=SC2317,SC2329
+  bundle_quickstart() { (cd quickstart && "$dependency/bend" page.html -o dist); }
   printf '{"name": "bend-browser-consumer", "private": true, "type": "module"}\n' > page/package.json
-  run_logged facade-install page_install
-  run_logged bundle "$dependency/bend" page/index.html -o page/dist
-  run_logged rebundle "$dependency/bend" page/index.html -o page/rebuilt
+  printf '{"name": "bend-browser-quickstart", "private": true, "type": "module"}\n' > quickstart/package.json
+  run_logged facade-install page_install page
+  run_logged quickstart-install page_install quickstart
+  run_logged quickstart-bundle bundle_quickstart
+  run_logged bundle bundle_pages page/dist
+  run_logged rebundle bundle_pages page/rebuilt
   run_logged bundle-reproducible diff -r page/dist page/rebuilt
   run_logged bundle-hashes page_hashes
   echo "PASS: independent pinned page bundle is reproducible"
   run_logged browser-tests page_tests
-  node "$repo_dir/tests/browser/check-results.mjs" "$evidence_dir/browser-results.json" 3
-  echo "PASS: independent pinned page (Chromium, Firefox and WebKit)"
+  node "$repo_dir/tests/browser/check-results.mjs" "$evidence_dir/browser-results.json" 6
+  echo "PASS: independent pinned page and the README's quick start (Chromium, Firefox and WebKit)"
   exit 0
 fi
-for program in consumer readme; do
+# Every Bend program runs directly. For Node every one is compiled to
+# JavaScript too; natively the consumer and the README's quick start are
+# built, and the guide's recipes, which the native build of the package's
+# examples covers, run directly only.
+for program in consumer $bend_programs; do
   run_logged "$program-direct" "$dependency/bend" "$program.bend"
-  run_logged "$program-direct-diff" diff -u "$evidence_dir/$program.expected" "$evidence_dir/$program-direct.stdout"
+  compare_output "$program-direct-diff" "$evidence_dir/$program.expected" "$evidence_dir/$program-direct.stdout"
   if [ "$mode" = node ]; then
     run_logged "$program-compile" "$dependency/bend" "$program.bend" -o "build/$program.js"
     run_logged "$program-compiled" node "build/$program.js"
-  else
+  elif [ "$program" = consumer ] || [ "$program" = readme-bend ]; then
     run_logged "$program-compile" "$dependency/bend" "$program.bend" -o "build/$program"
     run_logged "$program-compiled" "./build/$program"
+  else
+    echo "PASS: independent pinned $program (direct)"
+    continue
   fi
-  run_logged "$program-compiled-diff" diff -u "$evidence_dir/$program.expected" "$evidence_dir/$program-compiled.stdout"
+  compare_output "$program-compiled-diff" "$evidence_dir/$program.expected" "$evidence_dir/$program-compiled.stdout"
   echo "PASS: independent pinned $program ($mode)"
 done
+if [ "$mode" = native ]; then
+  # The guide's native HTTP service is the gateway example with an
+  # application's imports: apart from comments, the programs are the same.
+  # shellcheck disable=SC2317,SC2329 # run_logged invokes this function.
+  code_of() {
+    sed -e 's|^import \./deps/bend-trace-context/packages/trace-context/|import ../|' "$1" | grep -v -e '^ *#' -e '^ *$'
+  }
+  code_of "$evidence_dir/guide-gateway-extract.stdout" > "$evidence_dir/guide-gateway.code"
+  code_of "$dependency/packages/trace-context/examples/gateway.bend" > "$evidence_dir/gateway-example.code"
+  run_logged guide-gateway-diff diff -u "$evidence_dir/gateway-example.code" "$evidence_dir/guide-gateway.code"
+  echo "PASS: the guide's native HTTP service is the gateway example"
+fi
 if [ "$mode" = node ]; then
   # The application installs the facade from the checkout as a package, as
-  # the root README shows, and runs it on Node alone.
+  # the root README shows. The recipes' frameworks and TypeScript are the
+  # versions that the repository's package-lock.json locks: `npm ci`
+  # installed them in the repository, and the application links them from
+  # there, so that no registry is needed and no dependency floats.
   printf '{"name": "bend-consumer", "private": true, "type": "module"}\n' > package.json
   run_logged facade-install npm install --offline --ignore-scripts --no-audit --no-fund \
     "$dependency/packages/trace-context"
-  for program in facade readme-javascript; do
+  for tool in express fastify @opentelemetry/api typescript typescript-5; do
+    [ -d "$repo_dir/node_modules/$tool" ] || {
+      echo "Run npm ci --ignore-scripts in the repository first: $tool is missing." >&2
+      exit 1
+    }
+    mkdir -p "node_modules/$(dirname "$tool")"
+    ln -s "$repo_dir/node_modules/$tool" "node_modules/$tool"
+  done
+  for program in facade readme-javascript $javascript_programs; do
     run_logged "$program" node "$program.mjs"
-    run_logged "$program-diff" diff -u "$evidence_dir/$program.expected" "$evidence_dir/$program.stdout"
+    compare_output "$program-diff" "$evidence_dir/$program.expected" "$evidence_dir/$program.stdout"
     echo "PASS: independent pinned $program (JavaScript facade on Node)"
   done
+  recipe_files=
+  for recipe in $recipes; do recipe_files="$recipe_files $test_dir/recipes/$recipe.mjs"; done
+  run_logged recipes env BEND_RECIPES="$recipe_files" node --test --test-reporter=tap \
+    "$repo_dir/tests/consumer/recipes.mjs"
+  grep -F '# fail 0' "$evidence_dir/recipes.stdout" >/dev/null
+  grep -F '# skipped 0' "$evidence_dir/recipes.stdout" >/dev/null
+  echo "PASS: the JavaScript guide's recipes serve traced and untraced requests, and answer 502 without downstream"
+  # The declarations of the first two entries need no DOM or Node types, and
+  # those of the Fetch entry the DOM library's, with each TypeScript.
+  cp "$repo_dir/tests/consumer/tsconfig.json" "$repo_dir/tests/consumer/tsconfig.dom.json" "$test_dir/"
+  versions=
+  for typescript in typescript-5 typescript; do
+    for config in tsconfig.json tsconfig.dom.json; do
+      run_logged "types-$typescript-${config%.json}" node "node_modules/$typescript/bin/tsc" -p "$config"
+    done
+    versions="$versions${versions:+ and }$(node -p "require('./node_modules/$typescript/package.json').version")"
+  done
+  echo "PASS: the facade's types, with TypeScript $versions"
 fi

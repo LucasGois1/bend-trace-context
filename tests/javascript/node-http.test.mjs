@@ -5,7 +5,7 @@ import * as TC from '../../packages/trace-context/javascript/index.mjs';
 import {
   continueOrStartRequest, extractRequest, requestFields, requestHeaders,
 } from '../../packages/trace-context/javascript/node.mjs';
-import { tracedFetch } from '../../packages/trace-context/javascript/fetch.mjs';
+import { documentFields, tracedFetch } from '../../packages/trace-context/javascript/fetch.mjs';
 
 const TRACEPARENT = '00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01';
 
@@ -169,4 +169,13 @@ test('outside a page, tracedFetch sends the context fields only to allowed origi
   } finally {
     await downstream.close();
   }
+});
+
+test('documentFields reads a selection that is only array-like, as its declaration allows', () => {
+  const meta = (name, content) => ({ getAttribute: (attribute) => (attribute === 'name' ? name : content) });
+  const selection = { length: 3, 0: meta('TraceParent', TRACEPARENT), 1: meta('description', 'x'),
+    2: meta('tracestate', 'congo=t61rcWkgMzE') };
+  assert.equal(typeof selection[Symbol.iterator], 'undefined');
+  assert.deepEqual(documentFields({ querySelectorAll: () => selection }),
+    [['traceparent', TRACEPARENT], ['tracestate', 'congo=t61rcWkgMzE']]);
 });

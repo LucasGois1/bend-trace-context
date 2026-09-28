@@ -3,7 +3,7 @@
 ## Transport
 
 The repository qualifies the HTTP/1.1 client and server of
-[bend-kit](https://github.com/paymog/bend-kit/tree/main/http), version
+[bend-kit](https://github.com/paymog/bend-kit/tree/31912fbd99e9090df43bf2ef70da4340241e9e51/http), version
 0.23.0.1 of `bend-kit-http` on BendHub, on native Bend 2.0.32 for macOS
 ARM64 and Linux x86_64. The programs that use it import it by content hash,
 `0x1cef8a5fb1d9142ca5c6b2cb43629b21`, together with `bend-kit-json` 0.5.0.1,
@@ -143,8 +143,10 @@ request. Its other routes serve the repository's checks:
 | `/test/exhausted` | A source that gives only zero words, so every candidate is rejected and generation is exhausted |
 
 The harness runs as published, with no test excluded. Its 41 tests found no
-disagreement with spec #1; the package's extraction and tracestate corpora
-already use the harness's inputs.
+disagreement with
+[spec #1](https://github.com/LucasGois1/bend-trace-context/issues/1); the
+package's extraction and tracestate corpora already use the harness's
+inputs.
 
 Run it natively on macOS ARM64 or Linux x86_64 with the transport's
 requirements, Python 3.13 or later with `venv`, and network access to
@@ -155,7 +157,7 @@ BendHub for bend-kit, to GitHub for the harness and to PyPI for aiohttp:
 ./scripts/qualify-propagation.sh native
 ```
 
-The Node mode needs Node 22.18.0 or later, or Node 24, instead of the
+The Node mode needs Node 22.18.0 or a later Node 22, or Node 24, instead of the
 transport and the Bend binary: `./scripts/qualify-propagation.sh node`.
 Evidence is written under `build/propagation-native/` or
 `build/propagation-node/`: the environment, including the Python and

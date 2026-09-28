@@ -4,8 +4,8 @@
 // child of the page's operation. The page's own API receives the context
 // fields; the partner API, on another origin, receives them because it is
 // allowed and its CORS preflight accepts them.
-import * as TC from '../../packages/trace-context/javascript/index.mjs';
-import { documentFields, tracedFetch } from '../../packages/trace-context/javascript/fetch.mjs';
+import * as TC from 'bend-trace-context';
+import { documentFields, tracedFetch } from 'bend-trace-context/fetch';
 
 const partner = 'http://127.0.0.1:4174';
 const extraction = TC.extract(documentFields(document));
