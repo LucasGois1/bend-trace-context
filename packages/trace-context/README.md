@@ -10,7 +10,8 @@ message's context from its fields, the injection and forwarding of a context
 into the fields of a message to send, and the operations that continue or
 start a service's own operation for each message it receives and give each
 message it sends a child of that operation, with an adapter for the header
-maps of the native HTTP transport bend-net and a JavaScript facade for Node.
+maps of the native HTTP transport bend-net and a JavaScript facade for Node
+and browser pages.
 It has no external package dependencies beyond the compiler's bundled `Base`.
 The public entries are [trace_context.bend](trace_context.bend), which
 performs no host effect of its own, [generation.bend](generation.bend), which
@@ -140,10 +141,10 @@ existing operation with `Context.from_ids`.
 cryptographic source: the operating system's generator natively
 (`arc4random_buf` on macOS, `getrandom` on Linux, as Base's `IO.random_u32`)
 and WebCrypto in JavaScript. Qualified here for native programs and for Bend
-programs compiled to Node; browser generation belongs to
-[#14](https://github.com/LucasGois1/bend-trace-context/issues/14). Names below
-are qualified by the aliases `Generate` for generation.bend and `TC` for
-trace_context.bend:
+programs compiled to Node. JavaScript applications and browser pages generate
+through the [JavaScript facade](JAVASCRIPT.md), which feeds WebCrypto words
+to the same machine. Names below are qualified by the aliases `Generate` for
+generation.bend and `TC` for trace_context.bend:
 
 ```bend
 Generate.Context.root() -> IO(Result<&2, &2, TC.GenerationError, TC.LocalContext>)
@@ -993,8 +994,8 @@ Support boundaries:
   with bend-net at the pinned commit. bend-net's own JavaScript transport,
   which runs on Bun, is not qualified. JavaScript applications on Node use
   the [facade's `node:http` integration](JAVASCRIPT.md#node-http-integration)
-  instead, and the browser belongs to
-  [#14](https://github.com/LucasGois1/bend-trace-context/issues/14).
+  instead, and browser pages its
+  [Fetch integration](JAVASCRIPT.md#browser-integration).
 - An application that uses the adapter clones the repository with its
   submodules: `git clone --recurse-submodules`, or
   `git submodule update --init --recursive` in an existing checkout.

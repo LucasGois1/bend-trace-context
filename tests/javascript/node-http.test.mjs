@@ -5,6 +5,7 @@ import * as TC from '../../packages/trace-context/javascript/index.mjs';
 import {
   continueOrStartRequest, extractRequest, requestFields, requestHeaders,
 } from '../../packages/trace-context/javascript/node.mjs';
+import { tracedFetch } from '../../packages/trace-context/javascript/fetch.mjs';
 
 const TRACEPARENT = '00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01';
 
@@ -140,5 +141,32 @@ test('ClientRequest headers group each name once, in order, with its first spell
   for (const request of [undefined, null, {}, { rawHeaders: 'traceparent' }, { rawHeaders: ['traceparent'] },
     { rawHeaders: ['traceparent', 1] }]) {
     assert.throws(() => requestFields(request), TypeError);
+  }
+});
+
+test('outside a page, tracedFetch sends the context fields only to allowed origins', async () => {
+  const downstream = await observer();
+  try {
+    const context = TC.continueOrStart(TC.extract([['traceparent', TRACEPARENT]]), { crypto: words(1, 2) });
+    const allowed = await tracedFetch(context, `${downstream.url}/allowed`, {
+      method: 'POST', headers: new Map([['x-seen', 'a'], ['traceparent', 'stale']]), body: '{}',
+    }, { propagateTo: [downstream.url], crypto: words(0x53995c3f, 0x42cd8ad8) });
+    assert.equal(allowed.response.status, 200);
+    assert.equal(allowed.sent.show, 'Fresh');
+    const calls = [];
+    const unlisted = await tracedFetch(context, `${downstream.url}/unlisted`, { headers: { traceparent: 'stale', 'x-n': 1 } },
+      { propagateTo: null, fetch: (url, init) => { calls.push([url, init.headers]); return fetch(url, init); } });
+    assert.equal(unlisted.sent, null);
+    assert.ok(Object.isFrozen(unlisted));
+    assert.deepEqual(calls, [[`${downstream.url}/unlisted`, [['x-n', '1']]]]);
+    const [first, second] = downstream.received;
+    assert.deepEqual(lines(first, 'traceparent'), ['00-0af7651916cd43dd8448eb211c80319c-53995c3f42cd8ad8-01']);
+    assert.deepEqual(lines(first, 'x-seen'), ['a']);
+    assert.deepEqual(lines(second, 'traceparent'), []);
+    assert.deepEqual(lines(second, 'x-n'), ['1']);
+    await assert.rejects(tracedFetch(context, '/relative'), TypeError);
+    await assert.rejects(tracedFetch(context, downstream.url, {}, { propagateTo: [`${downstream.url}/`] }), RangeError);
+  } finally {
+    await downstream.close();
   }
 });

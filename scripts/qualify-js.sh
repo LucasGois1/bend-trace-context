@@ -47,12 +47,30 @@ if [ "$mode" = node ]; then
   grep -q '^# skipped 0$' "$output_dir/node-tests.txt"
 else
   run_logged browser-tests npm run test:browser
-  node --input-type=module -e '
-    import { readFileSync } from "node:fs";
-    const { stats } = JSON.parse(readFileSync("build/javascript/browser-results.json", "utf8"));
-    if (stats.expected === 0 || stats.skipped || stats.unexpected || stats.flaky) {
-      throw new Error("Browser qualification requires passing tests without skips or retries.");
-    }
-  '
+  node tests/browser/check-results.mjs build/javascript/browser-results.json
+  # The bundle that the browsers ran must be reproducible: a second build of
+  # the same pages gives the same files, byte for byte.
+  rm -rf build/browser-rebuild
+  run_logged browser-rebuild env BROWSER_OUT=build/browser-rebuild npm run build:browser
+  run_logged browser-reproducible diff -r build/browser build/browser-rebuild
+  run_logged browser-bundle cksum build/browser/*
+  # A copy of the sources at another path gives the same scripts under other
+  # names: the bundler names its chunks by a hash of where the sources are.
+  relocated=$(mktemp -d "${TMPDIR:-/tmp}/bend-browser.XXXXXXXX")
+  mkdir -p "$relocated/examples" "$relocated/packages"
+  cp -R examples/javascript "$relocated/examples/"
+  cp -R packages/trace-context "$relocated/packages/"
+  # shellcheck disable=SC2317,SC2329 # run_logged invokes these functions.
+  relocated_build() {
+    ./bend "$relocated/examples/javascript/index.html" -o "$relocated/out" &&
+      ./bend "$relocated/examples/javascript/fetch.html" -o "$relocated/out"
+  }
+  # shellcheck disable=SC2317,SC2329
+  scripts_of() { for script in "$1"/*.js; do cksum < "$script"; done | sort; }
+  run_logged browser-relocated relocated_build
+  scripts_of build/browser > "$output_dir/browser-scripts.txt"
+  scripts_of "$relocated/out" > "$output_dir/browser-relocated-scripts.txt"
+  rm -rf "$relocated"
+  run_logged browser-relocatable diff "$output_dir/browser-scripts.txt" "$output_dir/browser-relocated-scripts.txt"
 fi
 printf 'PASS: %s qualification; evidence: %s\n' "$mode" "$output_dir"

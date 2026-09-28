@@ -144,6 +144,10 @@ _Avoid_: Incoming context
 The package's interface for JavaScript applications. It converts JavaScript values at the boundary and feeds the package's generation words from WebCrypto, without deciding any Trace Context rule.
 _Avoid_: JavaScript SDK, second implementation
 
+**Propagation allowlist**:
+The origins or URLs, beyond a page's own origin, to which a page's requests carry context fields. A cross-origin request carrying them needs a CORS preflight that allows them.
+_Avoid_: Trusted origins
+
 **Handle**:
 A frozen JavaScript object that only the facade creates, standing for a value of the package. An object that merely looks like a handle is refused.
 _Avoid_: Wrapper object, raw loader value

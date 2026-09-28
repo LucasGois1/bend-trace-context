@@ -1,7 +1,7 @@
 # JavaScript
 
-The package's JavaScript facade gives a Node application the package's
-operations:
+The package's JavaScript facade gives a Node application or a browser page
+the package's operations:
 
 - extraction;
 - continuing or starting a service's operation, and sending;
@@ -11,13 +11,13 @@ operations:
   policies, and operations with identifiers that the application supplies.
 
 Its `node:http` integration reads received requests and writes the headers of
-requests to send. Every Trace Context rule runs in the Bend package, the same
-[`trace_context.bend`](trace_context.bend) that native programs use. The
-facade converts JavaScript values at the boundary, feeds WebCrypto words to
-the package's generation machine, and wraps the package's values in
-[handles](#handles). It is qualified on Node 22 and 24. Browser generation
-and propagation belong to
-[#14](https://github.com/LucasGois1/bend-trace-context/issues/14).
+requests to send, and its [Fetch integration](#browser-integration) gives a
+page's requests their context. Every Trace Context rule runs in the Bend
+package, the same [`trace_context.bend`](trace_context.bend) that native
+programs use. The facade converts JavaScript values at the boundary, feeds
+WebCrypto words to the package's generation machine, and wraps the package's
+values in [handles](#handles). It is qualified on Node 22 and 24 and in
+Chromium, Firefox and WebKit.
 
 This guide also covers the [codec adapter](#codec-adapter-and-foreign-values),
 the [WebCrypto source](#webcrypto-and-explicit-effects) and their browser
@@ -49,12 +49,13 @@ has no dependencies. Run the application with the loader:
 node --import ./deps/bend-trace-context/.tools/bend-source-2.0.27/bend2/main.ts main.mjs
 ```
 
-The package offers two entries:
+The package offers three entries:
 
 - `bend-trace-context`: the facade;
-- `bend-trace-context/node`: the [`node:http` integration](#node-http-integration).
+- `bend-trace-context/node`: the [`node:http` integration](#node-http-integration);
+- `bend-trace-context/fetch`: the [Fetch integration](#browser-integration).
 
-Both are ES modules.
+All three are ES modules.
 
 A service handles each request in three steps:
 
@@ -397,6 +398,208 @@ POST /downstream {"order":2}
   traceparent: 00-<new trace ID>-<new span ID>-02
 ```
 
+## Browser integration
+
+A browser page uses the same facade, bundled into the page by the official
+Bend bundler, and `bend-trace-context/fetch` for its requests.
+
+### Build a page
+
+In the pinned checkout that the [root README](../../README.md#from-javascript)
+describes, install the facade into the project, then bundle each page with
+the checkout's own `bend`:
+
+```sh
+./deps/bend-trace-context/scripts/setup-bend.sh
+npm install ./deps/bend-trace-context/packages/trace-context
+./deps/bend-trace-context/bend page.html -o dist
+```
+
+The bundler follows the page's `<script type="module">`, resolves
+`bend-trace-context` through `node_modules`, compiles the package's `.bend`
+files and writes the page and its script to `dist`. The browser needs no
+loader, no Bend binary and no Bun. Bundling the same checkout again gives
+byte-identical files. A copy of the sources at another path gives the same
+scripts under other names, because the bundler names its chunks by a hash
+that depends on where the sources are; the qualification checks both. Other
+bundlers, such as Vite, webpack or esbuild, cannot compile `.bend` files and
+are not supported.
+
+A page's module continues the context that its server rendered, or starts a
+trace without one, and sends its requests with a child of that operation:
+
+```js
+import * as TC from 'bend-trace-context';
+import { documentFields, tracedFetch } from 'bend-trace-context/fetch';
+
+const service = TC.continueOrStart(TC.extract(documentFields(document)));
+const { response, sent } = await tracedFetch(service, '/api/orders', {
+  method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ order: 1 }),
+});
+```
+
+### Fetch reference
+
+```js
+documentFields(document) -> fields
+tracedFetch(service, input, init, { propagateTo, fetch, limits, sampling, policy, crypto }) -> Promise<{ response, sent }>
+```
+
+- `documentFields` reads the context that the page's server rendered as
+  `<meta name="traceparent" content="...">` and
+  `<meta name="tracestate" content="...">` elements, in document order, for
+  `extract`. Names are compared without regard to ASCII case. The convention
+  is OpenTelemetry's, not the W3C's. Two traceparent elements are refused,
+  as two fields are.
+- `tracedFetch` sends one request with `fetch`, taking `input` and `init` as
+  `fetch` takes them: a URL, a string or a `Request`, and `init.headers` as a
+  `Headers` object, pairs or a record, whose names and values it converts to
+  strings as `fetch` does. `init` is read once, and a `Request` keeps its
+  referrer and referrer policy.
+  - When the destination may receive the context fields, it calls `send` for
+    a new child of the service's operation, and the request carries
+    `sent.fields`: its own fields, with any stale context fields replaced.
+  - Otherwise, the request goes without context fields, and `sent` is
+    `null`.
+- The destinations that may receive the context fields are the page's own
+  origin, as its document has it (`globalThis.origin`), and those that
+  `propagateTo` allows. An entry is an origin, such as
+  `'https://api.example.com'`, or a `RegExp` searched in the whole URL, with
+  the same result on every call whatever its flags. A page with an opaque
+  origin, such as a sandboxed frame, has no own origin. A `no-cors` request
+  never carries the fields: the browser would drop them.
+- `options.fetch` is the function that sends, `globalThis.fetch` by default,
+  such as an application's own wrapper. The other options are `send`'s. All
+  options, the headers and the handle are checked before anything is sent or
+  generated. Under the strict policy, a request that may carry the fields is
+  not sent when no new child can be generated, and the promise rejects with
+  a `GenerationError`. A rejection of `fetch` itself, such as a refused
+  preflight or a network failure, passes through unchanged.
+- The result is frozen.
+- Outside a page, as in Node, there is no own origin: only the origins that
+  `propagateTo` allows receive the fields, and a relative URL is refused.
+  Browsers and Node are qualified; other hosts are not.
+
+### Cross-origin requests and CORS
+
+`traceparent` and `tracestate` are not CORS-safelisted request headers, so a
+cross-origin request that carries them sends a preflight first. The
+destination's server must answer it with, for example:
+
+```http
+Access-Control-Allow-Origin: https://app.example.com
+Access-Control-Allow-Methods: POST
+Access-Control-Allow-Headers: content-type, traceparent, tracestate
+```
+
+It may add `Access-Control-Max-Age` so that the browser caches the answer.
+When the answer does not allow the fields, the browser refuses the request
+before sending it, and `tracedFetch` rejects with `fetch`'s `TypeError`: the
+business request fails. That is why only the page's own origin receives the
+fields by default. Allow an origin in `propagateTo` once its server accepts
+them. A request to an origin outside the list goes without context fields,
+and so needs no preflight for them.
+
+`fetch` follows redirects by default, and the browser sends the redirected
+request with the same header fields, the same child included, to the new
+URL. The allowlist is not checked again there, so a redirect to another
+origin needs a preflight that allows the fields, or the business request
+fails. For a request whose redirects may leave the allowed destinations,
+pass `redirect: 'error'` or `'manual'` in `init`, or allow the origins it
+redirects to. The tests show all three outcomes.
+
+### Rendering the context into a page
+
+The page continues the operation of the server that rendered it: the
+server's own operation for the page request, as it would inject it into a
+request. Render each context field as a `<meta>` element, and escape the
+value as an HTML attribute: a tracestate value may hold `"`, `&` and `<`,
+and the HTML parser decodes character references before `documentFields`
+reads them. Everything in the page is visible to its scripts, so render
+only what the page's own requests would carry. On `node:http`:
+
+```js
+import http from 'node:http';
+import * as TC from 'bend-trace-context';
+import { continueOrStartRequest } from 'bend-trace-context/node';
+
+const attribute = (text) => text.replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll('<', '&lt;');
+
+http.createServer((request, response) => {
+  const service = continueOrStartRequest(request);
+  const fields = service.outgoing === null ? [] : TC.inject(service.outgoing, []).fields;
+  const metas = fields.map(([name, value]) => `<meta name="${name}" content="${attribute(value)}">`).join('');
+  response.writeHead(200, { 'content-type': 'text/html' });
+  response.end(`<!doctype html><html><head><meta charset="utf-8">${metas}</head><body></body></html>`);
+}).listen(8080);
+```
+
+A service without an operation renders no context, and the page starts a
+trace of its own.
+
+### What browsers do to the fields
+
+- `Headers` lowercases names, gives them sorted, and joins the repeated
+  values of a name with `, `. A page that gives `tracedFetch` a `Headers`
+  object therefore hands over one field per name. The package still writes
+  one traceparent and one tracestate field. A joined pair of traceparent
+  values is refused as repeated, and joined tracestate values read as the
+  separate fields would.
+- `Headers` removes the whitespace around values, and refuses a value with a
+  line break with a `TypeError`.
+- A `no-cors` request drops every header that is not CORS-safelisted,
+  `traceparent` and `tracestate` included. A test shows it with a plain
+  `fetch`.
+- Engines choose the order of the header lines they send. The tests record
+  the order that each engine sent in their reports (`header-order.json`). In
+  the runs for this release, Chromium 153 and WebKit 26.6 sent lines of
+  different names in an order of their own, and Firefox 155 in the given
+  order. The lines of one name keep their order, and no Trace Context rule
+  depends on the order of different names.
+- A page reads a cross-origin response's headers only when its server
+  exposes them with `Access-Control-Expose-Headers`; nothing here reads
+  response headers.
+- `navigator.sendBeacon`, form submissions and navigations cannot carry
+  header fields that the page sets.
+
+### Tested engines
+
+The qualification runs Chromium (Chrome for Testing 153.0.8010.12), Firefox
+155.0 and WebKit 26.6, as Playwright 1.63.0 builds and installs them: on
+Linux in CI and on macOS locally. Each test records the exact version it
+ran. Playwright's builds are close to the browsers' releases but are not
+them. No claim is made for Chrome, Edge, Safari or Firefox as released, for
+mobile browsers, or for other versions.
+
+### Page walkthrough
+
+The [Fetch page](../../examples/javascript/fetch.html) continues the context
+that its server rendered, or starts a trace, and calls a same-origin API and
+a partner API on another origin. From the repository root, after
+`./scripts/setup-bend.sh`, bundle it and start its server:
+
+```sh
+npm run build:browser
+node tests/browser/server.mjs
+```
+
+In another terminal, start the partner, the independent observer of the
+tests:
+
+```sh
+node tests/browser/observer.mjs
+```
+
+Open
+`http://127.0.0.1:4173/fetch.html?traceparent=00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01&tracestate=congo%3Dt61rcWkgMzE`.
+The server renders both fields as `<meta>` elements, and the page shows
+`TraceParentAccepted, StateAccepted; Continued`. "Call the same-origin API"
+shows `200, Fresh`. "Call the partner API" shows `200, Fresh` too, after the
+partner's preflight accepted the fields. The partner lists what it received
+at `http://127.0.0.1:4174/observations/example`. "Show what Fetch hands
+over" shows the fields that a `Headers` object gives the page, with a
+repeated name joined, and what extraction makes of them.
+
 ## How the facade reaches the package
 
 The official loader exports a `.bend` module's definitions as JavaScript
@@ -443,8 +646,8 @@ bend-net's JavaScript transport, which runs on Bun, plays no part here.
 - Node warns that the loader's package type is unspecified
   (`MODULE_TYPELESS_PACKAGE_JSON`). The warning is harmless, and
   `node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON` silences it.
-- The facade is not qualified in browsers; the codec adapter and the
-  WebCrypto source are, as described below.
+- In browsers, the bundled page needs no loader. The facade is qualified in
+  the [tested engines](#tested-engines).
 - Node's HTTP limits and transformations apply as described
   [above](#node-http-integration).
 
@@ -467,7 +670,31 @@ bend-net's JavaScript transport, which runs on Bun, plays no part here.
   - what the loader exports, and the absence of any system binding.
 - `tests/javascript/node-http.test.mjs` runs `node:http` servers against an
   independent observer that records header lines as they arrive, and checks
-  `fetch` as well.
+  `fetch` and `tracedFetch` outside a page as well.
+- `tests/browser/fetch.spec.mjs` runs the bundled Fetch page in each engine.
+  The page's server renders its context as `<meta>` elements, and an
+  independent observer on another origin records header lines and
+  preflights. It covers:
+  - generation through WebCrypto;
+  - same-origin and cross-origin calls that replace stale fields;
+  - values joined by `Headers`, and repeated or differently cased elements;
+  - allowed, unlisted and refused cross-origin calls, and origins allowed by
+    a `RegExp`;
+  - `no-cors`, redirects, `Request` inputs and a page without an origin of
+    its own;
+  - actual WebCrypto exceptions under both policies;
+  - intact forwarding;
+  - the example page's buttons;
+  - forged values and invalid arguments, refused before any request.
+
+  `./scripts/qualify-js.sh browser` also bundles the pages a second time and
+  requires identical files, and bundles a copy of the sources at another
+  path and requires the same scripts.
+- `./scripts/test-consumer.sh browser` installs the facade from a fresh
+  pinned clone into an independent page,
+  [`tests/consumer/browser`](../../tests/consumer/browser/page.mjs). It
+  bundles the page twice with the clone's bundler, requires identical
+  bundles, and runs the page in the three engines against the observer.
 - `./scripts/test-consumer.sh node` installs the facade from a fresh pinned
   clone into an independent application. It runs
   [`tests/consumer/facade.mjs`](../../tests/consumer/facade.mjs) and the
@@ -484,7 +711,8 @@ bend-net's JavaScript transport, which runs on Bun, plays no part here.
   describes the checks and the harness run; evidence goes to
   `build/propagation-node/`.
 
-CI runs all of them on Node 22 and 24.
+CI runs the Node checks on Node 22 and 24, and the browser checks in the three
+engines.
 
 ## Codec adapter and foreign values
 
@@ -617,8 +845,8 @@ and run it on real WebCrypto, on each induced host failure (reported as a
 structured `SourceFailure` without fallback), on constant providers and on a
 provider that fails at the third word, counting the words read: six for a
 root, 32 before exhaustion when every word is zero, and three when the third
-fails. Browser generation remains in
-[#14](https://github.com/LucasGois1/bend-trace-context/issues/14).
+fails. The facade generates in browsers through the same adapter, as
+[Browser integration](#browser-integration) describes.
 
 ## Reproduce the qualification
 
@@ -629,6 +857,7 @@ fails. Browser generation remains in
 npx --no-install playwright install chromium firefox webkit
 npm run build:browser
 ./scripts/qualify-js.sh browser
+./scripts/test-consumer.sh browser
 ./tests/installer-source/test.sh
 ```
 
@@ -638,7 +867,8 @@ pins. On Linux CI, Playwright uses `install --with-deps` for its system
 libraries. Playwright is locked to `1.63.0` in `package-lock.json`; its browser
 builds are recorded with each test. Node 22 and 24 run the facade, the module
 and actual compiled Bend effect consumers. Chromium, Firefox and WebKit run the
-bundled page and shared source. The required aggregate CI gate includes every
+bundled pages, the Fetch integration, the shared source and the independent
+browser consumer. The required aggregate CI gate includes every
 target and rejects skips.
 
 Tests exercise genuine WebCrypto success and native `TypeMismatchError` and

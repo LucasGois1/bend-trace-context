@@ -10,6 +10,7 @@
   },
   "exports": {
     ".": "./javascript/index.mjs",
-    "./node": "./javascript/node.mjs"
+    "./node": "./javascript/node.mjs",
+    "./fetch": "./javascript/fetch.mjs"
   }
 }

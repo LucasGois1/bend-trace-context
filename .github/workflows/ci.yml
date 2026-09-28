@@ -188,14 +188,18 @@ jobs:
         run: npx --no-install playwright install --with-deps chromium firefox webkit
       - name: Bundle the public browser consumer
         run: npm run build:browser
-      - name: Public browser imports and WebCrypto boundary
+      - name: Browser propagation, Fetch, CORS and WebCrypto boundary
         run: ./scripts/qualify-js.sh browser
+      - name: Independent browser consumer from this exact commit
+        run: ./scripts/test-consumer.sh browser "$GITHUB_WORKSPACE" "$(git rev-parse HEAD)"
       - name: Preserve browser qualification evidence and failure traces
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: browser-${{ github.sha }}
-          path: build/javascript/
+          path: |
+            build/javascript/
+            build/consumer-browser/
           if-no-files-found: error
           retention-days: 14
 
