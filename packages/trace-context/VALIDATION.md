@@ -128,8 +128,8 @@ BendHub does, with a proof of work that any nonce meets and a login that
 any key makes. The pinned compiler's `--publish` publishes the package of a
 fresh clone there. The package must hold exactly the public modules, their
 internal modules and effects, and the MIT license with its SPDX identifier,
-each file equal to the commit's, and the first line of its entry must be
-its description. The name must be free on BendHub, or belong to the
+each file equal to the commit's, and the first line of its first `.bend`
+file, which BendHub shows, must be its description. The name must be free on BendHub, or belong to the
 repository's owner. `bend link` then names the package, and a clean
 consumer, which holds no source of the package, imports it by its name: the
 README's quick start directly, natively and on Node, the guide's programs,

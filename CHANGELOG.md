@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.1-dev — unreleased
+
+- Describe the BendHub package by the first line of `entropy.bend`. BendHub
+  shows the first line of a package's first `.bend` file in path order, not
+  that of the file that `--publish` reads, so it describes
+  `bend-trace-context@0.1.0.0` as "Host entropy". `qualify-release.sh` now
+  checks the file that BendHub reads, and `generation.bend` no longer claims
+  to be it.
+
 ## 0.1.0 — 2026-09-28
 
 The first release: W3C Trace Context Level 2 propagation for Bend 2.0.32. It
@@ -29,8 +38,7 @@ also holds the JavaScript facade.
   directly, natively and on Node, the guide's programs, the native HTTP
   adapter and the guide's HTTP service, compiled. After publication it
   checks that BendHub names that exact package and runs the same consumer
-  against BendHub. The first line of `generation.bend`, the file that a
-  release publishes, is the package's description on BendHub. The
+  against BendHub. The
   [requirements matrix](packages/trace-context/REQUIREMENTS.md) maps each
   requirement of the specification to its decision, laws, tests and gate,
   and `scripts/check-requirements.sh` requires it to cite every law. CI now
