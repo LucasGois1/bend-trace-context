@@ -1,4 +1,4 @@
-// Generated from trace_context.bend by scripts/build-js.sh with bend 2.0.32.
+// Generated from trace_context.bend by scripts/build-js.sh with bend 2.0.34.
 // Do not edit: change the Bend sources and run the script again.
 function word_to_u32(w) {
   let x = 0;
@@ -150,7 +150,6 @@ function run_lib(f, n) {
 // Effect
 // ======
 
-// An effect source registers each effect under its def's key, as in C.
 const $0eff = Object.create(null);
 
 function io_eff(k, run, need) {
@@ -1451,9 +1450,8 @@ function $StateChar$in_range$(_code_0, _low_0, _high_0) {
 }
 
 function $StateChar$is_key_start$(_char_0) {
-  const _code_0 = _char_0.codePointAt(0);
-  const _x_0 = ($StateChar$in_range$(_code_0, 97, 122));
-  const _x_1 = ($StateChar$in_range$(_code_0, 48, 57));
+  const _x_0 = ($StateChar$in_range$(_char_0.codePointAt(0), 97, 122));
+  const _x_1 = ($StateChar$in_range$(_char_0.codePointAt(0), 48, 57));
   return (_x_0 || _x_1);
 }
 
@@ -1472,10 +1470,9 @@ function $StateChar$is_key$(_char_0) {
 }
 
 function $StateChar$is_value_end$(_char_0) {
-  const _code_0 = _char_0.codePointAt(0);
-  const _x_0 = ($StateChar$in_range$(_code_0, 45, 60));
-  const _x_1 = ($StateChar$in_range$(_code_0, 62, 126));
-  const _x_2 = ($StateChar$in_range$(_code_0, 33, 43));
+  const _x_0 = ($StateChar$in_range$(_char_0.codePointAt(0), 45, 60));
+  const _x_1 = ($StateChar$in_range$(_char_0.codePointAt(0), 62, 126));
+  const _x_2 = ($StateChar$in_range$(_char_0.codePointAt(0), 33, 43));
   const _x_3 = (_x_0 || _x_1);
   return (_x_2 || _x_3);
 }
@@ -1700,8 +1697,10 @@ function $TraceState$format$(_state_0) {
 }
 
 function $Utf8$width$(_char_0) {
-  const _code_0 = _char_0.codePointAt(0);
-  return $Bool$pick$((_code_0 < 128), 1, ($Bool$pick$((_code_0 < 2048), 2, ($Bool$pick$((_code_0 < 65536), 3, 4)))));
+  const _x_0 = _char_0.codePointAt(0);
+  const _x_1 = _char_0.codePointAt(0);
+  const _x_2 = _char_0.codePointAt(0);
+  return $Bool$pick$((_x_0 < 128), 1, ($Bool$pick$((_x_1 < 2048), 2, ($Bool$pick$((_x_2 < 65536), 3, 4)))));
 }
 
 function $Utf8$length$(_text_0) {
@@ -2417,10 +2416,12 @@ function $Text$has_comma$(_text_0) {
 }
 
 function $Text$is_control$(_char_0) {
-  const _code_0 = _char_0.codePointAt(0);
-  const _x_0 = ($Bool$and$((_code_0 < 32), ($Bool$not$((_code_0 === 9)))));
-  const _x_1 = (_code_0 === 127);
-  return (_x_0 || _x_1);
+  const _x_0 = _char_0.codePointAt(0);
+  const _x_1 = _char_0.codePointAt(0);
+  const _x_2 = _char_0.codePointAt(0);
+  const _x_3 = ($Bool$and$((_x_0 < 32), ($Bool$not$((_x_1 === 9)))));
+  const _x_4 = (_x_2 === 127);
+  return (_x_3 || _x_4);
 }
 
 function $Text$control$go$($0, $1, $2) {
@@ -3293,8 +3294,8 @@ function $Bool$pick$(_c_0, _a_0, _b_0) {
 
 function $Char$is_eq$(_a_0, _b_0) {
   const _x_0 = _a_0.codePointAt(0);
-  const _y_0 = _b_0.codePointAt(0);
-  return (_x_0 === _y_0);
+  const _x_1 = _b_0.codePointAt(0);
+  return (_x_0 === _x_1);
 }
 
 function $Bool$and$(_a_0, _b_0) {
@@ -3320,7 +3321,7 @@ function $Result$pure$(_x_0) {
 }
 
 function $String$eq$(_a_0, _b_0) {
-  return $String$eq$fin$(($String$cmp$(_a_0, _b_0)));
+  return $Cmp$is_eq$(($String$order$(_a_0, _b_0)));
 }
 
 function $IO$pure$(_x_0, _k_0) {
@@ -3405,7 +3406,7 @@ function $Nat$is_gt$(_a_0, _b_0) {
 
 function $Char$to_lower$(_c_0) {
   const _x_0 = ($Bool$to_u32$(($Char$is_upper$(_c_0))));
-  const _x_1 = ($Char$to_u32$(_c_0));
+  const _x_1 = _c_0.codePointAt(0);
   const _x_2 = (Math.imul(_x_0, 32) >>> 0);
   return char_new(((_x_1 + _x_2) >>> 0));
 }
@@ -3496,32 +3497,16 @@ function $String$reverse$go$($0, $1) {
   }
 }
 
-function $String$eq$fin$(_r_0) {
-  const _t_0 = _r_0["fst"];
-  const _c_0 = _r_0["snd"];
-  return $Cmp$is_eq$(_c_0);
+function $Cmp$is_eq$(_c_0) {
+  if (_c_0.$ === "EQ") {
+    return true;
+  } else {
+    return false;
+  }
 }
 
-function $String$cmp$(_a_0, _b_0) {
-  if (_a_0 === "") {
-    if (_b_0 === "") {
-      return {$: "Tuple", "fst": {$: "Tuple", "fst": "", "snd": ""}, "snd": {$: "EQ"}};
-    } else {
-      const _h_0 = (_b_0.codePointAt(0) > 0xFFFF ? _b_0.slice(0, 2) : _b_0[0]);
-      const _t_0 = (_b_0.codePointAt(0) > 0xFFFF ? _b_0.slice(2) : _b_0.slice(1));
-      return {$: "Tuple", "fst": {$: "Tuple", "fst": "", "snd": (_h_0 + _t_0)}, "snd": {$: "LT"}};
-    }
-  } else {
-    const _h_1 = (_a_0.codePointAt(0) > 0xFFFF ? _a_0.slice(0, 2) : _a_0[0]);
-    const _t_1 = (_a_0.codePointAt(0) > 0xFFFF ? _a_0.slice(2) : _a_0.slice(1));
-    if (_b_0 === "") {
-      return {$: "Tuple", "fst": {$: "Tuple", "fst": (_h_1 + _t_1), "snd": ""}, "snd": {$: "GT"}};
-    } else {
-      const _h2_0 = (_b_0.codePointAt(0) > 0xFFFF ? _b_0.slice(0, 2) : _b_0[0]);
-      const _t2_0 = (_b_0.codePointAt(0) > 0xFFFF ? _b_0.slice(2) : _b_0.slice(1));
-      return $String$cmp$fin$(_t_1, _t2_0, ($Char$cmp$(_h_1, _h2_0)));
-    }
-  }
+function $String$order$(_a_0, _b_0) {
+  return $Pair$snd$(($String$cmp$(_a_0, _b_0)));
 }
 
 function $Nat$show$fin$($0, $1, $2) {
@@ -3578,36 +3563,25 @@ function $U32$show$if$(_a_0, _z_0) {
 function $Cmp$is_ge$(_c_0) {
   if (_c_0.$ === "LT") {
     return false;
-  } else if (_c_0.$ === "EQ") {
-    return true;
   } else {
     return true;
   }
 }
 
 function $Cmp$is_le$(_c_0) {
-  if (_c_0.$ === "LT") {
-    return true;
-  } else if (_c_0.$ === "EQ") {
-    return true;
-  } else {
+  if (_c_0.$ === "GT") {
     return false;
+  } else {
+    return true;
   }
 }
 
 function $Cmp$is_gt$(_c_0) {
-  if (_c_0.$ === "LT") {
-    return false;
-  } else if (_c_0.$ === "EQ") {
-    return false;
-  } else {
+  if (_c_0.$ === "GT") {
     return true;
+  } else {
+    return false;
   }
-}
-
-function $Char$to_u32$(_c_0) {
-  const _x_0 = _c_0.codePointAt(0);
-  return _x_0;
 }
 
 function $Bool$to_u32$(_b_0) {
@@ -3620,37 +3594,35 @@ function $Bool$to_u32$(_b_0) {
 
 function $Char$is_upper$(_c_0) {
   const _x_0 = _c_0.codePointAt(0);
-  return $Bool$and$((_x_0 >= 65), (_x_0 <= 90));
+  const _x_1 = _c_0.codePointAt(0);
+  return $Bool$and$((_x_0 >= 65), (_x_1 <= 90));
 }
 
-function $Cmp$is_eq$(_c_0) {
-  if (_c_0.$ === "LT") {
-    return false;
-  } else if (_c_0.$ === "EQ") {
-    return true;
+function $Pair$snd$(_p_0) {
+  const _b_0 = _p_0["snd"];
+  return _b_0;
+}
+
+function $String$cmp$(_a_0, _b_0) {
+  if (_a_0 === "") {
+    if (_b_0 === "") {
+      return {$: "Tuple", "fst": {$: "Tuple", "fst": "", "snd": ""}, "snd": {$: "EQ"}};
+    } else {
+      const _h_0 = (_b_0.codePointAt(0) > 0xFFFF ? _b_0.slice(0, 2) : _b_0[0]);
+      const _t_0 = (_b_0.codePointAt(0) > 0xFFFF ? _b_0.slice(2) : _b_0.slice(1));
+      return {$: "Tuple", "fst": {$: "Tuple", "fst": "", "snd": (_h_0 + _t_0)}, "snd": {$: "LT"}};
+    }
   } else {
-    return false;
+    const _h_1 = (_a_0.codePointAt(0) > 0xFFFF ? _a_0.slice(0, 2) : _a_0[0]);
+    const _t_1 = (_a_0.codePointAt(0) > 0xFFFF ? _a_0.slice(2) : _a_0.slice(1));
+    if (_b_0 === "") {
+      return {$: "Tuple", "fst": {$: "Tuple", "fst": (_h_1 + _t_1), "snd": ""}, "snd": {$: "GT"}};
+    } else {
+      const _h2_0 = (_b_0.codePointAt(0) > 0xFFFF ? _b_0.slice(0, 2) : _b_0[0]);
+      const _t2_0 = (_b_0.codePointAt(0) > 0xFFFF ? _b_0.slice(2) : _b_0.slice(1));
+      return $String$cmp$fin$(_t_1, _t2_0, ($Char$cmp$(_h_1, _h2_0)));
+    }
   }
-}
-
-function $String$cmp$fin$(_t1_0, _t2_0, _hc_0) {
-  const _t_0 = _hc_0["fst"];
-  const _h1b_0 = _t_0["fst"];
-  const _h2b_0 = _t_0["snd"];
-  const _t_1 = _hc_0["snd"];
-  if (_t_1.$ === "LT") {
-    return {$: "Tuple", "fst": {$: "Tuple", "fst": (_h1b_0 + _t1_0), "snd": (_h2b_0 + _t2_0)}, "snd": {$: "LT"}};
-  } else if (_t_1.$ === "EQ") {
-    return $String$cmp$rec$(_h1b_0, _h2b_0, ($String$cmp$(_t1_0, _t2_0)));
-  } else {
-    return {$: "Tuple", "fst": {$: "Tuple", "fst": (_h1b_0 + _t1_0), "snd": (_h2b_0 + _t2_0)}, "snd": {$: "GT"}};
-  }
-}
-
-function $Char$cmp$(_a_0, _b_0) {
-  const _x_0 = _a_0.codePointAt(0);
-  const _y_0 = _b_0.codePointAt(0);
-  return {$: "Tuple", "fst": {$: "Tuple", "fst": char_new(_x_0), "snd": char_new(_y_0)}, "snd": cmp_new(_x_0, _y_0)};
 }
 
 function $Nat$show$go$($0, $1, $2) {
@@ -3725,12 +3697,24 @@ function $U32$show$go$($0, $1, $2, $3) {
   }
 }
 
-function $String$cmp$rec$(_h1b_0, _h2b_0, _rr_0) {
-  const _t_0 = _rr_0["fst"];
-  const _t1b_0 = _t_0["fst"];
-  const _t2b_0 = _t_0["snd"];
-  const _r_0 = _rr_0["snd"];
-  return {$: "Tuple", "fst": {$: "Tuple", "fst": (_h1b_0 + _t1b_0), "snd": (_h2b_0 + _t2b_0)}, "snd": _r_0};
+function $String$cmp$fin$(_t1_0, _t2_0, _hc_0) {
+  const _t_0 = _hc_0["fst"];
+  const _h1b_0 = _t_0["fst"];
+  const _h2b_0 = _t_0["snd"];
+  const _t_1 = _hc_0["snd"];
+  if (_t_1.$ === "LT") {
+    return {$: "Tuple", "fst": {$: "Tuple", "fst": (_h1b_0 + _t1_0), "snd": (_h2b_0 + _t2_0)}, "snd": {$: "LT"}};
+  } else if (_t_1.$ === "EQ") {
+    return $String$cmp$rec$(_h1b_0, _h2b_0, ($String$cmp$(_t1_0, _t2_0)));
+  } else {
+    return {$: "Tuple", "fst": {$: "Tuple", "fst": (_h1b_0 + _t1_0), "snd": (_h2b_0 + _t2_0)}, "snd": {$: "GT"}};
+  }
+}
+
+function $Char$cmp$(_a_0, _b_0) {
+  const _x_0 = _a_0.codePointAt(0);
+  const _x_1 = _b_0.codePointAt(0);
+  return {$: "Tuple", "fst": {$: "Tuple", "fst": _a_0, "snd": _b_0}, "snd": cmp_new(_x_0, _x_1)};
 }
 
 function $U32$show$fin$($0, $1, $2, $3) {
@@ -3767,6 +3751,14 @@ function $U32$show$fin$($0, $1, $2, $3) {
       }
     }
   }
+}
+
+function $String$cmp$rec$(_h1b_0, _h2b_0, _rr_0) {
+  const _t_0 = _rr_0["fst"];
+  const _t1b_0 = _t_0["fst"];
+  const _t2b_0 = _t_0["snd"];
+  const _r_0 = _rr_0["snd"];
+  return {$: "Tuple", "fst": {$: "Tuple", "fst": (_h1b_0 + _t1b_0), "snd": (_h2b_0 + _t2b_0)}, "snd": _r_0};
 }
 
 function $0m1(v) {

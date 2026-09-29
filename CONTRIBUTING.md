@@ -197,4 +197,6 @@ commit, the maintainer releases it from a fresh clone of that commit:
 4. Update the documentation, the changelog and its migration notes.
 
 [Issue #29](https://github.com/LucasGois1/bend-trace-context/issues/29)
-records the move from Bend 2.0.27 to 2.0.32.
+records the move from Bend 2.0.27 to 2.0.32, and
+[issue #36](https://github.com/LucasGois1/bend-trace-context/issues/36) the
+move to 2.0.34.

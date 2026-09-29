@@ -2,7 +2,16 @@
 
 ## 0.1.2-dev — unreleased
 
-No change since 0.1.1 yet.
+- Move to Bend 2.0.34 ([#36](https://github.com/LucasGois1/bend-trace-context/issues/36)).
+  `setup-bend.sh` pins its release commit and archives, and
+  `javascript/trace_context.mjs` is its build. Base's `String.eq` now reads
+  `String.order`, and `String.eq.fin` is gone, so the string lemmas of
+  `proofs/strings.bend` read comparisons through a local `eq_of`; no law
+  changes, and the proof check takes under a second. The effects need no
+  change.
+
+**Migration from 0.1.1:** install Bend 2.0.34, as `setup-bend.sh` does. No
+public name or behavior changes.
 
 ## 0.1.1 — 2026-09-29
 

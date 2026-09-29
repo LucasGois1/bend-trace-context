@@ -972,7 +972,7 @@ Errors are handled at three levels:
 
 Support boundaries:
 
-- The supported path is native Bend 2.0.32 on macOS ARM64 and Linux x86_64,
+- The supported path is native Bend 2.0.34 on macOS ARM64 and Linux x86_64,
   with `bend-kit-http` 0.23.0.1. bend-kit's own JavaScript transport, which
   runs on Bun, is not qualified. JavaScript applications on Node use
   the [facade's `node:http` integration](JAVASCRIPT.md#node-http-integration)

@@ -4,7 +4,7 @@
 
 The repository qualifies the HTTP/1.1 client and server of
 [bend-kit](https://github.com/paymog/bend-kit/tree/31912fbd99e9090df43bf2ef70da4340241e9e51/http), version
-0.23.0.1 of `bend-kit-http` on BendHub, on native Bend 2.0.32 for macOS
+0.23.0.1 of `bend-kit-http` on BendHub, on native Bend 2.0.34 for macOS
 ARM64 and Linux x86_64. The programs that use it import it by content hash,
 `0x1cef8a5fb1d9142ca5c6b2cb43629b21`, together with `bend-kit-json` 0.5.0.1,
 `0x584fc27920487ceab242392391418d7f`, the JSON package that it uses, and
