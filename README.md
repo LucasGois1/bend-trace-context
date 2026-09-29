@@ -17,8 +17,9 @@ record spans, such as OpenTelemetry in JavaScript, or log the trace and span
 IDs of a Bend service's operations to correlate its logs.
 
 **Status: 0.1.1**, published on [BendHub](https://hub.bend-lang.com) as
-`bend-trace-context@0.1.1.0` and tagged `v0.1.1`. It needs exactly Bend
-2.0.32. The [changelog](CHANGELOG.md) lists what each release provides.
+`bend-trace-context@0.1.1.0` and tagged `v0.1.1`. `master` needs exactly
+Bend 2.0.34; 0.1.1 was qualified on Bend 2.0.32. The
+[changelog](CHANGELOG.md) lists what each release provides.
 
 ## What it does
 
@@ -47,7 +48,7 @@ minutes.
 
 | Target | Support |
 | --- | --- |
-| Bend compiler | Exactly 2.0.32, which [Install](#install) sets up; other versions are not supported |
+| Bend compiler | Exactly 2.0.34, which [Install](#install) sets up; other versions are not supported |
 | Native Bend | macOS ARM64 and Linux x86_64, with the Clang 14 or later that Bend requires; CI builds with Apple clang 15 and Ubuntu clang 18 |
 | Bend programs compiled to JavaScript | Node 22.18.0 or a later Node 22, and Node 24 |
 | JavaScript applications | Node 22.18.0 or a later Node 22, and Node 24, through the facade, with TypeScript declarations |
@@ -61,8 +62,8 @@ versions.
 
 ## Install
 
-Bend code imports the package from BendHub by its name, with Bend 2.0.32
-installed:
+Bend code imports the package from BendHub by its name, with the Bend that
+the release names installed:
 
 ```bend
 import bend-trace-context@0.1.1.0/trace_context.bend as TC
@@ -87,11 +88,12 @@ git clone --branch v0.1.1 https://github.com/LucasGois1/bend-trace-context.git d
 Record the commit that the tag names, `git -C deps/bend-trace-context
 rev-parse HEAD`, where your project records its dependencies, so that every
 checkout uses the same code. `setup-bend.sh` downloads the official Bend
-2.0.32 release for macOS ARM64 or Linux x86_64, verifies its SHA-256, and
+release that the checkout pins for macOS ARM64 or Linux x86_64, verifies its
+SHA-256, and
 installs it under `deps/bend-trace-context/.tools/`;
 `./deps/bend-trace-context/bend` runs it. It installs no global shell
-configuration. Without a checkout, install Bend 2.0.32 from its
-[release](https://github.com/bendlang/bend/releases/tag/v2.0.32).
+configuration. Without a checkout, install that Bend from its release, such
+as [2.0.32](https://github.com/bendlang/bend/releases/tag/v2.0.32) for 0.1.1.
 
 A JavaScript project installs the facade from the checkout; it needs no Bend
 at run time, and a page needs it only to be bundled:

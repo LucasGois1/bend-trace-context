@@ -260,7 +260,7 @@ that Base's `IO.random_u32` uses: `arc4random_buf` on macOS, which cannot
 fail, and `getrandom` on Linux, which returns its error as `Fail` with the
 `errno` and its `strerror` text. The tests do not induce that native
 failure. Both files register the effect as the pinned compiler's
-[effect guide](https://github.com/bendlang/bend/blob/573002f01ec6c52416d44489543f69a9625facf8/guide/EFFECTS.md)
+[effect guide](https://github.com/bendlang/bend/blob/7d8a3eb036042c6549461054d25a10f26d361c5c/guide/EFFECTS.md)
 describes, with `io_eff(CID(read_u32), ...)`, on runtime interfaces that
 carry no compatibility promise, so a compiler update must requalify them.
 
@@ -269,7 +269,7 @@ as a script in a closure of its own, where ESM declarations are invalid.
 Node and the official browser bundler import that same file, where no
 effect exists to register.
 
-The pinned Base [`random_u32.js`](https://github.com/bendlang/bend/blob/573002f01ec6c52416d44489543f69a9625facf8/bend2/effs/random_u32.js)
+The pinned Base [`random_u32.js`](https://github.com/bendlang/bend/blob/7d8a3eb036042c6549461054d25a10f26d361c5c/bend2/effs/random_u32.js)
 lets WebCrypto exceptions escape instead of returning its declared `Fail`.
 The [reproducer](../../tests/javascript/fixtures/base-entropy.bend) and the
 [tests](../../tests/javascript/entropy.test.mjs) show that behavior
@@ -294,6 +294,28 @@ harness, whose aiohttp version and hashes `tests/propagation/requirements.txt`
 pins. On Linux CI, Playwright uses `install --with-deps` for its system
 libraries. Playwright is locked to `1.63.0` in `package-lock.json`, and its
 browser builds are recorded with each test.
+
+## 2026-09-29 — Bend 2.0.34, macOS ARM64
+
+The move to Bend 2.0.34 ([#36](https://github.com/LucasGois1/bend-trace-context/issues/36))
+ran every repository gate from the repository root, on the same machine and
+versions as the records below.
+
+| Gate | Result |
+| --- | --- |
+| `./scripts/validate.sh native` and `node` | `ALL PROOFS CHECK`, in under a second, where 2.0.32 took minutes; the host operations of `generation.bend`, and only those, rely on foreign code; the static rejections, corpora and examples give their expected outputs |
+| `./scripts/test-installer.sh` | 9 installer cases pass with the 2.0.34 archives |
+| `./scripts/qualify-js.sh node` and `browser` | the committed ES module is the 2.0.34 build; 51 Node tests and 75 browser tests, none failed or skipped |
+| `./scripts/test-consumer.sh native`, `node` and `browser` | every program of the README and the guides, the recipes, the declarations and the pages, from a fresh clone |
+| `./scripts/qualify-native-http.sh` | bend-kit's laws and checks, and 2 transport tests on `bend-kit-http` 0.23.0.1 |
+| `./scripts/qualify-propagation.sh native` and `node` | 13 propagation checks, the gateway check, and the W3C harness: 37, 3 and 1 tests, none failed or skipped |
+| `./scripts/qualify-release.sh candidate` | a clean consumer imports the rehearsed package by its name |
+| `./scripts/check-requirements.sh` | the requirements matrix cites all 115 laws |
+
+Base's `String.eq` now reads `String.order`, and `String.eq.fin` is gone, so
+the string lemmas of `proofs/strings.bend` read comparisons through a local
+`eq_of`; no law changed. The effects and Base's `random_u32.js`, which is
+the same file as in 2.0.32, need no change.
 
 ## 2026-09-29 — Release 0.1.1 candidate, macOS ARM64
 

@@ -810,9 +810,9 @@ and [Log correlation](#log-correlation).
 flag to the children that a service sends, and sets it only where you ask;
 see [Sampling](#sampling).
 
-**Which Bend versions does it support?** Exactly 2.0.32, which
-`setup-bend.sh` installs. Moving to another version needs the package's own
-gates to pass on it first.
+**Which Bend versions does it support?** Exactly one: 2.0.34 on `master`,
+and 2.0.32 for 0.1.1, which `setup-bend.sh` installs. Moving to another
+version needs the package's own gates to pass on it first.
 
 **Can a Bend service and a JavaScript one share traces?** Yes. Both speak
 the W3C fields, and the JavaScript facade runs this same package, so they

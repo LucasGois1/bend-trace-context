@@ -87,8 +87,15 @@ def append_nil(a):
       %append_nil(tail) : {SCon{head, tail ++ ""} == SCon{head, _} : String}
       {==}
 
+# What String.eq reads of a comparison: whether its Cmp is EQ. Base defines
+# String.eq(a, b) as Cmp.is_eq(String.order(a, b)), and String.order as the
+# Cmp of String.cmp, so String.eq(a, b) is eq_of(String.cmp(a, b)) by
+# computation.
+def eq_of(r: (String & String) & Cmp) -> Bool:
+  Cmp.is_eq(Pair.snd(String & String, Cmp, r))
+
 # Putting two characters back in front of a comparison (String.cmp.rec)
-# keeps the equality it reports: String.eq.fin reads only the Cmp, which
+# keeps the equality it reports: eq_of reads only the Cmp, which
 # String.cmp.rec passes on. When the first characters compare EQ, String.cmp
 # continues this way, so comparing the rests decides the comparison of the
 # whole strings. By computation, once `rest` is split into its parts. Used
@@ -97,7 +104,7 @@ law compare_rest:
   for -first: Char
   for -second: Char
   for rest: (String & String) & Cmp
-  {String.eq.fin(String.cmp.rec(first, second, rest)) == String.eq.fin(rest) : Bool}
+  {eq_of(String.cmp.rec(first, second, rest)) == eq_of(rest) : Bool}
 
 def compare_rest(first, second, rest):
   match rest:
@@ -120,10 +127,10 @@ def eq_refl(text):
       {==}
     case SCon{Chr{U32{+code}}, +tail}:
       %Equal.sym(Cmp, Word.cmp(32n, code, code), EQ{}, CharsProof.word_cmp_refl(32n, code)) :
-        {String.eq.fin(String.cmp.fin(tail, tail, ((Chr{U32{code}}, Chr{U32{code}}), _))) == True{} : Bool}
+        {eq_of(String.cmp.fin(tail, tail, ((Chr{U32{code}}, Chr{U32{code}}), _))) == True{} : Bool}
       Equal.trans(Bool,
-        String.eq.fin(String.cmp.rec(Chr{U32{code}}, Chr{U32{code}}, String.cmp(tail, tail))),
-        String.eq.fin(String.cmp(tail, tail)), True{},
+        eq_of(String.cmp.rec(Chr{U32{code}}, Chr{U32{code}}, String.cmp(tail, tail))),
+        eq_of(String.cmp(tail, tail)), True{},
         compare_rest(Chr{U32{code}}, Chr{U32{code}}, String.cmp(tail, tail)), eq_refl(tail))
 
 # When String.eq(a, b) is False, a and b are different strings.
@@ -196,7 +203,7 @@ law eq_char_step:
   for char_view: CharsProof.WordView(32n, wx, wy, result)
   for tail_view: EqView(left, right, String.eq(left, right))
   EqView(SCon{Chr{U32{wx}}, left}, SCon{Chr{U32{wy}}, right},
-    String.eq.fin(String.cmp.fin(left, right, ((Chr{U32{wx}}, Chr{U32{wy}}), result))))
+    eq_of(String.cmp.fin(left, right, ((Chr{U32{wx}}, Chr{U32{wy}}), result))))
 
 def eq_char_step(wx, wy, left, right, result, char_view, tail_view):
   match result:
@@ -204,8 +211,8 @@ def eq_char_step(wx, wy, left, right, result, char_view, tail_view):
       Unit{}
     case EQ{}:
       %Equal.sym(Bool,
-        String.eq.fin(String.cmp.rec(Chr{U32{wx}}, Chr{U32{wy}}, String.cmp(left, right))),
-        String.eq.fin(String.cmp(left, right)),
+        eq_of(String.cmp.rec(Chr{U32{wx}}, Chr{U32{wy}}, String.cmp(left, right))),
+        eq_of(String.cmp(left, right)),
         compare_rest(Chr{U32{wx}}, Chr{U32{wy}}, String.cmp(left, right))) :
         EqView(SCon{Chr{U32{wx}}, left}, SCon{Chr{U32{wy}}, right}, _)
       eq_tail_step(wx, wy, left, right, char_view, String.eq(left, right), tail_view)
@@ -347,7 +354,7 @@ law eq_cons_step:
   for +x: String
   for +y: String
   for result: Cmp
-  {String.eq.fin(String.cmp.fin(x, y, ((Chr{U32{wx}}, Chr{U32{wy}}), result))) ==
+  {eq_of(String.cmp.fin(x, y, ((Chr{U32{wx}}, Chr{U32{wy}}), result))) ==
     Bool.and(Cmp.is_eq(result), String.eq(x, y)) : Bool}
 
 def eq_cons_step(wx, wy, x, y, result):

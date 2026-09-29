@@ -1,0 +1,121 @@
+name: Newest Bend
+
+# Every week, and on demand, the gates on the newest Bend release in place of
+# the pinned one: scripts/try-bend.sh pins it in the runner's checkout only
+# and commits the result there, so every gate runs on it. A failed run means
+# that moving to that release needs work, as CONTRIBUTING's "Moving to a new
+# Bend release" describes; GitHub notifies the maintainer. The workflow is
+# not a required check: CI qualifies the pinned release.
+on:
+  schedule:
+    - cron: '41 7 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native:
+    name: native (${{ matrix.platform }}) on the newest Bend
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux-x86_64
+            runner: ubuntu-24.04
+          - platform: macos-arm64
+            runner: macos-14
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.13'
+      - name: Pin the newest Bend release in this checkout
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: ./scripts/try-bend.sh
+      - name: Installer integrity and destination preservation
+        run: ./scripts/test-installer.sh
+      - name: Proofs, protocol corpus and static rejection gates
+        run: ./scripts/validate.sh native
+      - name: Independent consumer
+        run: ./scripts/test-consumer.sh native "$GITHUB_WORKSPACE" "$(git rev-parse HEAD)"
+      - name: Release artifact, consumed from a local hub
+        run: ./scripts/qualify-release.sh candidate "$(git rev-parse HEAD)"
+      - name: Native HTTP transport on bend-kit
+        run: ./scripts/qualify-native-http.sh
+      - name: Native propagation and W3C harness
+        run: ./scripts/qualify-propagation.sh native "$(git rev-parse HEAD)"
+      - name: Preserve evidence
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: newest-bend-native-${{ matrix.platform }}-${{ github.run_id }}
+          path: |
+            build/validation-native/*.txt
+            build/consumer-native/
+            build/release-candidate/
+            build/native-http/
+            build/propagation-native/
+            build/installer-tests/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  javascript:
+    name: JavaScript on the newest Bend
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.13'
+      - name: Pin the newest Bend release in this checkout
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: ./scripts/try-bend.sh
+      - name: Install locked JavaScript qualification tooling
+        run: npm ci --ignore-scripts
+      - name: Install target browser engines
+        run: npx --no-install playwright install --with-deps chromium firefox webkit
+      - name: JavaScript tests on Node
+        run: ./scripts/qualify-js.sh node
+      - name: Proofs and corpora compiled for Node
+        run: ./scripts/validate.sh node
+      - name: Independent consumer on Node
+        run: ./scripts/test-consumer.sh node "$GITHUB_WORKSPACE" "$(git rev-parse HEAD)"
+      - name: Node propagation and W3C harness
+        run: ./scripts/qualify-propagation.sh node "$(git rev-parse HEAD)"
+      - name: Bundle the browser pages
+        run: npm run build:browser
+      - name: Browser tests
+        run: ./scripts/qualify-js.sh browser
+      - name: Independent browser consumer
+        run: ./scripts/test-consumer.sh browser "$GITHUB_WORKSPACE" "$(git rev-parse HEAD)"
+      - name: Preserve evidence
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: newest-bend-javascript-${{ github.run_id }}
+          path: |
+            build/validation-node/*.txt
+            build/javascript/
+            build/consumer-node/
+            build/consumer-browser/
+            build/propagation-node/
+          if-no-files-found: ignore
+          retention-days: 14
