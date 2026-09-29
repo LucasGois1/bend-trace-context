@@ -79,6 +79,7 @@ Gates:
 | `release:candidate` | `scripts/qualify-release.sh candidate` | `native` |
 | `release:published` | `scripts/qualify-release.sh published`, once a release is published | none: run by the maintainer, reported on the release |
 | `quality` | ShellCheck, actionlint, `node --check`, zizmor, offline lychee, `scripts/check-requirements.sh` | `quality` |
+| `bend:newest` | `scripts/try-bend.sh`, then the gates above on the newest Bend release | `Newest Bend`, weekly; not required |
 
 A `*` stands for every mode of a gate: `validate:*` is `validate:native` and
 `validate:node`, and the same goes for `consumer:*`, `prop:*` and

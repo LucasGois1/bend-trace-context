@@ -112,6 +112,13 @@ actionlint, zizmor, JavaScript syntax checks, a local link check and
 law; a weekly workflow checks external links. A change that adds a law,
 or changes what a requirement rests on, updates the matrix.
 
+The package pins one exact Bend release, and Bend releases often. Every
+week, and on demand, the `Newest Bend` workflow runs the gates on the
+newest Bend release in place of the pinned one: `./scripts/try-bend.sh`
+pins that release in the runner's checkout only and commits the result
+there. It is not a required check. A failed run means that moving to that
+release needs work, and GitHub notifies the maintainer.
+
 ## Laws and proofs
 
 [LAWS.bend](packages/trace-context/LAWS.bend) states the claims, each with a
@@ -191,6 +198,8 @@ commit, the maintainer releases it from a fresh clone of that commit:
    [scripts/setup-bend.sh](scripts/setup-bend.sh); the wrapper and the
    installer tests read the version from there.
 2. Run `./scripts/setup-bend.sh` and `./scripts/build-js.sh`.
+   `./scripts/try-bend.sh X.Y.Z` does both steps from GitHub's release
+   metadata, and commits them locally as a start.
 3. Read the release notes for changes to effects, the proof verdict,
    `Base`, the JavaScript output and the HTTP dependencies, and run every
    gate.

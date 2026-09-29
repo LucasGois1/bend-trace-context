@@ -9,6 +9,11 @@
   `proofs/strings.bend` read comparisons through a local `eq_of`; no law
   changes, and the proof check takes under a second. The effects need no
   change.
+- Run the gates every week on the newest Bend release, in the `Newest Bend`
+  workflow, which is not a required check. `scripts/try-bend.sh` pins a
+  Bend release in a checkout from GitHub's release metadata, installs it,
+  rebuilds the ES module and commits the result locally, so that every gate
+  runs on it. The package still pins one exact release.
 
 **Migration from 0.1.1:** install Bend 2.0.34, as `setup-bend.sh` does. No
 public name or behavior changes.
