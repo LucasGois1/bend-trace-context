@@ -1,6 +1,12 @@
 # Changelog
 
-## 0.1.2-dev — unreleased
+## 0.1.2 — 2026-09-29
+
+A toolchain release: it is qualified on Bend 2.0.34, and its BendHub
+package is 0.1.1's. It is published on BendHub as
+`bend-trace-context@0.1.2.0`, which names the package
+`0x67c024a0cb5f9d3903b7fec903b53e68`, as `@0.1.1.0` does, and tagged
+`v0.1.2`.
 
 - Move to Bend 2.0.34 ([#36](https://github.com/LucasGois1/bend-trace-context/issues/36)).
   `setup-bend.sh` pins its release commit and archives, and
@@ -15,7 +21,8 @@
   rebuilds the ES module and commits the result locally, so that every gate
   runs on it. The package still pins one exact release.
 
-**Migration from 0.1.1:** install Bend 2.0.34, as `setup-bend.sh` does. No
+**Migration from 0.1.1:** install Bend 2.0.34, as `setup-bend.sh` does, and
+import `bend-trace-context@0.1.2.0/`, the same package as `@0.1.1.0/`. No
 public name or behavior changes.
 
 ## 0.1.1 — 2026-09-29
