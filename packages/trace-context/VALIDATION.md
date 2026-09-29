@@ -295,6 +295,14 @@ pins. On Linux CI, Playwright uses `install --with-deps` for its system
 libraries. Playwright is locked to `1.63.0` in `package-lock.json`, and its
 browser builds are recorded with each test.
 
+## 2026-09-29 — Release 0.1.2 candidate, macOS ARM64
+
+0.1.2 is the move to Bend 2.0.34 below, released. On the same machine and
+versions, `./scripts/qualify-release.sh candidate` gave the package
+`0x67c024a0cb5f9d3903b7fec903b53e68`, the package of 0.1.1, since no file of
+the package changed; the name belongs to LucasGois1 on BendHub, and a clean
+consumer imports the package as `bend-trace-context@0.1.2.0`.
+
 ## 2026-09-29 — Bend 2.0.34, macOS ARM64
 
 The move to Bend 2.0.34 ([#36](https://github.com/LucasGois1/bend-trace-context/issues/36))

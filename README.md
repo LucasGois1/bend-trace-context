@@ -16,10 +16,9 @@ nothing and makes no sampling decision of its own: pair it with a tracer to
 record spans, such as OpenTelemetry in JavaScript, or log the trace and span
 IDs of a Bend service's operations to correlate its logs.
 
-**Status: 0.1.1**, published on [BendHub](https://hub.bend-lang.com) as
-`bend-trace-context@0.1.1.0` and tagged `v0.1.1`. `master` needs exactly
-Bend 2.0.34; 0.1.1 was qualified on Bend 2.0.32. The
-[changelog](CHANGELOG.md) lists what each release provides.
+**Status: 0.1.2**, published on [BendHub](https://hub.bend-lang.com) as
+`bend-trace-context@0.1.2.0` and tagged `v0.1.2`. It needs exactly Bend
+2.0.34. The [changelog](CHANGELOG.md) lists what each release provides.
 
 ## What it does
 
@@ -66,9 +65,9 @@ Bend code imports the package from BendHub by its name, with the Bend that
 the release names installed:
 
 ```bend
-import bend-trace-context@0.1.1.0/trace_context.bend as TC
-import bend-trace-context@0.1.1.0/generation.bend as Generate
-import bend-trace-context@0.1.1.0/native_http.bend as NativeHttp
+import bend-trace-context@0.1.2.0/trace_context.bend as TC
+import bend-trace-context@0.1.2.0/generation.bend as Generate
+import bend-trace-context@0.1.2.0/native_http.bend as NativeHttp
 ```
 
 The first build fetches the package, checks each file against its hash, and
@@ -81,7 +80,7 @@ and holds the paths that the quick starts and the guides import:
 
 ```sh
 mkdir -p deps
-git clone --branch v0.1.1 https://github.com/LucasGois1/bend-trace-context.git deps/bend-trace-context
+git clone --branch v0.1.2 https://github.com/LucasGois1/bend-trace-context.git deps/bend-trace-context
 ./deps/bend-trace-context/scripts/setup-bend.sh
 ```
 
@@ -93,7 +92,7 @@ SHA-256, and
 installs it under `deps/bend-trace-context/.tools/`;
 `./deps/bend-trace-context/bend` runs it. It installs no global shell
 configuration. Without a checkout, install that Bend from its release, such
-as [2.0.32](https://github.com/bendlang/bend/releases/tag/v2.0.32) for 0.1.1.
+as [2.0.34](https://github.com/bendlang/bend/releases/tag/v2.0.34) for 0.1.2.
 
 A JavaScript project installs the facade from the checkout; it needs no Bend
 at run time, and a page needs it only to be bundled:
@@ -105,7 +104,7 @@ npm install ./deps/bend-trace-context/packages/trace-context
 The quick starts and the guides import the package from the checkout, as
 `./deps/bend-trace-context/packages/trace-context/trace_context.bend`. With
 the package from BendHub, replace that prefix with
-`bend-trace-context@0.1.1.0/`. The tests run the quick start and the
+`bend-trace-context@0.1.2.0/`. The tests run the quick start and the
 guide's programs both ways, and compile the guide's HTTP service from
 BendHub.
 

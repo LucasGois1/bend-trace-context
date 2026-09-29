@@ -201,7 +201,7 @@ Each recipe is a complete program. Put the package in your project as the
 and run a recipe with `./deps/bend-trace-context/bend recipe.bend`, or
 build it with `-o recipe` for a native binary. To import the package from
 BendHub instead, replace `./deps/bend-trace-context/packages/trace-context/`
-in the imports with `bend-trace-context@0.1.1.0/`. The recipes with new IDs
+in the imports with `bend-trace-context@0.1.2.0/`. The recipes with new IDs
 print only what does not change from run to run, apart from the span IDs of
 log fields; each shows its output.
 
@@ -810,9 +810,9 @@ and [Log correlation](#log-correlation).
 flag to the children that a service sends, and sets it only where you ask;
 see [Sampling](#sampling).
 
-**Which Bend versions does it support?** Exactly one: 2.0.34 on `master`,
-and 2.0.32 for 0.1.1, which `setup-bend.sh` installs. Moving to another
-version needs the package's own gates to pass on it first.
+**Which Bend versions does it support?** Exactly one, 2.0.34, which
+`setup-bend.sh` installs; releases before 0.1.2 used 2.0.32. Moving to
+another version needs the package's own gates to pass on it first.
 
 **Can a Bend service and a JavaScript one share traces?** Yes. Both speak
 the W3C fields, and the JavaScript facade runs this same package, so they
