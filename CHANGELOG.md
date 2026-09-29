@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.2-dev — unreleased
+
+No change since 0.1.1 yet.
+
 ## 0.1.1 — 2026-09-29
 
 A packaging release: its code is 0.1.0's, and it gives the BendHub package
