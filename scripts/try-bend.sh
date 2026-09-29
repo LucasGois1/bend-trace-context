@@ -5,8 +5,9 @@
 # release metadata; installs it, which verifies the archive; rebuilds the ES
 # module with it; and commits the result locally. Every gate tests a commit,
 # so each then runs on that release. Nothing is pushed. Without an argument,
-# it tries the newest release of bendlang/bend. GITHUB_TOKEN, when set,
-# authenticates the metadata requests.
+# it tries the newest release of bendlang/bend; when that is the pinned
+# release, it only installs it. GITHUB_TOKEN, when set, authenticates the
+# metadata requests.
 set -eu
 
 repo_dir=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
@@ -58,7 +59,9 @@ node -e '
 read -r version commit darwin linux < "$work_dir/release"
 pinned=$(sed -n 's/^version=//p' "$pin")
 if [ "$version" = "$pinned" ]; then
+  # The gates then run on the pinned release, which must be installed too.
   echo "Bend $version is the pinned release already."
+  "$repo_dir/scripts/setup-bend.sh"
   exit 0
 fi
 
