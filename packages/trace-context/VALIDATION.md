@@ -295,6 +295,17 @@ pins. On Linux CI, Playwright uses `install --with-deps` for its system
 libraries. Playwright is locked to `1.63.0` in `package-lock.json`, and its
 browser builds are recorded with each test.
 
+## 2026-09-29 — Release 0.1.1 candidate, macOS ARM64
+
+0.1.1 changes only comments of the package and documentation, so the gates
+of 0.1.0 below apply to its code. On the same machine and versions,
+`./scripts/qualify-release.sh candidate` gave the package
+`0x67c024a0cb5f9d3903b7fec903b53e68`, 9 files and 174676 bytes under the
+MIT license, described by the first line of `entropy.bend`; the name belongs
+to LucasGois1 on BendHub, and a clean consumer imports the package as
+`bend-trace-context@0.1.1.0`. The consumer gates and
+`./scripts/check-requirements.sh` passed as well.
+
 ## 2026-09-28 — Release 0.1.0 candidate, macOS ARM64
 
 The release candidate ran every repository gate from the repository root,

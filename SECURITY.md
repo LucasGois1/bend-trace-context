@@ -2,8 +2,8 @@
 
 ## Supported versions
 
-Security fixes land on `master` and in the next release. 0.1.0, the first
-release, is the supported one until then.
+Security fixes land on `master` and in the next release. The latest
+release is the supported one until then.
 
 ## Reporting a vulnerability
 
