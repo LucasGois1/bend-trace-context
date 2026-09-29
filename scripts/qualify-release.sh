@@ -127,11 +127,13 @@ while read -r path; do
     cmp -s "$package/$path" "$published/$path" || fail "$path differs from the commit's."
   fi
 done < "$evidence_dir/files.txt"
-# BendHub describes a package by the first line of its entry.
-description=$(sed -n '1s/^# //p' "$published/generation.bend")
+# BendHub describes a package by the first line of its first .bend file,
+# in the order of its manifest.
+described=$(grep '\.bend$' "$evidence_dir/files.txt" | sed -n 1p)
+description=$(sed -n '1s/^# //p' "$published/$described")
 case "$description" in
   *'Source: https://github.com/LucasGois1/bend-trace-context') ;;
-  *) fail "The first line of generation.bend is not the package's description with its source." ;;
+  *) fail "The first line of $described is not the package's description with its source." ;;
 esac
 echo "PASS: the package holds exactly the commit's modules, effects and MIT license, and its description"
 

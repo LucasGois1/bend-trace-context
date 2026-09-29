@@ -1,5 +1,10 @@
+# W3C Trace Context Level 2 propagation, with its rules proved as laws. Source: https://github.com/LucasGois1/bend-trace-context
+#
 # Host entropy
 # ============
+#
+# The first line is the package's description on BendHub, which describes a
+# package by the first line of its first .bend file in path order: this one.
 #
 # The package's only host binding for randomness: entropy/native.c natively and
 # entropy/webcrypto.js in JavaScript. generation.bend reads source words from
