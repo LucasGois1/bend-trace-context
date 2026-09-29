@@ -1,6 +1,6 @@
 {
   "name": "bend-trace-context",
-  "version": "0.1.1-dev",
+  "version": "0.1.1",
   "description": "W3C Trace Context for Bend, with a JavaScript facade for Node and browser pages",
   "license": "MIT",
   "private": true,

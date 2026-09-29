@@ -1,6 +1,10 @@
 # Changelog
 
-## 0.1.1-dev — unreleased
+## 0.1.1 — 2026-09-29
+
+A packaging release: its code is 0.1.0's, and it gives the BendHub package
+its description. It is published on BendHub as `bend-trace-context@0.1.1.0`,
+the package `0x67c024a0cb5f9d3903b7fec903b53e68`, and tagged `v0.1.1`.
 
 - Describe the BendHub package by the first line of `entropy.bend`. BendHub
   shows the first line of a package's first `.bend` file in path order, not
@@ -325,6 +329,10 @@ also holds the JavaScript facade.
 
 The specification of 0.1.0 is
 [issue #1](https://github.com/LucasGois1/bend-trace-context/issues/1).
+
+**Migration from 0.1.0:** import `bend-trace-context@0.1.1.0/` in place of
+`bend-trace-context@0.1.0.0/`, or pin the tag `v0.1.1`; the code is the
+same.
 
 **Migration from a 0.1.0-dev commit:** pin the tag `v0.1.0`, or import the
 package from BendHub, with `bend-trace-context@0.1.0.0/` in place of the
