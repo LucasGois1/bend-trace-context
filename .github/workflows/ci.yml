@@ -35,6 +35,8 @@ jobs:
           while IFS= read -r -d '' file; do
             node --check "$file"
           done < <(git ls-files -z -- '*.js' '*.mjs')
+      - name: Check that the requirements matrix cites every law
+        run: ./scripts/check-requirements.sh
       - name: Check workflow security
         uses: zizmorcore/zizmor-action@cc914d7f3750a2d13d75c7f184a1060aa0e9d482 # v0.6.4
         with:
@@ -96,6 +98,8 @@ jobs:
         run: ./scripts/validate.sh native
       - name: Independent consumer from this exact commit
         run: ./scripts/test-consumer.sh native "$GITHUB_WORKSPACE" "$(git rev-parse HEAD)"
+      - name: Release artifact of this exact commit, consumed from a local hub
+        run: ./scripts/qualify-release.sh candidate "$(git rev-parse HEAD)"
       - name: Preserve validation evidence
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -104,6 +108,7 @@ jobs:
           path: |
             build/validation-native/*.txt
             build/consumer-native/
+            build/release-candidate/
             build/installer-tests/
           if-no-files-found: error
           retention-days: 14
@@ -204,7 +209,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node: ['22', '24']
+        # The lowest release of each line that the package declares, and
+        # the current one.
+        node: ['22.18.0', '22', '24.0.0', '24']
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:

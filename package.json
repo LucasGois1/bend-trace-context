@@ -6,6 +6,7 @@
   },
   "devDependencies": {
     "@opentelemetry/api": "1.9.1",
+    "@opentelemetry/core": "2.11.0",
     "@playwright/test": "1.63.0",
     "bend-trace-context": "file:packages/trace-context",
     "express": "5.2.1",

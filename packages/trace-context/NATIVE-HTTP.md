@@ -33,7 +33,7 @@ C backend directly and makes no Node.js transport claim. Node 24 is used only
 as an independent local HTTP observer and raw-socket test driver.
 
 Install the pinned compiler, then run the qualification on macOS ARM64 or
-Linux x86_64 (Clang 14+ and Node 24 required):
+Linux x86_64 (Clang 14 or later, as Bend requires, and Node 24):
 
 ```sh
 ./scripts/setup-bend.sh

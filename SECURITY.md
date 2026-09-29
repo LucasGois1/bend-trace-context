@@ -2,8 +2,8 @@
 
 ## Supported versions
 
-bend-trace-context has not been released yet. Until 0.1.0 is released,
-security fixes land on `master`; after it, on the latest release.
+Security fixes land on `master` and in the next release. 0.1.0, the first
+release, is the supported one until then.
 
 ## Reporting a vulnerability
 

@@ -96,10 +96,12 @@ the [JavaScript facade](JAVASCRIPT.md) into a Node service and runs them over
 - the gateway example.
 
 In both modes it then runs the W3C harness at commit `acab820` with
-`SPEC_LEVEL=2` and `STRICT_LEVEL=2`: `TraceContextTest`, `AdvancedTest` and
-`TraceContext2Test`, 41 tests, of which none may fail, error or be
-skipped. Passing this finite harness shows interoperability in the scenarios
-it runs, not conformance to the whole W3C publication.
+`SPEC_LEVEL=2` and `STRICT_LEVEL=2`: 41 tests, 37 of `TraceContextTest`, 3 of
+`AdvancedTest` and 1 of `TraceContext2Test`, of which none may fail, error or
+be skipped. They found no disagreement with
+[spec #1](https://github.com/LucasGois1/bend-trace-context/issues/1).
+Passing this finite harness shows interoperability in the scenarios it runs,
+not conformance to the whole W3C publication.
 
 The [generation corpus](tests/GENERATION.bend) replays tapes through the public
 operations: conversion vectors in decimal for the W3C example words, the digit
@@ -118,6 +120,24 @@ and runs the facade's generations on deterministic sources, counting the
 words they read, and on actual WebCrypto exceptions.
 [CONTRIBUTING.md](../../CONTRIBUTING.md#gates) describes the commands that
 run them, and the separate clean consumer.
+
+The [release qualification](../../scripts/qualify-release.sh) rehearses a
+release on a local hub, [`tests/release/hub.mjs`](../../tests/release/hub.mjs),
+which answers the requests of publishing, naming and loading a package as
+BendHub does, with a proof of work that any nonce meets and a login that
+any key makes. The pinned compiler's `--publish` publishes the package of a
+fresh clone there. The package must hold exactly the public modules, their
+internal modules and effects, and the MIT license with its SPDX identifier,
+each file equal to the commit's, and the first line of its entry must be
+its description. The name must be free on BendHub, or belong to the
+repository's owner. `bend link` then names the package, and a clean
+consumer, which holds no source of the package, imports it by its name: the
+README's quick start directly, natively and on Node, the guide's programs,
+a program of the native HTTP adapter,
+[`tests/release/adapter.bend`](../../tests/release/adapter.bend), and the
+guide's HTTP service, compiled with bend-kit from BendHub. After a
+publication, the same script requires BendHub to name exactly that package,
+owned by the repository's owner, and runs the consumer against BendHub.
 
 ## JavaScript
 
@@ -152,6 +172,11 @@ qualify it, its WebCrypto source and Bend programs compiled to JavaScript.
 - `tests/javascript/exports.test.mjs` requires each entry's declaration file
   to declare exactly the functions and classes that the entry exports, and
   each handle to have exactly the properties that its declaration lists.
+- `tests/javascript/opentelemetry.test.mjs` runs OpenTelemetry's W3C
+  propagator, `@opentelemetry/core` 2.11.0, an independent implementation of
+  the same fields: it extracts the children that the package sends, with
+  their tracestate; the package extracts what it injects; and both refuse
+  the same invalid values.
 - `tests/browser/fetch.spec.mjs` runs the bundled Fetch page in each engine.
   The page's server renders its context as `<meta>` elements, and an
   independent observer on another origin records header lines and
@@ -205,8 +230,8 @@ qualify it, its WebCrypto source and Bend programs compiled to JavaScript.
   an application would, and runs the propagation checks, the gateway example
   and the W3C harness, as for native services above.
 
-CI runs the Node checks on Node 22 and 24, and the browser checks in the
-three engines. Diagnostics, exact package, compiler and host versions, TAP
+CI runs the Node checks on Node 22.18.0, the current Node 22, 24.0.0 and the
+current Node 24, and the browser checks in the three engines. Diagnostics, exact package, compiler and host versions, TAP
 results, browser JSON results and failure traces are kept under
 `build/javascript/`, and CI keeps them for 14 days. Random smoke checks
 establish only execution and the returned range, not uniqueness or
@@ -269,6 +294,38 @@ harness, whose aiohttp version and hashes `tests/propagation/requirements.txt`
 pins. On Linux CI, Playwright uses `install --with-deps` for its system
 libraries. Playwright is locked to `1.63.0` in `package-lock.json`, and its
 browser builds are recorded with each test.
+
+## 2026-09-28 — Release 0.1.0 candidate, macOS ARM64
+
+The release candidate ran every repository gate from the repository root,
+on macOS 26.7 ARM64 with Apple clang 21, Node 24.16.0, Python 3.14.7,
+Playwright 1.63.0 and TypeScript 5.9.3 and 7.0.2, and the Node gates on
+Node 22.18.0 and 24.0.0 as well.
+
+| Gate | Result |
+| --- | --- |
+| `./scripts/validate.sh native` and `node` | `ALL PROOFS CHECK`; the host operations of `generation.bend`, and only those, rely on foreign code; the static rejections, corpora and examples give their expected outputs |
+| `./scripts/qualify-js.sh node` and `browser` | the committed ES module is the pinned compiler's build; 51 Node tests and 75 browser tests, none failed or skipped |
+| `./scripts/test-consumer.sh native`, `node` and `browser` | every program of the README and the guides, 9 recipe tests, the declarations with both TypeScript versions, and the pages in the three engines, from a fresh clone |
+| `./scripts/qualify-native-http.sh` | 2 transport tests on `bend-kit-http` 0.23.0.1 |
+| `./scripts/qualify-propagation.sh native` and `node` | 13 propagation checks, the gateway check, and the W3C harness: 37, 3 and 1 tests, none failed or skipped |
+| `./scripts/qualify-release.sh candidate` | the package `0xb6eebf6253ee268a21f3e308b12cacba`, 9 files and 174659 bytes under the MIT license; the name free on BendHub; a clean consumer that imports it as `bend-trace-context@0.1.0.0` |
+| `./scripts/check-requirements.sh` | the requirements matrix cites all 115 laws |
+
+## 2026-09-28 — CI at `3e93771`
+
+The CI run of the documentation's merge commit,
+[36496372960](https://github.com/LucasGois1/bend-trace-context/actions/runs/36496372960),
+passed every job with these versions:
+
+| Job | Versions |
+| --- | --- |
+| `native (linux-x86_64)` | Ubuntu 24.04.5 LTS, Ubuntu clang 18.1.3, Bend 2.0.32 (`573002f`) |
+| `native (macos-arm64)` | macOS 14.8.9, Apple clang 15.0.0, Bend 2.0.32 |
+| `native HTTP` | `bend-kit-http` `0x1cef8a5fb1d9142ca5c6b2cb43629b21` on both platforms |
+| `native propagation` | the harness at `acab820`, Python 3.13.15, an observer on Node 24.21.0 (Linux) and 24.20.0 (macOS) |
+| `node (22)` and `node (24)` | Node 22.23.2 and 24.21.0 on Ubuntu 24.04.5 LTS |
+| `browser` | Node 24.21.0, Playwright 1.63.0: Chrome for Testing 153.0.8010.12, Firefox 155.0, WebKit 26.6 |
 
 ## 2026-09-28 — User documentation, macOS ARM64
 

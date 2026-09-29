@@ -22,8 +22,10 @@ to run its gates; the [README](README.md) and the
 ## Setting up
 
 You need Git, a POSIX shell, curl, tar, a SHA-256 utility, Clang 14 or later
-for native builds, Node 22 or 24, and Python 3.13 for the W3C harness. The
-compiler installer supports macOS ARM64 and Linux x86_64.
+for native builds, as Bend requires (CI builds with Apple clang 15 and
+Ubuntu clang 18), Node 22.18.0 or a later Node 22, or Node 24, and Python
+3.13 for the W3C harness. The compiler installer supports macOS ARM64 and
+Linux x86_64.
 
 ```sh
 ./scripts/setup-bend.sh
@@ -69,6 +71,8 @@ npm run build:browser
 ./scripts/qualify-native-http.sh
 ./scripts/qualify-propagation.sh native
 ./scripts/qualify-propagation.sh node
+./scripts/qualify-release.sh candidate
+./scripts/check-requirements.sh
 ```
 
 - `validate.sh` requires `ALL PROOFS CHECK` from `PROOF.bend`, pins the host
@@ -93,11 +97,20 @@ npm run build:browser
   fresh clone, runs the propagation checks against an independent observer,
   and runs the W3C Trace Context harness at Level 2, natively on bend-kit or
   in Node on the facade.
+- `qualify-release.sh candidate` publishes a fresh clone's BendHub package
+  to a local hub with the pinned compiler's `--publish`, requires exactly
+  the package's modules, effects and MIT license in it, and runs a clean
+  consumer that imports it by its name. Its report,
+  `build/release-candidate/artifact.txt`, lists what a publication would
+  send.
 
 Evidence goes under `build/`. CI keeps it for 14 days, including after a
 failure, and records every runtime version. CI also runs ShellCheck,
-actionlint, zizmor, JavaScript syntax checks and a local link check; a
-weekly workflow checks external links.
+actionlint, zizmor, JavaScript syntax checks, a local link check and
+`./scripts/check-requirements.sh`, which requires the
+[requirements matrix](packages/trace-context/REQUIREMENTS.md) to cite every
+law; a weekly workflow checks external links. A change that adds a law,
+or changes what a requirement rests on, updates the matrix.
 
 ## Laws and proofs
 
@@ -137,6 +150,40 @@ the Bend sources, rebuild it and commit the result:
 `./scripts/build-js.sh --check` fails when the committed file is not the
 build. The declarations in `javascript/*.d.mts` must declare exactly what
 each entry exports, which a test checks.
+
+## Releasing
+
+A release is a pull request that sets `VERSION`, the JavaScript package's
+version and a dated changelog section, which names the package's hash from
+`qualify-release.sh candidate`. Once its CI passes and the maintainer has
+reviewed the concrete artifact, `build/release-candidate/artifact.txt` of its
+commit, the maintainer releases it from a fresh clone of that commit:
+
+1. `./scripts/setup-bend.sh`, then `./bend login`, which authorizes this
+   machine in the browser for the BendHub account that owns the name.
+2. Publish the package without a name, and check that the hash it prints is
+   the reviewed one:
+
+   ```sh
+   ./bend packages/trace-context/generation.bend --publish
+   ```
+
+   A publication is public and permanent, under
+   [BendHub's terms](https://bend-lang.com/bender/terms#s18).
+3. Name that package, `./bend link bend-trace-context@X.Y.Z.0 0x<hash>`,
+   which also registers the name the first time.
+4. `./scripts/qualify-release.sh published <commit>`: BendHub must name
+   exactly the commit's package, owned by the repository's owner, and a
+   clean consumer runs against BendHub.
+5. Merge the pull request, whose README says that the release is published,
+   now true. Tag the merge commit `vX.Y.Z`, and run
+   `qualify-release.sh published` on it: its package files are the reviewed
+   commit's, so it names the same package.
+6. Publish a GitHub release for the tag, with the changelog section, the
+   artifact and a link to the CI run of the tag's commit, and report on the
+   release issue the state of the implementation, the proofs, the
+   integrations, CI and the publication, each apart.
+7. Set `VERSION` to the next version with `-dev`.
 
 ## Moving to a new Bend release
 
