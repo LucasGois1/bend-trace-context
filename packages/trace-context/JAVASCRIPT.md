@@ -40,13 +40,12 @@ The [guide](GUIDE.md) explains the ideas behind these operations, and
 
 ## Install and run
 
-An application uses an exact commit of this repository, as the
-[root README](../../README.md#install) shows:
+An application installs the facade from a checkout of the release tag, as
+the [root README](../../README.md#install) shows:
 
 ```sh
 mkdir -p deps
-git clone https://github.com/LucasGois1/bend-trace-context.git deps/bend-trace-context
-git -C deps/bend-trace-context checkout --detach FULL_COMMIT_SHA
+git clone --branch v0.1.0 https://github.com/LucasGois1/bend-trace-context.git deps/bend-trace-context
 npm install ./deps/bend-trace-context/packages/trace-context
 ```
 
@@ -60,9 +59,9 @@ program, and the [recipes](#recipes) are complete services to start from.
 The facade runs on:
 
 - Node 22.18.0 or a later Node 22 release, or Node 24, the range that the
-  package declares. CI qualifies the current patch release of each line and
-  records its exact version; the facade's tests also passed locally on
-  22.17.1, 22.18.0 and 24.0.0, which CI does not run.
+  package declares. CI qualifies 22.18.0 and 24.0.0, the lowest releases of
+  that range, and the current release of each line, and records their exact
+  versions.
 - Browser pages bundled with the official Bend bundler, in the
   [tested engines](#tested-engines).
 

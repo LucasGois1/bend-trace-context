@@ -1,0 +1,255 @@
+# Requirements and evidence
+
+This matrix maps each requirement of the approved specification,
+[issue #1](https://github.com/LucasGois1/bend-trace-context/issues/1), to its
+evidence. Each row takes one user story, the implementation decision that
+governs it, the laws that prove it, the tests that check it and the gates that
+run them. Two more tables cover the six formal proof obligations and the five
+external protocol and release gates. The last section states the limits of
+the evidence: what is tested but not proved, and what depends on the
+environment.
+
+The matrix describes the commit that holds it, release 0.1.0 for the tag
+`v0.1.0`, and `scripts/check-requirements.sh` requires it to cite every law.
+[#29](https://github.com/LucasGois1/bend-trace-context/issues/29) amended spec
+#1: Bend 2.0.32 replaces 2.0.27, `bend-kit-http` 0.23.0.1 replaces
+paymog/bend-net `274591f`, and a committed ES module replaces the official
+loader for the JavaScript facade. The Decision column cites the amendment
+where it applies.
+
+How to read the evidence:
+
+- **Proved.** A `law` in [LAWS.bend](LAWS.bend) holds
+  for every value of its types, under the hypotheses it states.
+  [PROOF.bend](PROOF.bend) proves it with the
+  definition of the same name (`Laws.<name>`), using `proofs/*.bend`.
+  `scripts/validate.sh` requires `ALL PROOFS CHECK`, which Bend prints only
+  when every law is proved and nothing that PROOF.bend imports relies on
+  `@unsafe` or foreign code. The comment of each law gives its requirement
+  and its scope.
+- **Tested.** A case of a corpus, a JavaScript, browser, consumer or
+  propagation test, or a documented program compared with the output that its
+  document shows. A test shows the inputs it runs and nothing more.
+- **Environment** (*env*). The claim depends on the host, not on the package:
+  the entropy source's quality and uniqueness; what Node, browsers or bend-kit
+  do to header fields; the behavior of Base's `Map`; transport limits; runner
+  and toolchain versions. No law covers such a claim. A test shows only the
+  environment it ran in.
+- `none` in the Laws column means that the behavior is not a universal
+  property of the package's Bend code. The cell gives the reason.
+
+Conventions:
+
+- The Bend corpora, `TEST.bend` to `SMOKE.bend`, and `reject/*.bend` are in
+  `packages/trace-context/tests/`. A quoted name after a corpus is either an
+  `OK:` group that it prints (`tests/expected-*.txt`) or a case name from the
+  file.
+- `examples/*.bend` and `examples/gateway.mjs` are in
+  `packages/trace-context/examples/`. `examples/javascript/` is at the
+  repository root.
+- The other test files are in these directories:
+  - `*.test.mjs`: `tests/javascript/`
+  - `*.spec.mjs`: `tests/browser/`
+  - `browser.spec.mjs`, `recipes.mjs`, `facade.mjs` and `main.bend`:
+    `tests/consumer/`
+  - `propagation.mjs` and `gateway.mjs`: `tests/propagation/`
+  - `transport.mjs`: `tests/native/`
+- A doc program, such as `guide-tape`, is a block marked
+  `<!-- test:NAME:start -->` in README.md, GUIDE.md or JAVASCRIPT.md.
+  `scripts/test-consumer.sh` runs it from a fresh clone.
+- Harness test names come from the pinned W3C harness at `acab820`.
+
+Gates:
+
+| Gate | Command | CI job |
+| --- | --- | --- |
+| `validate:native` | `scripts/validate.sh native` | `native` (linux-x86_64, macos-arm64) |
+| `validate:node` | `scripts/validate.sh node` | `node` (22.18.0, 22, 24.0.0, 24) |
+| `installer` | `scripts/test-installer.sh` | `native` |
+| `consumer:native` | `scripts/test-consumer.sh native` | `native` |
+| `consumer:node` | `scripts/test-consumer.sh node` | `node` |
+| `consumer:browser` | `scripts/test-consumer.sh browser` | `browser` |
+| `js:node` | `scripts/qualify-js.sh node`: `build-js.sh --check`, `npm run test:node` | `node` |
+| `js:browser` | `scripts/qualify-js.sh browser`: Playwright, bundle rebuild and relocation | `browser` |
+| `http:native` | `scripts/qualify-native-http.sh` | `native-http` (both platforms) |
+| `prop:native` | `scripts/qualify-propagation.sh native` | `native-propagation` (both platforms) |
+| `prop:node` | `scripts/qualify-propagation.sh node` | `node` |
+| `release:candidate` | `scripts/qualify-release.sh candidate` | `native` |
+| `release:published` | `scripts/qualify-release.sh published`, once a release is published | none: run by the maintainer, reported on the release |
+| `quality` | ShellCheck, actionlint, `node --check`, zizmor, offline lychee, `scripts/check-requirements.sh` | `quality` |
+
+A `*` stands for every mode of a gate: `validate:*` is `validate:native` and
+`validate:node`, and the same goes for `consumer:*`, `prop:*` and
+`release:*`.
+
+The `required-baseline` job needs all six jobs and fails unless each one
+succeeds. GitHub branch protection on `master` requires the `required
+baseline` check, with strict status checks and administrators included. This
+was read from the GitHub API on 2026-09-28.
+
+## Installation and adoption
+
+| # | Decision | Laws | Tests | Gate |
+| --- | --- | --- | --- | --- |
+| 1 Pinned install in a separate project | A clean consumer installs a pinned artifact and runs examples without copying source. The install identity is the release's BendHub name, `bend-trace-context@0.1.0.0`, or the tag's commit (CHANGELOG "Versioning and compatibility"). | none: distribution | `scripts/test-consumer.sh` makes a fresh `git clone --no-local` at the exact SHA and requires no `.tools` in it. `main.bend` imports `./deps/bend-trace-context/...`, and its output must equal `tests/consumer/expected.txt`. `npm install` of `packages/trace-context` serves `facade.mjs` and `tests/consumer/browser/`. `scripts/qualify-release.sh` publishes the BendHub package of a fresh clone to a local hub (`tests/release/hub.mjs`) with the compiler's `--publish`, names it with `bend link`, and a consumer that holds no source imports it by its name. | `consumer:*`, `release:*` |
+| 2 Getting-started example | Getting started and complete lifecycle examples, in English. | none: documentation | doc programs `readme-bend`, `readme-javascript`, `readme-page` + `readme-page-html`, each compared with its `-output` block; `examples/demo.bend` vs `tests/expected-demo.txt` | `consumer:native`, `consumer:node`, `consumer:browser`; `validate:native`, `validate:node` |
+| 34 Linux and macOS | Support row 1: native core, generation and reference HTTP on macOS ARM64 and Linux x86_64. Qualified by an independent consumer, the protocol corpus, controlled and real sources, and receive-to-send HTTP. Amended by #29: Bend 2.0.32, `bend-kit-http` 0.23.0.1. | none: platform qualification (*env*) | the corpora, run directly and as native builds; SMOKE.bend and the examples as native builds; `main.bend`; `transport.mjs` (2 tests); `propagation.mjs` (13), `gateway.mjs` (1) and the W3C harness (41) against `tests/propagation/service.bend`; the "Verify runner architecture" step of ci.yml | `installer`, `validate:native`, `consumer:native`, `http:native`, `prop:native` (each on both platforms) |
+| 35 Node for compiled programs | Support row 2: Bend programs compiled to JavaScript on Node 22 and 24, with exact versions recorded. CI runs the lowest releases that the facade declares, 22.18.0 and 24.0.0, and the current ones. They keep the same core and generation behavior and the same host failure contract. Bun FFI is not a Node promise. | none: runtime qualification (*env*) | `validate.sh node` compiles every corpus (TEST, GENERATION, SMOKE, TRACESTATE, OUTGOING, EXTRACT, INJECT, CONTINUE, NATIVE-HTTP) and every example except the gateway to JavaScript, runs each on `node` and compares it with the same expected output. `entropy.test.mjs` "a compiled Bend consumer receives the real entropy Result", "generated roots read the WebCrypto boundary and report structured failures". `facade.test.mjs` "the facade reaches no system binding, so it needs no Bun FFI". | `validate:node`, `js:node` |
+| 43 Exact versions recorded | Record the exact compiler, dependency, OS, architecture and runtime versions. Pin Bend 2.0.32 at `573002f` with a SHA-256 per platform (#29). | none: record keeping | `scripts/setup-bend.sh` (`version`, `release_commit`, digests); `test-installer.sh` (9 cases); `package-lock.json` (Playwright 1.63.0, TypeScript 5.9.3 and 7.0.2, Express, Fastify, `@opentelemetry/api` 1.9.1, `@opentelemetry/core` 2.11.0); `tests/propagation/requirements.txt` (hashes); bend-kit imported by content hash (`service.bend`, `examples/gateway.bend`); the `environment.txt` that each gate writes; `runtime.json` for each browser test (`tests/browser/fixtures.mjs`); the local and CI versions that VALIDATION.md records | every gate; CI keeps the artifacts for 14 days |
+| 44 Required CI jobs | Qualification jobs are required for every advertised capability. A dependency's smoke job or badge does not count. | none | `.github/workflows/ci.yml` `required-baseline`; branch protection (see Gates). `http:native` runs bend-kit's own laws and checks as well as the package's transport tests. | `required-baseline` |
+| 45 License, version, changelog, migration | Public name `bend-trace-context`, initial version `0.1.0`, MIT license. A changelog with explicit migration notes; 0.x does not excuse undocumented breaks. | none | `qualify-release.sh`: the BendHub package's `LICENSE` must be the repository's MIT license with its SPDX identifier, and `--publish` must report `License: MIT`; `packages/trace-context/package.json` must declare `VERSION` and MIT; a release must have a dated changelog section that names the package's hash, and the README must import its BendHub name, and the README and JAVASCRIPT.md must install its tag. CHANGELOG.md "Migration from a 0.1.0-dev commit", "Versioning and compatibility" | `release:*` |
+
+## Contexts, generation and flags
+
+| # | Decision | Laws | Tests | Gate |
+| --- | --- | --- | --- | --- |
+| 3 Root with generated IDs | A root gets a new trace ID, then its operation ID, from the cryptographic host source: the package's own entropy effect (#29, decision 3). A default generated root has flags `02`. | `generated_root`, `root_tape`, `root_ends`, `root_exhaustion`, `feed_failure`, `trace_words`, `span_words`, `start_unusable` | GENERATION.bend "generated roots", "a root may read all 48 words"; SMOKE.bend "real-source root, child and restart are well formed" (*env*); `examples/generate.bend` (shape check in validate.sh); `facade.test.mjs` "roots, children and restarts are generated from the source words by the package"; `entropy.test.mjs` "generated roots read the WebCrypto boundary and report structured failures"; `guide-job` | `validate:*`, `js:node`, `consumer:*` |
+| 4 Child context | A child keeps the trace ID and gets a new operation ID. Each outgoing operation gets its own child before injection. | `child`, `child_accepts`, `child_reuse`, `sampling`, `generated_child`, `child_tape`, `child_ends`, `child_exhaustion`, `send_operating` | TEST.bend "children of received contexts", "children of local operations"; GENERATION.bend "generated children"; CONTINUE.bend "each outgoing message gets its own child" (fan-out of three); `propagation.mjs` "each request of a fan-out carries its own child"; `facade.test.mjs` "a traced request is continued and each request sent gets a child of its own" | `validate:*`, `js:node`, `prop:*` |
+| 5 Validated supplied IDs | Validated constructors. Supplied IDs pass the same checks as generated ones, child-ID reuse rejection included. | `trace_id_parse`, `span_id_parse`, `trace_id_accepts`, `span_id_roundtrip`, `assert_random`, `from_ids`, `root`, `child_accepts`, `restart_accepts` | TEST.bend "supplied trace and span IDs", "roots and explicit construction"; `facade.test.mjs` "operations with supplied identifiers are checked by the package"; `main.bend` ("root", "existing sampled operation"); `guide-supplied` | `validate:*`, `consumer:*`, `js:node` |
+| 6 Invalid IDs refused with structured errors | Lowercase hexadecimal, nonzero, exact widths. Dependent digit types make invalid IDs impossible to build. | `trace_id_parse`, `span_id_parse` (an accepted ID is exactly its canonical text), `child_reuse`, `restart_reuse`; error names: none (tested) | TEST.bend has 14 malformed supplied IDs (such as "all-zero trace ID", "uppercase span ID", "leading space in span ID") and 26 malformed traceparent inputs with errors and offsets. `reject/zero_id.bend` and `reject/wrong_length.bend` must fail the checker. `codec.test.mjs` "malformed wire text is rejected by Bend with its public error names"; `facade.test.mjs` "malformed fields and options are refused before any package code runs"; `main.bend` ("rejected: ZeroTraceId", "supplied span rejected: ZeroSpanId") | `validate:*` (static rejections), `js:node`, `consumer:*` |
+| 7 Replaceable identifier source | An explicit caller provider and deterministic sources for tests, with no time or counter fallback. `*_with` operations take a caller's source; JavaScript takes the `crypto` option. | `root_tape`, `child_tape`, `restart_tape`, `generation_drive`, `hosted_service`, `hosted_send`, `http_continue`, `http_send` (each for every tape) | GENERATION.bend and CONTINUE.bend (replayed tapes, with the words left unread); NATIVE-HTTP.bend "the shortcuts are the package's operations on a header map"; `guide-tape`; `facade.test.mjs` "the crypto option takes an object with getRandomValues, or null"; `entropy.test.mjs` "an explicit source receives exactly one fresh word and retains its receiver", "controlled source errors, missing methods and malformed responses stay structured"; host-operation pin `tests/expected-host-defs.txt` | `validate:*`, `js:node`, `consumer:*` |
+| 8 Source failure and exhaustion reported | A source error at any word ends generation at once. `SourceFailure`, `ExhaustedTraceId` and `ExhaustedSpanId` are structured outcomes. Host exceptions are caught at the effect or bridge. | `feed_failure`, `root_exhaustion`, `child_exhaustion`, `root_ends`, `child_ends`, `restart_ends` | GENERATION.bend "eight candidates and no ninth", "source errors end generation at once" (an error in the middle of a candidate; an empty tape); CONTINUE.bend "generation failures under both policies"; `entropy.test.mjs` "actual WebCrypto quota errors become structured source failures", "actual WebCrypto type errors become structured source failures", "unavailable global WebCrypto is a structured result", "the pinned Base effect reproducibly exposes uncaught JS source failures"; `entropy.spec.mjs` "a real WebCrypto ${exception} becomes a structured source failure" | `validate:*`, `js:node`, `js:browser` |
+| 9 Zero and parent-ID reuse refused | At most eight candidates per ID. Zero is refused; so is a child ID equal to the parent's, and a restart trace ID equal to the received one (#5). | `root_exhaustion`, `child_exhaustion` (all-zero candidates), `generated_child`, `generated_restart`, `child_reuse`, `restart_reuse` | GENERATION.bend "big-endian word conversion and zero rejection", "zero candidates are replaced", "a child never reuses the parent span ID", "eight reused or zero span ID candidates", "a restart never reuses the received trace ID"; CONTINUE.bend "eight zero span ID candidates exhaust the child"; `facade.test.mjs` "a root reads at most 48 words and a child 16: seven rejected candidates of each identifier, then the eighth" | `validate:*`, `js:node` |
+| 10 Roots start unsampled | New roots default to sampled `0`. | `root`, `generated_root`, `generated_restart`, `start_unusable`, `restart_usable` | TEST.bend "a root starts unsampled"; GENERATION.bend "a generated root is random and unsampled"; `propagation.mjs` "a request without context starts a random, unsampled trace"; `guide-job` | `validate:*`, `prop:*`, `consumer:*` |
+| 11 Children inherit sampled | Children inherit sampled unless the caller overrides it. A flag is an indication, not proof that spans were recorded. | `sampling`, `child`, `generated_child`, `received_flags`, `continue_usable`, `send_operating` | TEST.bend "a child inherits sampled without random", "a child inherits sampled and random", "all 256 flag bytes: codec, received flags and emitted child flags"; `propagation.mjs` "a sampled 0 request is continued by an unsampled child", "the random-trace-id and sampled flags are kept as received"; `facade.test.mjs` "every flag byte of a received traceparent reaches the facade as the package reads it" | `validate:*`, `prop:*`, `js:node` |
+| 12 Explicit sampled override | An override applies only while a new operation is created (`SetSampled`). Roots and restarts resolve `sampling` over the root default. | `sampling`, `child`, `child_accepts`, `generated_child`, `restart_usable`, `start_unusable` | TEST.bend "a sampling override keeps random", "a sampling override sets sampled", "an override on reserved flags", "a local child with a sampling override"; CONTINUE.bend "a child takes a sampling override", "a restart takes a sampling override"; GENERATION.bend "a generated child keeps the received random bit and takes a sampling override"; `guide-sampled`; `facade.test.mjs` "a request without context starts a trace, and a trust boundary restarts one" | `validate:*`, `consumer:*`, `js:node` |
+| 13 random-trace-id follows the trace ID's origin | A trace ID generated on the cryptographic path asserts random-trace-id. A supplied or parsed ID asserts nothing unless the caller says so. A child keeps its parent's assertion. A generated operation ID never relabels a received trace ID. | `trace_id_parse`, `assert_random`, `words_unasserted`, `generated_root`, `generated_child`, `generated_restart`, `child`, `received_flags`, `emitted_traceparent`, `emitted_projection` | TEST.bend "a parsed trace ID makes no randomness assertion", "a child inherits unsampled with random", the 256-flag-byte group; GENERATION.bend "converting words makes no randomness assertion", "a generated child keeps the received random bit and takes a sampling override"; `propagation.mjs` "the random-trace-id and sampled flags are kept as received"; harness `test_propagates_random_flag` | `validate:*`, `prop:*` |
+| 46 Explicit restart | A restart gives a new trace identity, discards the previous tracestate and applies the root defaults (sampled `0`), unless the caller supplies sampling or state. It never reuses the received trace ID. | `restart`, `restart_reuse`, `restart_accepts`, `restart_tape`, `restart_ends`, `generated_restart`, `restart_usable`, `restart_keeps_nothing` | TEST.bend "explicit restarts"; GENERATION.bend "generated restarts"; CONTINUE.bend "a boundary restarts the trace", "a restarted service takes a new state of its own", "a boundary never forwards the received pair"; `propagation.mjs` "a trust boundary restarts the trace and discards the received state"; `guide-boundary` | `validate:*`, `prop:*`, `consumer:*`, `js:node` |
+
+## Wire values and carriers
+
+| # | Decision | Laws | Tests | Gate |
+| --- | --- | --- | --- | --- |
+| 14 Header names in any case | Header names are compared in ASCII without regard to case, and written in lowercase. | `extract_absent`, `extract_repeated`, `extract_refused`, `extract_read` (LAWS.bend selects the fields by name with `String.to_lower`), `clear_carrier`, `inject_carrier`, `http_send` | EXTRACT.bend "field names and repeated traceparent fields" ("TraceParent", "TRACEPARENT", "tRaCePaReNt", "trace-parent is another field", "a trailing space makes another name"), "a long s does not fold to s"; INJECT.bend "old fields in any case", "names that differ by more than case stay"; `propagation.mjs` "repeated injection into a reused container replaces the old context fields" (`TraceParent:`, `TRACESTATE:`); `fetch.spec.mjs` "meta names are read without regard to ASCII case, and a RegExp allows the URLs it matches"; harness `test_traceparent_header_name`, `test_traceparent_header_name_valid_casing`, `test_tracestate_header_name`, `test_tracestate_header_name_valid_casing` | `validate:*`, `prop:*`, `js:browser` |
+| 15 Repeated traceparent refused | More than one traceparent field is invalid, and so is a value that a host joined with commas. The base is kept and tracestate is not read. | `extract_repeated`, `read_comma` | EXTRACT.bend "two traceparent fields", "two names that differ in case", "two values joined by a host", "repeated fields keep the base"; `node-http.test.mjs` "the raw header lines keep repeated fields, so a repeated traceparent is refused"; `fetch.spec.mjs` "without a rendered context the page starts a trace, and repeated traceparent elements are refused"; harness `test_traceparent_duplicated` | `validate:*`, `js:node`, `js:browser`, `prop:*` |
+| 16 Repeated tracestate combined in order | The carrier keeps multiple values in order. Tracestate fields are combined in arrival order, and the budget counts the joining commas. Adapters keep repeated fields. | `fields_join`, `extract_read`, `first_wins`, `http_carrier`, `http_headers` | TRACESTATE.bend "repeated fields and joining commas"; EXTRACT.bend "three fields in arrival order", "names that differ in case", "values joined by a host"; NATIVE-HTTP.bend "a received header map keeps every value"; `propagation.mjs` "without entropy, the received pair is forwarded unchanged" (two lines, one joined value); `fetch.spec.mjs` "Fetch Headers join repeated values before the page sees them, and extraction reads what remains" (*env*); harness `test_tracestate_multiple_headers_different_keys`, `test_tracestate_empty_header` | `validate:*`, `prop:*`, `js:browser` |
+| 17 Future traceparent versions | Version `ff` is refused. Versions `01` to `fe` are read by their valid known prefix, followed by the end or a dash and opaque fields. Unknown fields are not interpreted. | `read_future`, `read_ff`, `read_v00`, `read_v00_exact`, `read_comma`, `forward_carrier` | EXTRACT.bend "strict version 00, forbidden ff and later versions by their known prefix" ("a future version with fields it does not know", "the lowest future version", "the highest future version", control characters with offsets); INJECT.bend "a later version with unknown fields and every flag bit" (forwarded as it came); harness `test_traceparent_version_0x00`, `test_traceparent_version_0xcc`, `test_traceparent_version_0xff` | `validate:*`, `prop:*` |
+| 18 Strict v00 codec kept | The strict codec accepts exactly v00 and keeps the whole flag byte. Its exact format stays separate from propagation normalization. | `formatted_length`, `roundtrip`, `inverse`; extraction reuses the codec: `read_v00` | TEST.bend "W3C example and reserved flag bits", "lengths, suffixes and version policy", "lowercase ASCII alphabet and character offsets", "separators and nonzero IDs", "all 256 flag bytes: codec, received flags and emitted child flags"; `codec.test.mjs` "inspection preserves reserved flag bits and reports sampled independently"; `codec.spec.mjs` "an application page uses the officially bundled Bend codec"; `examples/demo.bend` | `validate:*`, `js:node`, `js:browser` |
+| 26 Stale context fields replaced | Injection replaces every traceparent and tracestate field, whatever its case. Explicit cleanup serves the no-context path; no nullable injection hides which one happened. | `inject_carrier`, `clear_carrier`, `inject_idempotent`, `http_send`, `send_operating`, `send_untraced` | INJECT.bend "explicit cleanup of context fields", "participant injection" ("a root without state replaces the old fields and omits tracestate"); CONTINUE.bend fan-out into a reused container; NATIVE-HTTP.bend "the shortcuts are the package's operations on a header map"; `propagation.mjs` "repeated injection into a reused container replaces the old context fields", "without entropy or a pair to forward, the old context fields are cleared"; `fetch.spec.mjs` "a same-origin call carries a new child of the page's operation in place of stale fields", "a Request object is sent with its own fields and a new child in place of its stale ones" | `validate:*`, `prop:*`, `js:browser` |
+| 27 Unrelated headers and order kept | Unrelated headers keep their values and relative order. Adapters perform only the host translation they need, and document what the host does. | `clear_carrier`, `inject_carrier`, `forward_carrier`, `inject_idempotent`, `forward_idempotent`, `http_carrier`, `http_headers` (assumes the contract of Base's `Map`) | INJECT.bend "large carriers and values" ("cleanup keeps 100002 other fields", "injection keeps them and adds the traceparent of a context without state"); `propagation.mjs` (`X-Request-Id` kept); `node-http.test.mjs` "ClientRequest headers group each name once, in order, with its first spelling" (*env*); `fetch.spec.mjs` "each engine's order of header lines is recorded; the lines of one name keep their order" (*env*); JAVASCRIPT.md "What browsers do to the fields"; NATIVE-HTTP.md "Transport" | `validate:*`, `js:node`, `js:browser`, `prop:*`, `http:native` |
+| 28 Transparent forwarding | Forwarding keeps the accepted pair's values as they came: no flag normalization, no version downgrade, no tracestate edit or truncation, and no generation. | `forward_carrier`, `forward_extracted`, `forward_idempotent`, `forward_nothing`, `extract_read` (received pair), `received_bounds`, `send_untraced` (reads no word) | INJECT.bend "transparent forwarding" ("version 00 keeps its reserved flag bits", "a tracestate of exactly 512 octets, joining comma included"), "extraction after injection and after forwarding"; CONTINUE.bend "a service without an operation forwards without reading the source"; `fetch.spec.mjs` "a received pair is forwarded intact to another origin"; `facade.test.mjs` "contexts are injected, received pairs forwarded unchanged and context fields cleared"; `guide-relay`; `examples/inject.bend` ("relayed:") | `validate:*`, `js:node`, `js:browser`, `consumer:*` |
+| 29 Diagnostic when forwarding cannot fit | When an intact pair cannot meet the bounds, forwarding returns `ForwardTooLarge` or `NothingToForward` and the caller creates a child. A remote tracestate is never truncated under its unchanged traceparent (the 600-byte case). | `forward_too_large`, `forward_nothing`, `forward_extracted` | INJECT.bend "forwarding diagnostics", "a 600-octet tracestate is not forwarded under the default budget", "a larger output budget forwards the 600-octet tracestate", "a tracestate of 513 octets is not forwarded", "a discarded tracestate leaves nothing to forward"; CONTINUE.bend "a pair too large to send whole is not forwarded"; `examples/inject.bend` ("not forwarded: ForwardTooLarge", "continued instead") | `validate:*` |
+
+## Tracestate
+
+| # | Decision | Laws | Tests | Gate |
+| --- | --- | --- | --- | --- |
+| 19 Look up an entry by key | Entries are queried through validated operations. | `get_entry`, `get_absent`, `key_parse`, `value_parse` | TRACESTATE.bend "parse, query and format"; `examples/tracestate.bend`; `main.bend` ("congo:", "absent: absent") | `validate:*`, `consumer:*` |
+| 20 Insert and update entries | Insert and update move the key to the front and keep the order of the other entries. An update in a full state evicts nothing; a 33rd key removes the last entry. | `set_entries`, `update_keeps_all`, `insert_entries`, `set_get`, `state_valid`, `outgoing_set` | OUTGOING.bend "updates" (full states that evict nothing or exactly the last entry); CONTINUE.bend "a service sets its own entries" ("a continued service sets its own entry first"); `guide-vendor`; `facade.test.mjs` "the state a service sends is edited through validated keys and values" | `validate:*`, `consumer:*`, `js:node` |
+| 21 Remove an entry | Removal goes through validated operations and keeps the other entries in order. | `remove_entries`, `remove_get`, `outgoing_remove` | OUTGOING.bend "updates"; CONTINUE.bend "a continued service removes an entry"; `main.bend` ("without rojo") | `validate:*`, `consumer:*` |
+| 22 Bounded parsing and whole-entry truncation | Members are counted before duplicates are dropped, and a state with more than 32 is refused. Budgets count UTF-8 octets, and reading stops past the budget. The emitted budget is 512 octets by default and at least 512 when configured. While over budget, truncation removes the rightmost entry over 128 octets, otherwise the rightmost entry. It removes whole entries only, stops once the state fits and reports what it dropped. | `over_budget`, `read_over_budget`, `within_budgets`, `full_state`, `entry_size`, `state_size`, `truncate_fits`, `truncate_whole`, `truncate_order`, `truncate_dropped`, `truncate_steps`, `emit_tracestate`, `emit_fits` | TRACESTATE.bend "first entry of a key, validated and counted before duplicates are dropped", "UTF-8 input budget" (1- to 4-octet characters), "the largest valid state" (16447 octets), "bounded reading at and past the default budget" ("a mebibyte is refused without reading past the budget"); OUTGOING.bend "emitted size", "whole-entry truncation to the output budget" (512 and 513 octets, entries of 128 and 129 octets); EXTRACT.bend "optional whitespace and the traceparent and tracestate input budgets"; `facade.test.mjs` "the traceparent budget counts UTF-8 octets, not JavaScript characters" | `validate:*`, `js:node` |
+| 23 Validated configurable limits | Defaults: 32 KiB for a traceparent value, 32 KiB for the combined tracestate, 512 octets emitted. A configuration requires a traceparent input of at least 55, an output of at least 512 and a state input no smaller than the output. Budgets only refuse input. | `limits_bounds`, `limits_new`, `limits_fields`, `default_limits`, `emit_accepted`, `within_budgets`, `read_within_budgets` | TRACESTATE.bend "validated limits and their defaults"; `facade.test.mjs` "limits are checked by the package and bound what extraction reads"; `main.bend` ("limits refused: TraceParentInputTooSmall") | `validate:*`, `js:node`, `consumer:*` |
+| 24 Invalid tracestate keeps a valid traceparent | A syntax or member-count error discards the whole tracestate and keeps a valid traceparent. A malformed duplicate cannot vanish into deduplication. No state is read without an eligible traceparent. | `state_independent`, `extract_read`, `full_state`, `first_wins` | EXTRACT.bend "tracestate fields, their discard and their neglect without a traceparent" ("an uppercase key", "33 members across fields", "a field past the input budget"); TRACESTATE.bend "optional whitespace, empty members and member errors"; `propagation.mjs` "a discarded state is not sent, and the diagnostics hold no received value"; `facade.test.mjs` "a tracestate of 32 members is read, and a 33rd member discards the whole state"; harness `test_tracestate_duplicated_keys`, `test_tracestate_member_count_limit`, `test_tracestate_key_illegal_characters`, `test_tracestate_value_illegal_characters` | `validate:*`, `prop:*`, `js:node` |
+
+## Extraction, services and diagnostics
+
+| # | Decision | Laws | Tests | Gate |
+| --- | --- | --- | --- | --- |
+| 25 Base kept on failed or absent extraction | Extraction is pure. A valid traceparent gives a remote context. An absent or invalid one keeps the supplied base, reports why and reads no tracestate. | `extract_absent`, `extract_refused`, `extract_repeated`, `continue_usable` | EXTRACT.bend "precedence of the message's context over the base" ("no traceparent keeps the base", "a refused traceparent keeps the base"), "incoming and base contexts, their parents and states"; CONTINUE.bend "the base is continued without a usable traceparent"; `facade.test.mjs` "an extraction without a usable traceparent continues the base it is given"; `guide-worker`; `examples/extract.bend` ("kept base:") | `validate:*`, `consumer:*`, `js:node` |
+| 30 Continue or start | A child when extraction or the base gives a usable context, a root otherwise. Injection never generates IDs implicitly. | `continue_usable`, `restart_usable`, `start_unusable`, `hosted_service`, `http_continue` | CONTINUE.bend "a usable context is continued", "a root starts a trace without context"; `examples/continue.bend` (compared by named IDs in validate.sh); `propagation.mjs`; `gateway.mjs`; `recipes.mjs` "… continues or starts each request's trace downstream"; README quick starts | `validate:*`, `prop:*`, `consumer:*` |
+| 31 Lenient HTTP path on generation failure | The business operation proceeds, with diagnostics. The path may forward only a wholly accepted pair that fits intact; otherwise it clears the context fields. It never reports a new operation after a failed generation. | `continue_usable` (`Lenient{}`), `send_operating`, `send_untraced`, `send_reports_generated`, `http_send` | CONTINUE.bend "generation failures under both policies", "no new operation after a failed generation"; `propagation.mjs` "without entropy, the received pair is forwarded unchanged", "without entropy or a pair to forward, the old context fields are cleared", "a child that cannot be generated forwards the received pair unchanged", "exhausted candidates leave the service without an operation"; `facade.test.mjs` "real WebCrypto exceptions leave a lenient service untraced, forwarding the received pair"; `fetch.spec.mjs` "real WebCrypto exceptions forward the rendered pair leniently, and a strict call is not sent" | `validate:*`, `prop:*`, `js:node`, `js:browser` |
+| 32 Strict policy | The lower-level API exposes the error, and the strict option fails the operation (`Fail{error}`, `GenerationError`). | `continue_usable` (`Strict{}`), `send_operating`, `send_untraced`, `restart_keeps_nothing` | CONTINUE.bend "a strict service fails with the error", "a strict send fails with the error", "a strict send without a pair to forward fails with the error"; NATIVE-HTTP.bend (strict failure); `propagation.mjs` "the strict policy refuses the request without any callback", "a strict send refuses the request when no child can be generated"; `facade.test.mjs` "a strict service or send refuses with a GenerationError instead of carrying on" | `validate:*`, `prop:*`, `js:node`, `js:browser` |
+| 33 Distinguishable outcomes, no raw logging | Diagnostics tell apart absence, rejection, state discard, truncation, source failure and exhaustion. The package never logs raw fields and never collects spans. | outcomes: `extract_absent`, `extract_refused`, `extract_repeated`, `extract_read`, `truncate_dropped`, `inject_dropped`, `emit_tracestate`, `feed_failure`, `root_exhaustion`, `child_exhaustion`, `send_reports_generated`; that no diagnostic holds a received value: none (tested) | EXTRACT.bend "diagnostics without received values"; CONTINUE.bend "diagnostics without received values" ("a truncated state is reported"); TRACESTATE.bend "diagnostics"; INJECT.bend "forwarding diagnostics"; `propagation.mjs` "a discarded state is not sent, and the diagnostics hold no received value"; `guide-log`, `javascript-log`; ERRORS.md | `validate:*`, `prop:*`, `consumer:*` |
+
+## JavaScript and browsers
+
+| # | Decision | Laws | Tests | Gate |
+| --- | --- | --- | --- | --- |
+| 36 Importable module with validated inputs | A pure module export behind a validating bridge. A foreign object shaped like a Bend value is not evidence. The three entries are the JavaScript API. The facade runs the committed ES module built from `trace_context.bend` (#29, decision 1). | `generation_drive`, `hosted_service`, `hosted_send` (the host-driven plans that the facade calls); the facade's own code: none (tested, not proved) | `facade.test.mjs` "objects that only look like handles cannot stand for package values", "malformed fields and options are refused before any package code runs", "fields are read once, so that what the facade checks is what reaches the package", "the ES module exports no template and no IO operation to run, so the facade drives the pure form", "a message with ten thousand fields needs no deep stack"; `codec.test.mjs` "foreign objects cannot forge proof-carrying contexts or coerce into wire text"; `exports.test.mjs` (3 tests); `node-http.test.mjs` (6 tests); `facade.mjs` ("copied handle refused: TypeError"); `tsc` 5.9.3 and 7.0.2 on `types.ts`, `fetch-types.ts` and `javascript-typescript`; `build-js.sh --check` | `js:node`, `consumer:node` |
+| 37 Browser generation and Fetch | The WebCrypto bridge (`entropy/webcrypto.js`) and the Fetch entry (`bend-trace-context/fetch`). Pages are bundled with the official bundler and run in Chromium, Firefox and WebKit, with recorded versions. | `generation_drive`, `hosted_send`; the bridge and Fetch code: none (tested) | `fetch.spec.mjs` "a bundled page continues the context its server rendered and generates children through WebCrypto"; `entropy.spec.mjs` "the browser obtains a U32 through the shared WebCrypto bridge", "missing host crypto and controlled provider failures return errors without fallback"; `browser.spec.mjs` "an application bundled from a pinned checkout propagates its trace with Fetch", "the README's page continues the context that the guide's server rendered into it"; reproducible and relocated bundles | `js:browser`, `consumer:browser` |
+| 38 Examples of combined headers and CORS | Executable examples make host normalization and CORS visible. Adapters document what the host does. | none: browser behavior (*env*) | `examples/javascript/fetch.html` and `fetch.mjs` (same-origin call, partner call, "Show what Fetch hands over"); `fetch.spec.mjs` "the Fetch page's buttons call its APIs and show what Fetch hands over", "an allowed cross-origin call passes a preflight that accepts the context fields", "a cross-origin call that is not allowed carries no context fields, so it needs no preflight for them", "an allowed origin whose preflight refuses the context fields fails the call before it is sent", "a no-cors call carries no context fields: the browser would drop them", "Fetch Headers remove the whitespace around values and refuse line breaks", "a redirect that fetch follows repeats the call with the same child at the new URL"; JAVASCRIPT.md "Cross-origin requests and CORS", "What browsers do to the fields" | `js:browser` |
+
+## Verification
+
+| # | Decision | Laws | Tests | Gate |
+| --- | --- | --- | --- | --- |
+| 39 Receive-to-send HTTP example | A minimal service on the public API runs receive, extract, continue, inject and send through the harness. The native reference runs on bend-kit (#29). | `http_carrier`, `http_headers`, `http_continue`, `http_send` (native adapter) | `examples/gateway.bend`, `examples/gateway.mjs`; `gateway.mjs` "the gateway continues a request, starts a trace for one without context, and calls downstream with its own child"; `guide-gateway` must equal `examples/gateway.bend`, apart from comments (`test-consumer.sh native`); recipes `javascript-http`, `javascript-express`, `javascript-fastify`, `javascript-context` (`recipes.mjs`); `node-http.test.mjs` "a node:http service continues a received request and sends a child through ClientRequest headers" | `prop:native`, `prop:node`, `consumer:native`, `consumer:node` |
+| 40 Laws checked by Bend | Laws cover the public deterministic behavior over its stated domain. No local axioms and no `@unsafe`. Proved, tested and environmental claims are kept apart. | all 115 laws of LAWS.bend, each proved by `Laws.<name>` in PROOF.bend | `validate.sh`: the first line of `PROOF.bend --check-only` must be `ALL PROOFS CHECK`; `generation.bend --check-only` must equal `tests/expected-host-defs.txt` (`SOME PROOFS FAIL`, the 9 host definitions); `reject/zero_id.bend`, `reject/wrong_length.bend`, `reject/remote_as_local.bend` and `reject/invalid_state_key.bend` must fail the checker | `validate:native`, `validate:node` |
+| 41 Independent inputs and the W3C harness | Inputs and expected outcomes are specified independently, malformed values included. The W3C harness runs at `acab820` with `SPEC_LEVEL=2` and `STRICT_LEVEL=2`, against an independent receiver. | none: external evidence that complements the laws | TEST.bend and EXTRACT.bend (literal oracles, the harness's inputs); the `propagation.mjs` observer records raw header lines; `tests/native/fixtures/observer.mjs`; `qualify-propagation.sh` requires the 41 harness tests (TraceContextTest 37, AdvancedTest 3, TraceContext2Test 1) to run and report `OK`; `opentelemetry.test.mjs`: OpenTelemetry's W3C propagator (`@opentelemetry/core` 2.11.0) extracts what the package sends and the package extracts what it injects, tracestate included, and both refuse the same invalid values | `prop:native` (both platforms), `prop:node` (22.18.0, 22, 24.0.0, 24), `js:node` |
+| 42 Real and controlled entropy kept apart | Real-source smoke tests stay apart from deterministic tests and are not evidence of uniqueness or cryptographic strength. | laws cover tapes only (`root_tape` … `generation_drive`); the real source: none (*env*) | SMOKE.bend (well-formedness and new IDs only) against GENERATION.bend (tapes); `examples/generate.bend` and `examples/continue.bend` checked by shape and named IDs; `entropy.test.mjs` "the default source returns one real WebCrypto U32 without a uniqueness claim"; `entropy.spec.mjs` | `validate:*`, `js:node`, `js:browser` |
+
+## Formal proof obligations
+
+| Obligation | Laws | Stated limit |
+| --- | --- | --- |
+| 1. Keep the strict codec's round trip and fixed length; prove the inverse for every accepted strict-v00 text | `formatted_length`, `roundtrip`, `inverse` | The codec keeps reserved bits. Participant emission zeroes them (`emitted_traceparent`). |
+| 2. Extraction after participant injection recovers the normalized, remotely observable projection, emitted flags and truncated state included | `emitted_projection`, `inject_extracted`, `emit_traceparent`, `emit_tracestate`, `emit_accepted`, `emitted_traceparent` | Both sides use the same limits. The original wire text is not recovered: reserved bits are zeroed and the state is truncated to the output budget. |
+| 3. Injection is idempotent for a fixed context and configuration, and keeps unrelated fields and their order; diagnostics are checked apart | `inject_idempotent`, `inject_carrier`, `clear_carrier`, `inject_dropped`; forwarding: `forward_idempotent`, `forward_carrier` | The dropped keys are stated by `inject_dropped`, outside the carrier equation. |
+| 4. A successful child keeps the trace ID and its randomness assertion, inherits or overrides sampled, and has a distinct nonzero operation ID | `child`, `child_accepts`, `child_reuse`, `sampling`, `generated_child`; in services: `continue_usable`, `send_operating` | Nonzero holds by construction: a `SpanId` carries nonzero evidence. Distinctness is proved from the parent only. That sibling children get different IDs depends on the source's words, and no law states it (README "Proofs"). |
+| 5. State operations keep the grammar, unique keys, the count bound and the order of other entries; discarding an invalid state does not change the extraction of a valid traceparent | `state_valid`, `key_parse`, `key_roundtrip`, `value_parse`, `value_roundtrip`, `key_separators`, `value_separators`, `set_entries`, `update_keeps_all`, `insert_entries`, `set_get`, `remove_entries`, `remove_get`, `truncate_order`, `later_duplicate`, `later_new_key`, `first_wins`, `full_state`, `state_roundtrip`, `ows_around`, `state_independent`, `extract_read` | The grammar holds by construction: `StateKey` and `StateValue` carry validity evidence (`reject/invalid_state_key.bend`). The character classes, whitespace and empty members between members, and member numbers in diagnostics are tested by the corpus, not stated as laws. |
+| 6. Successful deterministic generation gives valid IDs and respects the candidate and word bounds, under an explicit source contract | `trace_words`, `span_words`, `hex_injective`, `word_hex`, `words_unasserted`, `feed_failure`, `root_tape`, `child_tape`, `restart_tape`, `root_ends`, `child_ends`, `restart_ends`, `root_exhaustion`, `child_exhaustion`, `generated_root`, `generated_child`, `generated_restart`, `generation_drive` | The source contract is a tape: any sequence of word results. The host operations of `generation.bend` have no law, because they rely on the foreign effect. Exhaustion is proved for all-zero candidates; exhaustion through reuse is tested. No claim is made about the quality of a source or global uniqueness. |
+
+Every obligation is proved with Bend's checker. The BendTT kernel recheck,
+`--verdict`, has not run on the package (README "Proofs"; #29).
+
+## External protocol and release gates
+
+| Gate | Evidence |
+| --- | --- |
+| 1. W3C harness pinned at `acab820`, `SPEC_LEVEL=2`, `STRICT_LEVEL=2`; `TraceContextTest`, `AdvancedTest`, `TraceContext2Test` with no failure, error or unexpected skip; counts, versions and skips recorded; any disagreement with the publication reconciled | `scripts/qualify-propagation.sh` fetches the harness by commit and checks its HEAD. It runs `SPEC_LEVEL=2 STRICT_LEVEL=2 python test.py … TraceContextTest AdvancedTest TraceContext2Test` and requires exit status 0, `Ran 41 tests` and a bare `OK`: a skip prints `OK (skipped=…)` and fails. `environment.txt` records the package and harness commits, the platform, the compiler or Node, Python and `pip freeze`. aiohttp is pinned with hashes in `tests/propagation/requirements.txt`. The gate runs natively (`native-propagation`, both platforms) and on Node (`node`, 22.18.0, 22, 24.0.0 and 24). Issue #12 reports 37, 3 and 1 tests and no disagreement. |
+| 2. Passing the finite harness is not a proof of the publication; keep a requirements-to-policy-to-proof/test matrix and fill gaps with the public corpus | This document. VALIDATION.md says the harness shows interoperability in the scenarios it runs, not conformance to the whole publication. See also README "Standards and scope", the Requirement heading of each law, and the corpora above. |
+| 3. An independent receiving service checks emitted values and host behavior; redirects and retries are controlled | Independent observers: `propagation.mjs` (raw header lines), `tests/native/fixtures/observer.mjs`, `tests/browser/observer.mjs` and `recipes.mjs`. Native calls use `Http.ModeManual{}` with a 3000 ms timeout (`tests/propagation/service.bend`, `examples/gateway.bend`, `tests/native/fixtures/transport-service.bend`). `transport.mjs` checks that a 302 is not followed: the answer is 502 and the observer sees one request. Node calls use `http.request`, which follows no redirects, with a 3000 ms timeout. Browser redirects are tested in `fetch.spec.mjs`. |
+| 4. Qualification jobs are required for advertised capabilities; a dependency's smoke job is no substitute | `required-baseline` and branch protection (see Gates). bend-kit's own laws and checks run inside `http:native` in addition to the package's transport tests, not in place of them. |
+| 5. Before release: a clean consumer on the exact candidate, license, version and documentation verified, exact versions recorded, and implementation, proofs, integration, CI and publication reported separately | `qualify-release.sh candidate` runs in the `native` job on both platforms and rehearses the release on a local hub: the pinned compiler's `--publish` publishes the commit's package without a name; the script requires exactly the package's modules, effects, MIT license and description in it, checks the version, license, changelog and install instructions, and requires the name to be free on BendHub or the owner's; `bend link` names the package; and a clean consumer imports it by its name (the README's quick start directly, natively and on Node, the guide's programs, the native HTTP adapter and the guide's HTTP service, compiled). `qualify-release.sh published` requires BendHub to name exactly that package, owned by the repository's owner, and runs the same consumer against BendHub. `test-consumer.sh` runs on `$(git rev-parse HEAD)` in the `native`, `node` and `browser` jobs, and every gate writes its environment. The release report on #15 states implementation, proofs, integration, CI and publication apart. |
+
+## Required CI
+
+The evidence of a commit is its CI run: the `required baseline` check passes
+only when every job above succeeds. The release notes of each tag link the
+run of its commit, and VALIDATION.md records the exact versions that CI
+used.
+
+## Limits
+
+These are the limits of the evidence, stated so that no claim goes beyond
+it.
+
+### Tested, not proved
+
+- The flag readers `TraceParentV00.is_sampled` and `is_random` on reserved
+  bit patterns: TEST.bend covers all 256 bytes.
+- Candidate exhaustion through reused IDs. Exhaustion through all-zero
+  candidates is proved (`root_exhaustion`, `child_exhaustion`).
+- Distinct span IDs for the sibling messages of a fan-out, which depend on
+  the source's words.
+- The tracestate character classes, whitespace and empty members between
+  members, and the member numbers in diagnostics.
+- The offsets in extraction diagnostics, control characters inside unknown
+  fields, lookalike names and exact budget boundaries.
+- That no diagnostic of extraction, services or sent messages holds a
+  received value (story 33).
+- Small public functions with no law of their own: `TraceId.is_eq`,
+  `SpanId.is_eq`, `TraceState.is_empty`, `OutgoingContext.get` and the
+  `show` functions. `Service.set` and `Service.remove` delegate to
+  `OutgoingContext.set` and `remove`, which `outgoing_set` and
+  `outgoing_remove` cover.
+- The JavaScript facade's own conversion and validation code: `handles`,
+  `options`, `fields`, `node.mjs` and `fetch.mjs`. The host-driven plans that
+  it calls are proved (story 36).
+- Bounded reading stops at the budget (story 22): `over_budget` and
+  `read_over_budget` prove the outcome, and the stop follows from the
+  definition of `Utf8.left`, which counts the budget down; the mebibyte
+  cases check the outcome only.
+
+### Proof assurance
+
+- Bend's checker proves every law. The BendTT kernel recheck, `--verdict`,
+  has not run on the package: it needs Lean 4.34, and its translation has no
+  model for the template assumptions of `http_headers` (README "Proofs";
+  #29).
+- `http_headers` assumes the contract of Base's `Map` (`~found`, `~kept`),
+  which Base does not prove. NATIVE-HTTP.bend and the HTTP gates exercise it.
+
+### Environment
+
+- The quality and uniqueness of the host's entropy, and of a source that an
+  application supplies.
+- The native entropy failure path: no test induces the Linux `getrandom`
+  error that `entropy/native.c` returns as `Fail`; on macOS,
+  `arc4random_buf` cannot fail. Failure handling is tested with caller
+  sources.
+- What Node, browsers and bend-kit do to header fields, and transport
+  limits that apply before the package reads a message.
+- Bend requires Clang 14 or later for native builds; CI qualifies the
+  runners' Apple clang 15 and Ubuntu clang 18.
+- Runner, toolchain and browser versions: each run records its own.

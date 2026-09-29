@@ -57,40 +57,7 @@ run_logged checkout git -C "$dependency" checkout --quiet --detach "$revision"
 # span IDs of one run in `span_id=` log fields, and every run prints new
 # ones, so the comparison masks them.
 extract_example() {
-  marker=$1
-  fence=$2
-  document=${3:-README.md}
-  # shellcheck disable=SC2016 # $0 belongs to awk, not the shell.
-  run_logged "$marker-extract" awk -v marker="$marker" -v fence="$fence" -v document="$document" '
-    $0 == "<!-- test:" marker ":start -->" {
-      if (state != 0) { invalid = 1; exit 1 }
-      state = 1
-      next
-    }
-    $0 == "<!-- test:" marker ":end -->" {
-      if (state != 3) { invalid = 1; exit 1 }
-      state = 4
-      next
-    }
-    state == 1 {
-      if ($0 != "```" fence) { invalid = 1; exit 1 }
-      state = 2
-      next
-    }
-    state == 2 {
-      if ($0 == "```") { state = 3; next }
-      print
-      lines++
-      next
-    }
-    state == 3 { invalid = 1; exit 1 }
-    END {
-      if (invalid || state != 4 || !lines) {
-        print "Expected exactly one marked " marker " example in " document "." > "/dev/stderr"
-        exit 1
-      }
-    }
-  ' "$dependency/$document"
+  run_logged "$1-extract" "$dependency/scripts/doc-block.sh" "$1" "$2" "$dependency/${3:-README.md}"
 }
 # A program in a FENCE block of DOCUMENT and the output that the document
 # shows for it, into the test directory as NAME.EXTENSION and into the
@@ -105,27 +72,15 @@ extract_program() {
   extract_example "$name-output" text "$document"
   cp "$evidence_dir/$name-output-extract.stdout" "$evidence_dir/$name.expected"
 }
-# What a program printed, with the new span IDs of its log fields masked.
-# The span IDs that the documents give as received parents stay, so that a
-# program that logs the parent's ID instead of a new one fails.
-masked() {
-  sed -e 's/span_id=00f067aa0ba902b7/span_id=received-00f067aa0ba902b7/g' \
-    -e 's/span_id=b7ad6b7169203331/span_id=received-b7ad6b7169203331/g' \
-    -e 's/span_id=[0-9a-f]\{16\}/span_id=<new span ID>/g' -e 's/span_id=received-/span_id=/g' "$1"
-}
 # Compare what a program printed with what its document shows.
-compare_output() {
-  masked "$2" > "$evidence_dir/$1.expected-masked"
-  masked "$3" > "$evidence_dir/$1.printed-masked"
-  run_logged "$1" diff -u "$evidence_dir/$1.expected-masked" "$evidence_dir/$1.printed-masked"
-}
+compare_output() { run_logged "$1" "$dependency/scripts/same-output.sh" "$2" "$3"; }
 guide=packages/trace-context/GUIDE.md
 javascript_guide=packages/trace-context/JAVASCRIPT.md
 # The Bend programs of the README and the guide, the JavaScript programs of
-# the JavaScript guide that print, and its recipes that serve requests.
-bend_programs="readme-bend guide-log guide-job guide-sampled guide-vendor guide-boundary guide-relay
-  guide-worker guide-supplied guide-tape"
-javascript_programs="javascript-log javascript-opentelemetry javascript-inspect"
+# the JavaScript guide that print, as the documents mark them, and its
+# recipes that serve requests.
+bend_programs="readme-bend $("$dependency/scripts/doc-block.sh" --programs "$dependency/$guide")"
+javascript_programs=$("$dependency/scripts/doc-block.sh" --programs "$dependency/$javascript_guide")
 recipes="javascript-http javascript-express javascript-fastify javascript-context"
 if [ "$mode" != browser ]; then
   extract_program readme-bend bend README.md bend

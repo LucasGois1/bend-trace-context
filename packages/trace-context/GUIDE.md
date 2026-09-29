@@ -199,7 +199,9 @@ instead, and creates no operation; see [A relay](#a-relay).
 Each recipe is a complete program. Put the package in your project as the
 [root README](../../README.md#install) shows, at `deps/bend-trace-context`,
 and run a recipe with `./deps/bend-trace-context/bend recipe.bend`, or
-build it with `-o recipe` for a native binary. The recipes with new IDs
+build it with `-o recipe` for a native binary. To import the package from
+BendHub instead, replace `./deps/bend-trace-context/packages/trace-context/`
+in the imports with `bend-trace-context@0.1.0.0/`. The recipes with new IDs
 print only what does not change from run to run, apart from the span IDs of
 log fields; each shows its output.
 
@@ -864,7 +866,9 @@ For the JavaScript facade, see the
 ## OpenTelemetry
 
 The package speaks the W3C fields, so its services interoperate on the wire
-with services that use OpenTelemetry's W3C propagator, in either direction.
+with services that use OpenTelemetry's W3C propagator, in either direction:
+a test runs that propagator, `@opentelemetry/core`, against the JavaScript
+facade, which follows the same rules as Bend services.
 It records no spans. To record them:
 
 - in JavaScript, hand the service's operation to an OpenTelemetry tracer as

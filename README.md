@@ -16,11 +16,10 @@ nothing and makes no sampling decision of its own: pair it with a tracer to
 record spans, such as OpenTelemetry in JavaScript, or log the trace and span
 IDs of a Bend service's operations to correlate its logs.
 
-**Status: 0.1.0-dev, not released yet.** The package does everything that
-0.1.0 will ship, and its release is being prepared in
-[#15](https://github.com/LucasGois1/bend-trace-context/issues/15). Until
-then, depend on a commit, as [Install](#install) shows. It needs exactly
-Bend 2.0.32.
+**Status: 0.1.0**, the first release, published on
+[BendHub](https://hub.bend-lang.com) as `bend-trace-context@0.1.0.0` and
+tagged `v0.1.0`. It needs exactly Bend 2.0.32. The
+[changelog](CHANGELOG.md) lists what it provides.
 
 ## What it does
 
@@ -50,49 +49,72 @@ minutes.
 | Target | Support |
 | --- | --- |
 | Bend compiler | Exactly 2.0.32, which [Install](#install) sets up; other versions are not supported |
-| Native Bend | macOS ARM64 and Linux x86_64, with Clang 14 or later |
-| Bend programs compiled to JavaScript | Node 22 and 24 |
+| Native Bend | macOS ARM64 and Linux x86_64, with the Clang 14 or later that Bend requires; CI builds with Apple clang 15 and Ubuntu clang 18 |
+| Bend programs compiled to JavaScript | Node 22.18.0 or a later Node 22, and Node 24 |
 | JavaScript applications | Node 22.18.0 or a later Node 22, and Node 24, through the facade, with TypeScript declarations |
 | Browser pages | Chromium, Firefox and WebKit, as Playwright 1.63 builds them, bundled with the official Bend bundler |
 | Native HTTP | bend-kit's HTTP package, `bend-kit-http` 0.23.0.1 |
 
-Each row is qualified in CI on every commit; the
+Each row is qualified in CI on every commit, on Node 22.18.0 and 24.0.0 as
+well as the current release of each line; the
 [validation record](packages/trace-context/VALIDATION.md) lists the exact
 versions.
 
 ## Install
 
-The package has no release yet, so a project depends on an exact commit of
-`master` whose [CI run](https://github.com/LucasGois1/bend-trace-context/actions/workflows/ci.yml?query=branch%3Amaster+is%3Asuccess)
-passed. With the GitHub CLI, the latest such commit is:
+Bend code imports the package from BendHub by its name, with Bend 2.0.32
+installed:
 
-```sh
-gh run list --repo LucasGois1/bend-trace-context --workflow ci.yml --branch master --status success --limit 1 --json headSha --jq '.[0].headSha'
+```bend
+import bend-trace-context@0.1.0.0/trace_context.bend as TC
+import bend-trace-context@0.1.0.0/generation.bend as Generate
+import bend-trace-context@0.1.0.0/native_http.bend as NativeHttp
 ```
 
-Record it where your project records its dependencies, so that every
-checkout uses the same code: a moving branch is not a version. After the
-release, use its tag instead. Put the repository in your project at that
-commit, in place of `FULL_COMMIT_SHA` below, and install the Bend compiler
-that it pins:
+The first build fetches the package, checks each file against its hash, and
+keeps it under `~/.bend/lib`, or the directory that `BEND_LIB` names.
+BendHub versions have four numbers: release `X.Y.Z` of this package is
+`X.Y.Z.0` there.
+
+A checkout of the release tag pins the compiler, serves JavaScript projects,
+and holds the paths that the quick starts and the guides import:
 
 ```sh
 mkdir -p deps
-git clone https://github.com/LucasGois1/bend-trace-context.git deps/bend-trace-context
-git -C deps/bend-trace-context checkout --detach FULL_COMMIT_SHA
+git clone --branch v0.1.0 https://github.com/LucasGois1/bend-trace-context.git deps/bend-trace-context
 ./deps/bend-trace-context/scripts/setup-bend.sh
 ```
 
-`setup-bend.sh` downloads the official Bend 2.0.32 release for macOS ARM64
-or Linux x86_64, verifies its SHA-256, and installs it under
-`deps/bend-trace-context/.tools/`; `./deps/bend-trace-context/bend` runs it.
-It installs no global shell configuration.
+Record the commit that the tag names, `git -C deps/bend-trace-context
+rev-parse HEAD`, where your project records its dependencies, so that every
+checkout uses the same code. `setup-bend.sh` downloads the official Bend
+2.0.32 release for macOS ARM64 or Linux x86_64, verifies its SHA-256, and
+installs it under `deps/bend-trace-context/.tools/`;
+`./deps/bend-trace-context/bend` runs it. It installs no global shell
+configuration. Without a checkout, install Bend 2.0.32 from its
+[release](https://github.com/bendlang/bend/releases/tag/v2.0.32).
 
-A JavaScript project installs the facade from the same checkout; it needs no
-Bend at run time, and a page needs it only to be bundled:
+A JavaScript project installs the facade from the checkout; it needs no Bend
+at run time, and a page needs it only to be bundled:
 
 ```sh
 npm install ./deps/bend-trace-context/packages/trace-context
+```
+
+The quick starts and the guides import the package from the checkout, as
+`./deps/bend-trace-context/packages/trace-context/trace_context.bend`. With
+the package from BendHub, replace that prefix with
+`bend-trace-context@0.1.0.0/`. The tests run the quick start and the
+guide's programs both ways, and compile the guide's HTTP service from
+BendHub.
+
+Between releases, `master` may hold changes that no release has yet. To use
+them, check out a commit of `master` whose
+[CI run](https://github.com/LucasGois1/bend-trace-context/actions/workflows/ci.yml?query=branch%3Amaster+is%3Asuccess)
+passed in place of the tag; with the GitHub CLI, the latest such commit is:
+
+```sh
+gh run list --repo LucasGois1/bend-trace-context --workflow ci.yml --branch master --status success --limit 1 --json headSha --jq '.[0].headSha'
 ```
 
 ## Quick start: Bend
@@ -279,6 +301,9 @@ explains.
   Node and browser pages.
 - [Native HTTP guide](packages/trace-context/NATIVE-HTTP.md): the bend-kit
   transport and its qualification.
+- [Requirements matrix](packages/trace-context/REQUIREMENTS.md) and
+  [validation record](packages/trace-context/VALIDATION.md): what is proved,
+  what is tested, and the gates that run them.
 - [Glossary](CONTEXT.md), [changelog](CHANGELOG.md) with versioning and
   migration notes, [contributing](CONTRIBUTING.md) and
   [security policy](SECURITY.md).
@@ -302,6 +327,11 @@ explains.
   the facade pass the [W3C Trace Context test harness](https://github.com/w3c/trace-context/tree/acab820be9db7b3433668baa5cdd43f57f4c4be0/test)
   at Level 2, 41 tests, and browser pages run in Chromium, Firefox and
   WebKit.
+- **Release.** The BendHub package of each commit holds exactly the
+  package's modules, effects and license, and a clean consumer that imports
+  it by its name runs the quick start and the guide's recipes; the
+  [requirements matrix](packages/trace-context/REQUIREMENTS.md) maps each
+  requirement of the specification to its evidence.
 
 Neither the laws nor the tests establish full conformance to the W3C
 publication. [CONTRIBUTING.md](CONTRIBUTING.md) shows how to run every gate.

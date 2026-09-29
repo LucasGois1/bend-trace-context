@@ -1,20 +1,42 @@
 # Changelog
 
-## 0.1.0-dev — unreleased
+## 0.1.0 — 2026-09-28
 
-Development toward the complete 0.1.0 Trace Context propagator. This version
-currently provides the strict v00 codec, contexts created from supplied or
-generated IDs, Level 2 tracestate parsing within validated limits, tracestate
-updates and emission within the output budget, context extraction from a
-received message's fields, participant injection and transparent forwarding
-into the fields of a message to send, the continue-or-start and sending
-operations of a service, an adapter for bend-kit's native HTTP package
-qualified against the W3C Trace Context harness, a JavaScript facade for Node
-with `node:http` integration qualified against the same harness, Fetch
-integration for browser pages qualified in Playwright's builds of Chromium,
-Firefox and WebKit, and
-qualified JavaScript/entropy boundaries; it is not a published release.
+The first release: W3C Trace Context Level 2 propagation for Bend 2.0.32. It
+provides the strict v00 codec, contexts created from supplied or generated
+IDs, Level 2 tracestate parsing within validated limits, tracestate updates
+and emission within the output budget, context extraction from a received
+message's fields, participant injection and transparent forwarding into the
+fields of a message to send, the continue-or-start and sending operations of
+a service, an adapter for bend-kit's native HTTP package qualified against
+the W3C Trace Context harness, a JavaScript facade for Node with `node:http`
+integration qualified against the same harness, Fetch integration for
+browser pages qualified in Playwright's builds of Chromium, Firefox and
+WebKit, and qualified JavaScript and entropy boundaries.
 
+It is published on BendHub as `bend-trace-context@0.1.0.0`, the package
+`0xb6eebf6253ee268a21f3e308b12cacba`, and tagged `v0.1.0`, whose checkout
+also holds the JavaScript facade.
+
+- Release the package: `packages/trace-context/LICENSE` licenses the BendHub
+  package under MIT, `VERSION` and the JavaScript package are `0.1.0`, and
+  `scripts/qualify-release.sh` qualifies the release artifact. It rehearses
+  the release on a local hub: it publishes a fresh clone's package with the
+  pinned compiler's own `--publish`, requires exactly the package's modules,
+  effects, license and description in it, checks that the name is free on
+  BendHub or the owner's, names the package with `bend link`, and runs a
+  clean consumer that imports it by its name: the README's quick start
+  directly, natively and on Node, the guide's programs, the native HTTP
+  adapter and the guide's HTTP service, compiled. After publication it
+  checks that BendHub names that exact package and runs the same consumer
+  against BendHub. The first line of `generation.bend`, the file that a
+  release publishes, is the package's description on BendHub. The
+  [requirements matrix](packages/trace-context/REQUIREMENTS.md) maps each
+  requirement of the specification to its decision, laws, tests and gate,
+  and `scripts/check-requirements.sh` requires it to cite every law. CI now
+  runs the Node gates on Node 22.18.0 and 24.0.0, the lowest releases that
+  the facade declares, besides the current ones, and a test runs
+  OpenTelemetry's W3C propagator against the facade in both directions.
 - Preserve the pure Bend codec, dependent ID representation, universal
   round-trip and fixed-length proofs, independent protocol corpus and
   negative-construction examples.
@@ -293,10 +315,16 @@ qualified JavaScript/entropy boundaries; it is not a published release.
   no-redirect behavior and the listener's header-size limit. This is a
   development transport fixture, not Trace Context propagation or a tracer.
 
-The remaining work toward 0.1.0 is planned under
-[specification #1](https://github.com/LucasGois1/bend-trace-context/issues/1).
+The specification of 0.1.0 is
+[issue #1](https://github.com/LucasGois1/bend-trace-context/issues/1).
 
-**Migration within 0.1.0-dev:** `Field` gains `SpanIdField{}`, so
+**Migration from a 0.1.0-dev commit:** pin the tag `v0.1.0`, or import the
+package from BendHub, with `bend-trace-context@0.1.0.0/` in place of the
+checkout's path in the imports, such as
+`./deps/bend-trace-context/packages/trace-context/`. Switch every import of
+the package at once: the checkout's modules and BendHub's are different
+modules to Bend, and their types do not mix. Nothing else changes.
+Within 0.1.0-dev: `Field` gains `SpanIdField{}`, so
 `Error.ZeroId` can now name a supplied span ID. Code that matches every `Field`
 constructor, or every `ZeroId{...}` case of `Error`, without a default case
 must handle it. Context creation reports the new `ContextError` type; `Error`
@@ -325,10 +353,12 @@ submodule is needed.
 
 ## Versioning and compatibility
 
-`VERSION` identifies the source's development/release status. Before 0.1.0 is
-released, use a full Git commit SHA as the installation identity; a branch name
-or `0.1.0-dev` does not identify an immutable artifact. No registry release or
-version tag has been published by this baseline.
+`VERSION` names the release of a commit. Release `X.Y.Z` is tagged `vX.Y.Z`
+and published on BendHub as `bend-trace-context@X.Y.Z.0`, since BendHub
+versions have four numbers; a BendHub version never changes its package.
+Between releases, `VERSION` is the next version with `-dev`, and only a full
+Git commit SHA identifies what a project uses: neither a branch nor a `-dev`
+version names an immutable artifact.
 
 The documented Bend entries are `packages/trace-context/trace_context.bend`,
 which performs no host effect of its own,
@@ -352,9 +382,8 @@ form the JavaScript API contract. Their internal modules, such as
 shared WebCrypto source are not, and no other path of the package is
 exported.
 
-Future releases will record API, wire-policy and toolchain changes here, including
-migration steps for incompatible changes. Development toward 0.1.0 does not
-silently turn the strict codec into a normalizing propagator. When upgrading an
-earlier development snapshot, update the dependency pin and imports together
-to use `packages/trace-context/trace_context.bend`. The protocol, public types
-and functions are unchanged by this directory migration.
+Future releases will record API, wire-policy and toolchain changes here,
+including migration steps for incompatible changes. When upgrading an earlier
+development snapshot, update the dependency pin and imports together to use
+`packages/trace-context/trace_context.bend`. The protocol, public types and
+functions are unchanged by this directory migration.

@@ -1,5 +1,10 @@
+# W3C Trace Context Level 2 propagation, with its rules proved as laws. Source: https://github.com/LucasGois1/bend-trace-context
+#
 # Generation on the host's cryptographic source
 # =============================================
+#
+# The first line is the package's description on BendHub, which shows the
+# first line of the file that a release publishes: this file.
 #
 # Generated contexts on the host's cryptographic source: WebCrypto in
 # JavaScript and the operating system's generator natively. They apply the
