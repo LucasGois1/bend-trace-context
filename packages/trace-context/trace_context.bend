@@ -2,13 +2,14 @@
 # ===============================================
 #
 # This file is the package's public entry for everything that performs no host
-# effect: the strict traceparent v00 codec, validated trace and span IDs, local
-# and remote contexts, the machine that turns source words into IDs, validated
-# limits, the Level 2 tracestate parser, tracestate updates and emission,
-# outgoing contexts, the extraction of a received message's context, the
-# injection and forwarding of a context into an outgoing message's carrier,
-# and the operations that continue or start a service's operation for a
-# received message and give each message it sends a child of it.
+# effect: the strict traceparent v00 codec, validated trace and span IDs and
+# their bytes, local and remote contexts, the machine that turns source words
+# into IDs, validated limits, the Level 2 tracestate parser, tracestate
+# updates and emission, outgoing contexts, the extraction of a received
+# message's context, the injection and forwarding of a context into an
+# outgoing message's carrier, and the operations that continue or start a
+# service's operation for a received message and give each message it sends a
+# child of it.
 # generation.bend adds the host's cryptographic source on top of it, and
 # native_http.bend the header maps of bend-kit's native HTTP package. The
 # claims this code must satisfy are stated in LAWS.bend and proved in
@@ -30,6 +31,8 @@
 #   Identifiers and contexts         TraceId, SpanId, contexts and their
 #                                    trace flags, children, restarts
 #   Identifiers from source words    U32.to_hex, TraceId.from_words, ...
+#   Identifiers as bytes             TraceId.to_bytes, TraceId.from_bytes,
+#                                    SpanId.to_bytes, SpanId.from_bytes
 #   Generation machine               Draw.*, Step.*, Generation.*,
 #                                    Context.*_with, Source.tape
 #   Error messages                   Error.show, ContextError.show, ...
@@ -53,10 +56,10 @@
 #   Sending                          Context.send_with, Sent, SendPlan
 #
 # The public names are documented in packages/trace-context/README.md. Names in
-# the Parse, Flags, Draw, Step, Tape, Scan, Member, Value, Budget, Utf8,
-# Entries, StateChar, Carrier, Text, Read, Extract, Forward, Policy, Serve and
-# Send namespaces are internal: Bend lets any module import them, but they are
-# not a compatibility contract.
+# the Parse, Parsed, ParsedBytes, Flags, Draw, Step, Tape, Scan, Member,
+# Value, Budget, Utf8, Entries, StateChar, Carrier, Text, Read, Extract,
+# Forward, Policy, Serve and Send namespaces are internal: Bend lets any module
+# import them, but they are not a compatibility contract.
 #
 # Notes for readers new to Bend
 # -----------------------------
@@ -110,13 +113,17 @@ type Field is Data:
   SpanIdField{}
 
 # Why the strict codec, TraceId.parse, SpanId.parse or TraceParent.read
-# refused a text. Offsets count Bend characters (Unicode code points) from
-# zero at the start of the text, and the first problem in reading order is
-# reported.
-#   UnexpectedEnd{offset}        the text ends where a character is required
+# refused a text, or TraceId.from_bytes or SpanId.from_bytes a list of bytes.
+# Offsets count Bend characters (Unicode code points) from zero at the start
+# of the text, or cells from zero at the start of the list, and the first
+# problem in reading order is reported.
+#   UnexpectedEnd{offset}        the text ends where a character is required,
+#                                or the list where a byte is
 #   InvalidHex{offset}           this character is not a lowercase hex digit
+#   InvalidByte{offset}          this cell is above 255, so it is not a byte
 #   ExpectedSeparator{offset}    this character should be "-"
-#   TrailingInput{}              characters follow a complete value
+#   TrailingInput{}              characters follow a complete value, or cells
+#                                follow the bytes of an ID
 #   ForbiddenVersion{}           the version is ff, forbidden by W3C 3.2.2.1
 #   UnsupportedVersion{version}  a version other than 00, which the strict
 #                                codec does not read (TraceParent.read reads
@@ -131,6 +138,7 @@ type Field is Data:
 type Error is Data:
   UnexpectedEnd{offset: Nat}
   InvalidHex{offset: Nat}
+  InvalidByte{offset: Nat}
   ExpectedSeparator{offset: Nat}
   TrailingInput{}
   ForbiddenVersion{}
@@ -149,6 +157,11 @@ type ContextError is Data:
 # can only produce 32.
 type Parsed<-n: Nat> is Data:
   Parsed{digits: Digits.Digits(n), rest: String}
+
+# The digits of n bytes read from the front of a list of cells, two digits per
+# byte, with the cells that remain after them.
+type ParsedBytes<-n: Nat> is Data:
+  ParsedBytes{digits: Digits.Digits(Nat.double(n)), rest: List<&2, U32>}
 
 # A strict traceparent v00 value (W3C 3.2.2): a trace ID of 32 digits and a
 # parent ID of 16 digits, each with a proof that it is not all zero, and a flag
@@ -736,6 +749,117 @@ def SpanId.from_words(first: U32, second: U32) -> Maybe<&2, SpanId>:
   SpanId.from_digits(Digits.NonZero.new(16n,
     Digits.Digits.append(8n, 8n, Digits.Digits.of_u32(first), Digits.Digits.of_u32(second))))
 
+# Identifiers as bytes
+# ====================
+#
+# The bytes of an ID are the form of OTLP's protobuf encoding, as the text of
+# TraceId.to_string and SpanId.to_string is that of its JSON encoding (spec
+# #41, "Identifier forms"). TraceId.to_bytes and TraceId.from_bytes state the
+# contract; the helpers below read bytes as Parse.id reads text.
+
+# Put the two digits of one more byte in front of the bytes already read: n
+# bytes become 1 + n.
+def ParsedBytes.prepend(-n: Nat, digits: Digits.Digits(2n), parsed: ParsedBytes<n>) -> ParsedBytes<1n+n>:
+  match digits parsed:
+    case Digits.DCon{high, Digits.DCon{low, Digits.DNil{}}} ParsedBytes{rest_digits, rest}:
+      ParsedBytes{Digits.DCon{high, Digits.DCon{low, rest_digits}}, rest}
+
+# The two digits of a cell, or InvalidByte at its offset when the check found
+# the cell above 255.
+def Parse.byte.checked(cell: U32, above: Bool, offset: Nat) -> Result<&2, &2, Error, Digits.Digits(2n)>:
+  match above:
+    case True{}:
+      Fail{InvalidByte{offset}}
+    case False{}:
+      Done{Digits.Digits.of_byte(cell)}
+
+# Read one cell as a byte.
+def Parse.byte(+cell: U32, offset: Nat) -> Result<&2, &2, Error, Digits.Digits(2n)>:
+  Parse.byte.checked(cell, U32.is_gt(cell, 255), offset)
+
+# Consume exactly n cells as bytes, keeping the cells after them. As in
+# Parse.digits, the recursion decreases n, so the result's type has the 2n
+# digits of n bytes.
+def Parse.bytes(n: Nat, bytes: List<&2, U32>, offset: Nat) -> Result<&2, &2, Error, ParsedBytes<n>>:
+  match n:
+    case 0n:
+      Done{ParsedBytes{Digits.DNil{}, bytes}}
+    case 1n+p:
+      match bytes:
+        case Nil{}:
+          Fail{UnexpectedEnd{offset}}
+        case Con{cell, tail}:
+          +at = offset
+          do Result<&2, &2, Error, ParsedBytes<1n+p>>:
+            digits : Digits.Digits(2n) <- Parse.byte(cell, at)
+            parsed : ParsedBytes<p> <- Parse.bytes(p, tail, 1n+at)
+            return ParsedBytes.prepend(p, digits, parsed)
+
+# The list must end after the ID's bytes: a cell after them fails with
+# TrailingInput, whatever it holds.
+def Parse.bytes_end(bytes: List<&2, U32>) -> Result<&2, &2, Error, Unit>:
+  match bytes:
+    case Nil{}:
+      Done{Unit{}}
+    case Con{cell, rest}:
+      Fail{TrailingInput{}}
+
+# The bytes of a supplied ID must be the whole list, and not all zero.
+def Parse.id_bytes.finish(n: Nat, parsed: ParsedBytes<n>, field: Field) ->
+  Result<&2, &2, Error, Digits.NonZero<Nat.double(n)>>:
+  match parsed:
+    case ParsedBytes{digits, rest}:
+      do Result<&2, &2, Error, Digits.NonZero<Nat.double(n)>>:
+        end : Unit <- Parse.bytes_end(rest)
+        Parse.nonzero(Nat.double(n), digits, field)
+
+# A supplied ID is exactly n bytes, not all zero.
+def Parse.id_bytes(+n: Nat, bytes: List<&2, U32>, field: Field) ->
+  Result<&2, &2, Error, Digits.NonZero<Nat.double(n)>>:
+  do Result<&2, &2, Error, Digits.NonZero<Nat.double(n)>>:
+    parsed : ParsedBytes<n> <- Parse.bytes(n, bytes, 0n)
+    Parse.id_bytes.finish(n, parsed, field)
+
+# The 16 bytes of the trace ID, most significant first, in Base's byte
+# convention, that of TCP.send_bytes and TCP.recv_bytes: one U32 cell from 0
+# to 255 per byte. The first byte holds the ID's first two digits, the first
+# of them high. The randomness assertion is not part of the bytes (laws
+# trace_bytes, trace_bytes_roundtrip and trace_bytes_injective).
+def TraceId.to_bytes(id: TraceId) -> List<&2, U32>:
+  match id:
+    case TraceId{value, random}:
+      Digits.Digits.to_bytes(16n, Digits.NonZero.digits(32n, value))
+
+# Read a trace ID from exactly 16 bytes, most significant first. The cells
+# are read in order: a missing cell fails with UnexpectedEnd and a cell above
+# 255 with InvalidByte, at its offset counted in cells; a 17th cell fails with
+# TrailingInput whatever it holds, and 16 zero bytes with ZeroId. Like a
+# parsed ID, the result makes no randomness assertion, since bytes do not say
+# how the ID was made; only a caller whose own generator, known to be random,
+# made it adds one with TraceId.assert_random. Laws: trace_bytes_inverse,
+# bytes_unasserted, trace_bytes_short, trace_bytes_long, trace_bytes_above,
+# zero_bytes and trace_bytes_accepts.
+def TraceId.from_bytes(bytes: List<&2, U32>) -> Result<&2, &2, Error, TraceId>:
+  do Result<&2, &2, Error, TraceId>:
+    value : Digits.NonZero<32n> <- Parse.id_bytes(16n, bytes, TraceIdField{})
+    return TraceId{value, False{}}
+
+# The 8 bytes of the span ID, most significant first (laws span_bytes,
+# span_bytes_roundtrip and span_bytes_injective).
+def SpanId.to_bytes(id: SpanId) -> List<&2, U32>:
+  match id:
+    case SpanId{value}:
+      Digits.Digits.to_bytes(8n, Digits.NonZero.digits(16n, value))
+
+# Read a span ID from exactly 8 bytes, most significant first, with the rules
+# and errors of TraceId.from_bytes. Laws: span_bytes_inverse,
+# span_bytes_short, span_bytes_long, span_bytes_above, zero_bytes and
+# span_bytes_accepts.
+def SpanId.from_bytes(bytes: List<&2, U32>) -> Result<&2, &2, Error, SpanId>:
+  do Result<&2, &2, Error, SpanId>:
+    value : Digits.NonZero<16n> <- Parse.id_bytes(8n, bytes, SpanIdField{})
+    return SpanId{value}
+
 # Generation machine
 # ==================
 #
@@ -1061,6 +1185,8 @@ def Error.show(error: Error) -> String:
       "UnexpectedEnd at " ++ Nat.show(offset)
     case InvalidHex{offset}:
       "InvalidHex at " ++ Nat.show(offset)
+    case InvalidByte{offset}:
+      "InvalidByte at " ++ Nat.show(offset)
     case ExpectedSeparator{offset}:
       "ExpectedSeparator at " ++ Nat.show(offset)
     case TrailingInput{}:

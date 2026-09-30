@@ -179,6 +179,49 @@ creates a server operation and sampled and unsampled client operations,
 rejects a reused span ID, restarts a trace, starts a root and represents an
 existing operation with `Context.from_ids`.
 
+### Identifiers as bytes
+
+A trace or span ID has two forms: its lowercase hexadecimal text, which
+`to_string` gives, `parse` reads and a traceparent carries, and its bytes.
+OTLP, which exporters speak, writes the bytes in its protobuf encoding and
+the text in its JSON encoding.
+
+```bend
+TraceId.to_bytes(id: TraceId) -> List<&2, U32>
+TraceId.from_bytes(bytes: List<&2, U32>) -> Result<&2, &2, Error, TraceId>
+SpanId.to_bytes(id: SpanId) -> List<&2, U32>
+SpanId.from_bytes(bytes: List<&2, U32>) -> Result<&2, &2, Error, SpanId>
+```
+
+Bytes follow Base's convention, the one of `TCP.send_bytes` and
+`TCP.recv_bytes`: a list of `U32` cells, one per byte, each from 0 to 255.
+A trace ID is 16 bytes and a span ID 8, most significant first: the first
+byte holds the first two digits of the text, the first of them high. The
+W3C example trace ID `4bf92f3577b34da6a3ce929d0e0e4736` is the bytes
+`75, 249, 47, 53, 119, 179, 77, 166, 163, 206, 146, 157, 14, 14, 71, 54`,
+and the span ID `00f067aa0ba902b7` the bytes
+`0, 240, 103, 170, 11, 169, 2, 183`.
+
+`from_bytes` checks bytes from another system as `parse` checks text. It
+reads the cells in order and reports the first problem as an `Error`, with
+an offset that counts cells from the start of the list:
+
+- `UnexpectedEnd{offset}` when the list ends before the ID's last byte;
+- `InvalidByte{offset}` for a cell above 255;
+- `TrailingInput{}` for a cell after the ID's last byte, whatever it and the
+  cells after it hold;
+- `ZeroId{TraceIdField{}}` or `ZeroId{SpanIdField{}}` when every byte is
+  zero.
+
+Every other list of 16 or 8 bytes is accepted, and gives the ID whose bytes
+it is. Like a parsed trace ID, a trace ID read from bytes makes no
+randomness assertion: a caller who knows that its IDs are random, because
+its own generator made them, adds it with `TraceId.assert_random`.
+`to_bytes` leaves the assertion out, so a trace ID and its asserted copy
+have the same bytes. The guide's
+[SDK building blocks](GUIDE.md#identifiers-as-bytes-and-as-hex) show both
+forms in an exporter.
+
 ## Generated contexts
 
 [generation.bend](generation.bend) generates identifiers on the host's
@@ -1133,7 +1176,8 @@ against it, together with the repository's own checks; the
 
 Supplied IDs follow the same rules for their single field: offsets count from
 the start of the ID text, and extra characters after the last digit are
-`TrailingInput{}`.
+`TrailingInput{}`. IDs read from [bytes](#identifiers-as-bytes) follow them
+cell by cell, with `InvalidByte{offset}` for a cell above 255.
 
 Errors are constructors of `Error`, such as `InvalidHex{offset}` or
 `ZeroId{TraceIdField{}}`; callers may match on them rather than read the
@@ -1224,6 +1268,15 @@ section describes, and the kernel needs Lean 4.34.
   digits are big-endian within each word too. `U32.to_hex` is injective, so no
   source information is lost, and converting words makes no randomness
   assertion.
+- **Bytes:** the bytes of a trace or span ID are, in order, the numbers that
+  the pairs of digits of its text denote in hexadecimal, so they are most
+  significant first and each from 0 to 255. Reading back the bytes of a span
+  ID gives that span ID, and those of a trace ID its digits without the
+  randomness assertion, which no trace ID read from bytes makes. Every list
+  that `from_bytes` accepts is the bytes of the ID it gives, and two IDs with
+  the same bytes have the same digits. Each refusal that
+  [Identifiers as bytes](#identifiers-as-bytes) lists is a law, and so is the
+  acceptance of every other list of 16 or 8 bytes.
 - **Generation:** a source error ends generation at once. Reading a tape, the
   IO operations compute exactly the pure tape driver, word for word. For every
   tape, a root or restart ends within 48 words and a child within 16. Eight
@@ -1376,9 +1429,9 @@ qualification exercise Base's side.
 
 Auxiliary universal proofs cover hexadecimal and character decoding, encoded
 lengths, reading an encoded sequence while preserving its suffix, recovery of a
-nonzero ID, string comparison and the word-to-digit round trip. Proofs use
-structural induction/composition, without local axioms or `@unsafe`
-shortcuts. The laws do not cover the origin of supplied IDs, the truth of a
+nonzero ID, string comparison, the word-to-digit round trip and the bits of a
+byte. Proofs use structural induction/composition, without local axioms or
+`@unsafe` shortcuts. The laws do not cover the origin of supplied IDs, the truth of a
 randomness assertion, the quality of a source or global uniqueness.
 
 The sources are written to be read by developers new to Bend. Each law in

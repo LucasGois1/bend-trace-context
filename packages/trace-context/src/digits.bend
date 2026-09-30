@@ -6,7 +6,8 @@
 # NonZero<n> adds the proof that the digits are not all zero, which W3C 3.2.2.3
 # and 3.2.2.4 require of trace and parent IDs. This module is internal to the
 # package. proofs/digits.bend proves that n digits always format as n
-# characters.
+# characters, and proofs/bytes.bend that the bytes of 2n digits, two digits
+# per byte, read back as those digits.
 
 import Base
 import ./hex.bend as Hex
@@ -63,6 +64,33 @@ def Digits.to_u32(digits: Digits(8n)) -> U32:
   match digits:
     case DCon{+d7, DCon{+d6, DCon{+d5, DCon{+d4, DCon{+d3, DCon{+d2, DCon{+d1, DCon{+d0, DNil{}}}}}}}}}:
       U32{WCon{Hex.Digit.is_odd(d0), WCon{Hex.Digit.has_bit1(d0), WCon{Hex.Digit.has_bit2(d0), WCon{Hex.Digit.has_bit3(d0), WCon{Hex.Digit.is_odd(d1), WCon{Hex.Digit.has_bit1(d1), WCon{Hex.Digit.has_bit2(d1), WCon{Hex.Digit.has_bit3(d1), WCon{Hex.Digit.is_odd(d2), WCon{Hex.Digit.has_bit1(d2), WCon{Hex.Digit.has_bit2(d2), WCon{Hex.Digit.has_bit3(d2), WCon{Hex.Digit.is_odd(d3), WCon{Hex.Digit.has_bit1(d3), WCon{Hex.Digit.has_bit2(d3), WCon{Hex.Digit.has_bit3(d3), WCon{Hex.Digit.is_odd(d4), WCon{Hex.Digit.has_bit1(d4), WCon{Hex.Digit.has_bit2(d4), WCon{Hex.Digit.has_bit3(d4), WCon{Hex.Digit.is_odd(d5), WCon{Hex.Digit.has_bit1(d5), WCon{Hex.Digit.has_bit2(d5), WCon{Hex.Digit.has_bit3(d5), WCon{Hex.Digit.is_odd(d6), WCon{Hex.Digit.has_bit1(d6), WCon{Hex.Digit.has_bit2(d6), WCon{Hex.Digit.has_bit3(d6), WCon{Hex.Digit.is_odd(d7), WCon{Hex.Digit.has_bit1(d7), WCon{Hex.Digit.has_bit2(d7), WCon{Hex.Digit.has_bit3(d7), WNil{}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}
+
+# The byte of two digits, the high digit first: 16 times the high digit plus
+# the low one, from 0 to 255. Its bits 7 to 4 are the high digit's, bits 3 to
+# 0 the low digit's, and the other 24 bits are zero.
+def Digits.to_byte(digits: Digits(2n)) -> U32:
+  match digits:
+    case DCon{+high, DCon{+low, DNil{}}}:
+      U32{WCon{Hex.Digit.is_odd(low), WCon{Hex.Digit.has_bit1(low), WCon{Hex.Digit.has_bit2(low), WCon{Hex.Digit.has_bit3(low), WCon{Hex.Digit.is_odd(high), WCon{Hex.Digit.has_bit1(high), WCon{Hex.Digit.has_bit2(high), WCon{Hex.Digit.has_bit3(high), Word.zero(24n)}}}}}}}}}
+
+# The two digits of a byte, the high digit first: bits 7 to 4, then bits 3 to
+# 0. The other bits are not read, so the caller first checks that the word is
+# at most 255.
+def Digits.of_byte(byte: U32) -> Digits(2n):
+  match byte:
+    case U32{WCon{b0, WCon{b1, WCon{b2, WCon{b3, WCon{b4, WCon{b5, WCon{b6, WCon{b7, rest}}}}}}}}}:
+      DCon{Hex.Digit.from_bits(b4, b5, b6, b7), DCon{Hex.Digit.from_bits(b0, b1, b2, b3), DNil{}}}
+
+# The n bytes of 2n digits, most significant first: each byte takes the next
+# two digits, the first of them high.
+def Digits.to_bytes(n: Nat, digits: Digits(Nat.double(n))) -> List<&2, U32>:
+  match n:
+    case 0n:
+      Nil{}
+    case 1n+p:
+      match digits:
+        case DCon{high, DCon{low, rest}}:
+          Con{Digits.to_byte(DCon{high, DCon{low, DNil{}}}), Digits.to_bytes(p, rest)}
 
 # The digits of `left` followed by those of `right`: m + n digits. Identifiers
 # are built from source words this way, eight digits per word.

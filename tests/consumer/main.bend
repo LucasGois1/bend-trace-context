@@ -607,6 +607,62 @@ def sdk_flags() -> IO(Unit):
     Unit <- sdk_flags.remote("00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-fe")
     sdk_flags.remote("00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-ff")
 
+# An SDK's identifiers as bytes and as hexadecimal text: an exporter writes
+# bytes to protobuf and the text to JSON, and IDs that another tracer hands
+# over as bytes are validated as parsed ones are. The cells below are the
+# bytes of the W3C example IDs.
+def sdk_bytes.cells.rest(cells: List<&2, U32>) -> String:
+  match cells:
+    case Nil{}:
+      ""
+    case Con{cell, rest}:
+      " " ++ U32.show(cell) ++ sdk_bytes.cells.rest(rest)
+
+def sdk_bytes.cells(cells: List<&2, U32>) -> String:
+  match cells:
+    case Nil{}:
+      "none"
+    case Con{cell, rest}:
+      U32.show(cell) ++ sdk_bytes.cells.rest(rest)
+
+def sdk_bytes.refused(-A: Data, label: String, result: Result<&2, &2, TC.Error, A>) -> IO(Unit):
+  match result:
+    case Done{_}:
+      IO.die(Unit, 1, "FAIL: accepted " ++ label)
+    case Fail{error}:
+      IO.print("sdk bytes: " ++ label ++ " refused: " ++ TC.Error.show(error))
+
+def sdk_bytes() -> IO(Unit):
+  do IO<Unit>:
+    +trace : TC.TraceId <- valid(TC.TraceId, "trace ID bytes", TC.TraceId.from_bytes(
+      [75, 249, 47, 53, 119, 179, 77, 166, 163, 206, 146, 157, 14, 14, 71, 54]))
+    +span : TC.SpanId <- valid(TC.SpanId, "span ID bytes", TC.SpanId.from_bytes([0, 240, 103, 170, 11, 169, 2, 183]))
+    Unit <- IO.print("sdk bytes: trace ID " ++ TC.TraceId.to_string(trace) ++ " from bytes, random: " ++
+      Bool.show(TC.TraceId.is_random(trace)))
+    Unit <- IO.print("sdk bytes: span ID " ++ TC.SpanId.to_string(span) ++ " from bytes")
+    # The operation that the other tracer created. Bytes do not say how its
+    # IDs were made, so the trace ID makes no randomness assertion, and the
+    # operation is sent without random-trace-id.
+    +operation : TC.LocalContext = TC.Context.from_ids(trace, span, True{})
+    Unit <- emit("sdk bytes: operation", operation)
+    Unit <- IO.print("sdk bytes: trace ID as bytes " ++ sdk_bytes.cells(TC.TraceId.to_bytes(
+      TC.LocalContext.trace_id(operation))) ++ ", as hex " ++ TC.TraceId.to_string(TC.LocalContext.trace_id(operation)))
+    Unit <- IO.print("sdk bytes: span ID as bytes " ++ sdk_bytes.cells(TC.SpanId.to_bytes(
+      TC.LocalContext.span_id(operation))) ++ ", as hex " ++ TC.SpanId.to_string(TC.LocalContext.span_id(operation)))
+    +parent : TC.RemoteContext <- received("00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01")
+    Unit <- IO.print("sdk bytes: received trace ID as bytes " ++
+      sdk_bytes.cells(TC.TraceId.to_bytes(TC.RemoteContext.trace_id(parent))))
+    Unit <- IO.print("sdk bytes: received span ID as bytes " ++
+      sdk_bytes.cells(TC.SpanId.to_bytes(TC.RemoteContext.span_id(parent))))
+    Unit <- sdk_bytes.refused(TC.TraceId, "15 bytes", TC.TraceId.from_bytes(
+      [75, 249, 47, 53, 119, 179, 77, 166, 163, 206, 146, 157, 14, 14, 71]))
+    Unit <- sdk_bytes.refused(TC.TraceId, "17 bytes", TC.TraceId.from_bytes(
+      [75, 249, 47, 53, 119, 179, 77, 166, 163, 206, 146, 157, 14, 14, 71, 54, 0]))
+    Unit <- sdk_bytes.refused(TC.SpanId, "a cell of 256", TC.SpanId.from_bytes([0, 256, 103, 170, 11, 169, 2, 183]))
+    Unit <- sdk_bytes.refused(TC.TraceId, "16 zero bytes", TC.TraceId.from_bytes(
+      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]))
+    sdk_bytes.refused(TC.SpanId, "8 zero bytes", TC.SpanId.from_bytes([0, 0, 0, 0, 0, 0, 0, 0]))
+
 # The published field names, as an OpenTelemetry SDK's W3C propagator uses
 # them: it writes the values that an outgoing context emits under them
 # through OpenTelemetry's setter, simulated here on a message's fields, and a
@@ -706,6 +762,7 @@ def main() -> IO(Unit):
     Unit <- injection()
     Unit <- continuation()
     Unit <- sdk_flags()
+    Unit <- sdk_bytes()
     Unit <- sdk_field_names()
     Unit <- sdk_parts()
     http_adapter()

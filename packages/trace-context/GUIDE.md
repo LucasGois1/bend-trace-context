@@ -886,11 +886,11 @@ describes.
 
 An OpenTelemetry SDK written in Bend composes the package's pieces itself,
 where a service calls `continue_or_start` and `send`: its span contexts wrap
-the package's incoming and outgoing contexts, its exporter writes the trace
-flags of each span, and its W3C propagator stays thin: it builds a carrier
-from OpenTelemetry's getter and writes what an outgoing context emits
-through its setter. What OpenTelemetry itself defines, such as its span
-context, samplers and propagator interface, belongs to the SDK.
+the package's incoming and outgoing contexts, its exporter writes the IDs
+and the trace flags of each span, and its W3C propagator stays thin: it
+builds a carrier from OpenTelemetry's getter and writes what an outgoing
+context emits through its setter. What OpenTelemetry itself defines, such
+as its span context, samplers and propagator interface, belongs to the SDK.
 [Spec #41](https://github.com/LucasGois1/bend-trace-context/issues/41) adds
 these pieces, and the [reference](README.md) lists their signatures.
 
@@ -987,6 +987,83 @@ tracestate: congo=t61rcWkgMzE
 old context fields, whatever the case of their names. A propagator that
 writes through a setter leaves that to its caller, which clears the fields
 by these names before it reuses a carrier.
+
+### Identifiers as bytes and as hex
+
+OTLP, the protocol that exporters speak, writes a trace ID and a span ID as
+bytes in its protobuf encoding and as lowercase hexadecimal text in its JSON
+encoding. `TC.TraceId.to_bytes` and `TC.SpanId.to_bytes` give the bytes,
+and `to_string` the text. `TC.TraceId.from_bytes` and `TC.SpanId.from_bytes`
+read bytes with the checks of `parse`, for IDs that come as bytes from
+elsewhere, such as the span of another tracer or a stored link; the
+[reference](README.md#identifiers-as-bytes) describes both forms and every
+refusal.
+
+Bytes do not say how an ID was made, so a trace ID read from them makes no
+randomness assertion, and an operation with it is sent without the
+random-trace-id flag. Only a generator of your own that you know to be
+random justifies the assertion, which `TC.TraceId.assert_random` adds.
+
+<!-- test:guide-bytes:start -->
+```bend
+import Base
+import ./deps/bend-trace-context/packages/trace-context/trace_context.bend as TC
+
+# The cells of a list of bytes, separated by spaces.
+def cells(bytes: List<&2, U32>) -> String:
+  match bytes:
+    case Nil{}:
+      ""
+    case Con{byte, Nil{}}:
+      U32.show(byte)
+    case Con{byte, rest}:
+      U32.show(byte) ++ " " ++ cells(rest)
+
+# What an exporter writes for an operation: its IDs as bytes in OTLP's
+# protobuf encoding, and as hexadecimal text in its JSON encoding.
+def exported(+operation: TC.LocalContext) -> String:
+  "protobuf trace_id: " ++ cells(TC.TraceId.to_bytes(TC.LocalContext.trace_id(operation))) ++
+    "\nprotobuf span_id: " ++ cells(TC.SpanId.to_bytes(TC.LocalContext.span_id(operation))) ++
+    "\nJSON traceId: " ++ TC.TraceId.to_string(TC.LocalContext.trace_id(operation)) ++
+    ", spanId: " ++ TC.SpanId.to_string(TC.LocalContext.span_id(operation))
+
+# The operation that another tracer created, from the IDs that it hands over
+# as bytes, checked as parsed IDs are. The bytes do not say how the IDs were
+# made, so the trace ID makes no randomness assertion.
+def imported(trace: Result<&2, &2, TC.Error, TC.TraceId>, span: Result<&2, &2, TC.Error, TC.SpanId>) -> String:
+  match trace span:
+    case Done{trace_id} Done{span_id}:
+      +operation = TC.Context.from_ids(trace_id, span_id, True{})
+      "traceparent: " ++ TC.TraceParentV00.format(TC.LocalContext.to_traceparent(operation)) ++ "\n" ++
+        exported(operation)
+    case Fail{error} _:
+      "invalid trace ID: " ++ TC.Error.show(error)
+    case _ Fail{error}:
+      "invalid span ID: " ++ TC.Error.show(error)
+
+def main() -> IO(Unit):
+  do IO<Unit>:
+    Unit <- IO.print(imported(
+      TC.TraceId.from_bytes([75, 249, 47, 53, 119, 179, 77, 166, 163, 206, 146, 157, 14, 14, 71, 54]),
+      TC.SpanId.from_bytes([0, 240, 103, 170, 11, 169, 2, 183])))
+    # One byte short.
+    IO.print(imported(TC.TraceId.from_bytes([75, 249, 47, 53, 119, 179, 77, 166, 163, 206, 146, 157, 14, 14, 71]),
+      TC.SpanId.from_bytes([0, 240, 103, 170, 11, 169, 2, 183])))
+```
+<!-- test:guide-bytes:end -->
+
+<!-- test:guide-bytes-output:start -->
+```text
+traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01
+protobuf trace_id: 75 249 47 53 119 179 77 166 163 206 146 157 14 14 71 54
+protobuf span_id: 0 240 103 170 11 169 2 183
+JSON traceId: 4bf92f3577b34da6a3ce929d0e0e4736, spanId: 00f067aa0ba902b7
+invalid trace ID: UnexpectedEnd at 15
+```
+<!-- test:guide-bytes-output:end -->
+
+[Errors and diagnostics](ERRORS.md#traceparent-and-identifiers) lists the
+errors of refused bytes, such as the list one byte short above.
 
 ### Remote span contexts from parts
 

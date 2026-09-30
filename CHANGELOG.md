@@ -29,6 +29,24 @@
   `forward_from_parts` prove that both constructors keep their parts and
   that such a context is not forwarded; the consumer and a guide program
   show them.
+- Convert trace and span IDs to and from bytes
+  ([#43](https://github.com/LucasGois1/bend-trace-context/issues/43)), the
+  form of OTLP's protobuf encoding, as the hexadecimal text of `to_string`
+  is that of its JSON encoding. `TraceId.to_bytes` and `SpanId.to_bytes`
+  give an ID's 16 or 8 bytes, most significant first, and
+  `TraceId.from_bytes` and `SpanId.from_bytes` read them back with the
+  checks of `parse`; a cell above 255 is refused with the new `Error`
+  constructor `InvalidByte`. A trace ID read from bytes makes no randomness
+  assertion. The [reference](packages/trace-context/README.md#identifiers-as-bytes)
+  describes both forms and every refusal. Eighteen new laws, proved in
+  `proofs/bytes.bend`, state the byte order, the round trips in both
+  directions, injectivity, each refusal, the acceptance of every other list
+  and the absence of an assertion; the guide's "Building blocks for an
+  OpenTelemetry SDK" section shows both forms in an exporter.
+
+**Migration from 0.1.2:** a `match` on `TC.Error` that lists every
+constructor adds a case for `InvalidByte{offset}`; a `match` with a
+catch-all case needs no change.
 
 ## 0.1.2 — 2026-09-29
 

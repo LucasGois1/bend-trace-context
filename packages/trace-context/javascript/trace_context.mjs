@@ -613,6 +613,46 @@ function $src$047digits$Digits$to_u32$(_digits_0) {
   return word_to_u32({$: "WCon", "head": ($src$047hex$Digit$is_odd$(_d0_0)), "tail": {$: "WCon", "head": ($src$047hex$Digit$has_bit1$(_d0_0)), "tail": {$: "WCon", "head": ($src$047hex$Digit$has_bit2$(_d0_0)), "tail": {$: "WCon", "head": ($src$047hex$Digit$has_bit3$(_d0_0)), "tail": {$: "WCon", "head": ($src$047hex$Digit$is_odd$(_d1_0)), "tail": {$: "WCon", "head": ($src$047hex$Digit$has_bit1$(_d1_0)), "tail": {$: "WCon", "head": ($src$047hex$Digit$has_bit2$(_d1_0)), "tail": {$: "WCon", "head": ($src$047hex$Digit$has_bit3$(_d1_0)), "tail": {$: "WCon", "head": ($src$047hex$Digit$is_odd$(_d2_0)), "tail": {$: "WCon", "head": ($src$047hex$Digit$has_bit1$(_d2_0)), "tail": {$: "WCon", "head": ($src$047hex$Digit$has_bit2$(_d2_0)), "tail": {$: "WCon", "head": ($src$047hex$Digit$has_bit3$(_d2_0)), "tail": {$: "WCon", "head": ($src$047hex$Digit$is_odd$(_d3_0)), "tail": {$: "WCon", "head": ($src$047hex$Digit$has_bit1$(_d3_0)), "tail": {$: "WCon", "head": ($src$047hex$Digit$has_bit2$(_d3_0)), "tail": {$: "WCon", "head": ($src$047hex$Digit$has_bit3$(_d3_0)), "tail": {$: "WCon", "head": ($src$047hex$Digit$is_odd$(_d4_0)), "tail": {$: "WCon", "head": ($src$047hex$Digit$has_bit1$(_d4_0)), "tail": {$: "WCon", "head": ($src$047hex$Digit$has_bit2$(_d4_0)), "tail": {$: "WCon", "head": ($src$047hex$Digit$has_bit3$(_d4_0)), "tail": {$: "WCon", "head": ($src$047hex$Digit$is_odd$(_d5_0)), "tail": {$: "WCon", "head": ($src$047hex$Digit$has_bit1$(_d5_0)), "tail": {$: "WCon", "head": ($src$047hex$Digit$has_bit2$(_d5_0)), "tail": {$: "WCon", "head": ($src$047hex$Digit$has_bit3$(_d5_0)), "tail": {$: "WCon", "head": ($src$047hex$Digit$is_odd$(_d6_0)), "tail": {$: "WCon", "head": ($src$047hex$Digit$has_bit1$(_d6_0)), "tail": {$: "WCon", "head": ($src$047hex$Digit$has_bit2$(_d6_0)), "tail": {$: "WCon", "head": ($src$047hex$Digit$has_bit3$(_d6_0)), "tail": {$: "WCon", "head": ($src$047hex$Digit$is_odd$(_d7_0)), "tail": {$: "WCon", "head": ($src$047hex$Digit$has_bit1$(_d7_0)), "tail": {$: "WCon", "head": ($src$047hex$Digit$has_bit2$(_d7_0)), "tail": {$: "WCon", "head": ($src$047hex$Digit$has_bit3$(_d7_0)), "tail": {$: "WNil"}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}});
 }
 
+function $src$047digits$Digits$to_byte$(_digits_0) {
+  const _high_0 = _digits_0["head"];
+  const _t_0 = _digits_0["tail"];
+  const _low_0 = _t_0["head"];
+  const _t_1 = _t_0["tail"];
+  return word_to_u32({$: "WCon", "head": ($src$047hex$Digit$is_odd$(_low_0)), "tail": {$: "WCon", "head": ($src$047hex$Digit$has_bit1$(_low_0)), "tail": {$: "WCon", "head": ($src$047hex$Digit$has_bit2$(_low_0)), "tail": {$: "WCon", "head": ($src$047hex$Digit$has_bit3$(_low_0)), "tail": {$: "WCon", "head": ($src$047hex$Digit$is_odd$(_high_0)), "tail": {$: "WCon", "head": ($src$047hex$Digit$has_bit1$(_high_0)), "tail": {$: "WCon", "head": ($src$047hex$Digit$has_bit2$(_high_0)), "tail": {$: "WCon", "head": ($src$047hex$Digit$has_bit3$(_high_0)), "tail": ($Word$zero$(24))}}}}}}}});
+}
+
+function $src$047digits$Digits$of_byte$(_byte_0) {
+  const _b0_0 = u32_to_word(_byte_0)["head"];
+  const _t_0 = u32_to_word(_byte_0)["tail"];
+  const _b1_0 = _t_0["head"];
+  const _t_1 = _t_0["tail"];
+  const _b2_0 = _t_1["head"];
+  const _t_2 = _t_1["tail"];
+  const _b3_0 = _t_2["head"];
+  const _t_3 = _t_2["tail"];
+  const _b4_0 = _t_3["head"];
+  const _t_4 = _t_3["tail"];
+  const _b5_0 = _t_4["head"];
+  const _t_5 = _t_4["tail"];
+  const _b6_0 = _t_5["head"];
+  const _t_6 = _t_5["tail"];
+  const _b7_0 = _t_6["head"];
+  return {$: "src/digits.DCon", "head": ($src$047hex$Digit$from_bits$(_b4_0, _b5_0, _b6_0, _b7_0)), "tail": {$: "src/digits.DCon", "head": ($src$047hex$Digit$from_bits$(_b0_0, _b1_0, _b2_0, _b3_0)), "tail": {$: "src/digits.DNil"}}};
+}
+
+function $src$047digits$Digits$to_bytes$(_n_0, _digits_0) {
+  if (_n_0 === 0) {
+    return {$: "Nil"};
+  } else {
+    const _p_0 = (_n_0 - 1);
+    const _high_0 = _digits_0["head"];
+    const _t_0 = _digits_0["tail"];
+    const _low_0 = _t_0["head"];
+    const _rest_0 = _t_0["tail"];
+    return {$: "Con", "head": ($src$047digits$Digits$to_byte$({$: "src/digits.DCon", "head": _high_0, "tail": {$: "src/digits.DCon", "head": _low_0, "tail": {$: "src/digits.DNil"}}})), "tail": ($src$047digits$Digits$to_bytes$(_p_0, _rest_0))};
+  }
+}
+
 function $src$047digits$Digits$append$(_m_0, _left_0, _right_0) {
   if (_m_0 === 0) {
     return _right_0;
@@ -1059,6 +1099,92 @@ function $SpanId$from_words$(_first_0, _second_0) {
   return $SpanId$from_digits$(($src$047digits$NonZero$new$(16, ($src$047digits$Digits$append$(8, ($src$047digits$Digits$of_u32$(_first_0)), ($src$047digits$Digits$of_u32$(_second_0)))))));
 }
 
+function $ParsedBytes$prepend$(_digits_0, _parsed_0) {
+  const _high_0 = _digits_0["head"];
+  const _t_0 = _digits_0["tail"];
+  const _low_0 = _t_0["head"];
+  const _t_1 = _t_0["tail"];
+  const _rest_digits_0 = _parsed_0["digits"];
+  const _rest_0 = _parsed_0["rest"];
+  return {$: "ParsedBytes", "digits": {$: "src/digits.DCon", "head": _high_0, "tail": {$: "src/digits.DCon", "head": _low_0, "tail": _rest_digits_0}}, "rest": _rest_0};
+}
+
+function $Parse$byte$checked$(_cell_0, _above_0, _offset_0) {
+  if (_above_0) {
+    return {$: "Fail", "error": {$: "InvalidByte", "offset": _offset_0}};
+  } else {
+    return {$: "Done", "value": ($src$047digits$Digits$of_byte$(_cell_0))};
+  }
+}
+
+function $Parse$byte$(_cell_0, _offset_0) {
+  return $Parse$byte$checked$(_cell_0, (_cell_0 > 255), _offset_0);
+}
+
+function $Parse$bytes$(_n_0, _bytes_0, _offset_0) {
+  if (_n_0 === 0) {
+    return {$: "Done", "value": {$: "ParsedBytes", "digits": {$: "src/digits.DNil"}, "rest": _bytes_0}};
+  } else {
+    const _p_0 = (_n_0 - 1);
+    if (_bytes_0.$ === "Nil") {
+      return {$: "Fail", "error": {$: "UnexpectedEnd", "offset": _offset_0}};
+    } else {
+      const _cell_0 = _bytes_0["head"];
+      const _tail_0 = _bytes_0["tail"];
+      const _at_0 = _offset_0;
+      return $Result$bind$(($Parse$byte$(_cell_0, _at_0)), run_clo((_x_0) => {
+  return $Result$bind$(run_loop($Parse$bytes$(_p_0, _tail_0, nat_chk(_at_0 + 1))), run_clo((_x_1) => {
+  return $Result$pure$(($ParsedBytes$prepend$(_x_0, _x_1)));
+}));
+}));
+    }
+  }
+}
+
+function $Parse$bytes_end$(_bytes_0) {
+  if (_bytes_0.$ === "Nil") {
+    return {$: "Done", "value": {$: "Unit"}};
+  } else {
+    return {$: "Fail", "error": {$: "TrailingInput"}};
+  }
+}
+
+function $Parse$id_bytes$finish$(_n_0, _parsed_0, _field_0) {
+  const _digits_0 = _parsed_0["digits"];
+  const _rest_0 = _parsed_0["rest"];
+  return $Result$bind$(($Parse$bytes_end$(_rest_0)), run_clo((_x_0) => {
+  return $Parse$nonzero$(nat_chk(_n_0 + _n_0), _digits_0, _field_0);
+}));
+}
+
+function $Parse$id_bytes$(_n_0, _bytes_0, _field_0) {
+  return $Result$bind$(run_loop($Parse$bytes$(_n_0, _bytes_0, 0)), run_clo((_x_0) => {
+  return $Parse$id_bytes$finish$(_n_0, _x_0, _field_0);
+}));
+}
+
+function $TraceId$to_bytes$(_id_0) {
+  const _value_0 = _id_0["value"];
+  return $src$047digits$Digits$to_bytes$(16, ($src$047digits$NonZero$digits$(_value_0)));
+}
+
+function $TraceId$from_bytes$(_bytes_0) {
+  return $Result$bind$(run_loop($Parse$id_bytes$(16, _bytes_0, {$: "TraceIdField"})), run_clo((_x_0) => {
+  return $Result$pure$({$: "TraceId", "value": _x_0, "random": false});
+}));
+}
+
+function $SpanId$to_bytes$(_id_0) {
+  const _value_0 = _id_0["value"];
+  return $src$047digits$Digits$to_bytes$(8, ($src$047digits$NonZero$digits$(_value_0)));
+}
+
+function $SpanId$from_bytes$(_bytes_0) {
+  return $Result$bind$(run_loop($Parse$id_bytes$(8, _bytes_0, {$: "SpanIdField"})), run_clo((_x_0) => {
+  return $Result$pure$({$: "SpanId", "value": _x_0});
+}));
+}
+
 function $Draw$root$() {
   return {$: "NeedWord", "draw": {$: "DrawTrace", "remaining": 7, "words": {$: "NoTraceWord"}, "previous": {$: "None"}}};
 }
@@ -1369,10 +1495,14 @@ function $Error$show$(_error_0) {
     const _offset_1 = _error_0["offset"];
     const _x_1 = ($Nat$show$(_offset_1));
     return ("InvalidHex at " + _x_1);
-  } else if (_error_0.$ === "ExpectedSeparator") {
+  } else if (_error_0.$ === "InvalidByte") {
     const _offset_2 = _error_0["offset"];
     const _x_2 = ($Nat$show$(_offset_2));
-    return ("ExpectedSeparator at " + _x_2);
+    return ("InvalidByte at " + _x_2);
+  } else if (_error_0.$ === "ExpectedSeparator") {
+    const _offset_3 = _error_0["offset"];
+    const _x_3 = ($Nat$show$(_offset_3));
+    return ("ExpectedSeparator at " + _x_3);
   } else if (_error_0.$ === "TrailingInput") {
     return "TrailingInput";
   } else if (_error_0.$ === "ForbiddenVersion") {
@@ -1390,9 +1520,9 @@ function $Error$show$(_error_0) {
       return "ZeroSpanId";
     }
   } else {
-    const _offset_3 = _error_0["offset"];
-    const _x_3 = ($Nat$show$(_offset_3));
-    return ("ControlCharacter at " + _x_3);
+    const _offset_4 = _error_0["offset"];
+    const _x_4 = ($Nat$show$(_offset_4));
+    return ("ControlCharacter at " + _x_4);
   }
 }
 
@@ -3345,6 +3475,15 @@ function $Bool$and$(_a_0, _b_0) {
   }
 }
 
+function $Word$zero$(_n_0) {
+  if (_n_0 === 0) {
+    return {$: "WNil"};
+  } else {
+    const _p_0 = (_n_0 - 1);
+    return {$: "WCon", "head": false, "tail": ($Word$zero$(_p_0))};
+  }
+}
+
 function $Result$bind$(_r_0, _f_0) {
   if (_r_0.$ === "Fail") {
     const _e_0 = _r_0["error"];
@@ -3806,13 +3945,14 @@ function $0m1(v) {
     switch (v.$) {
       case "UnexpectedEnd": at = at[key] = {...v, "offset": BigInt(v["offset"])}; return top[0];
       case "InvalidHex": at = at[key] = {...v, "offset": BigInt(v["offset"])}; return top[0];
+      case "InvalidByte": at = at[key] = {...v, "offset": BigInt(v["offset"])}; return top[0];
       case "ExpectedSeparator": at = at[key] = {...v, "offset": BigInt(v["offset"])}; return top[0];
       case "TrailingInput": at[key] = v; return top[0];
       case "ForbiddenVersion": at[key] = v; return top[0];
       case "UnsupportedVersion": at[key] = v; return top[0];
       case "ZeroId": at[key] = v; return top[0];
       case "ControlCharacter": at = at[key] = {...v, "offset": BigInt(v["offset"])}; return top[0];
-      default: throw "bend: Error has no tag " + v?.$ + " (its tags: UnexpectedEnd, InvalidHex, ExpectedSeparator, TrailingInput, ForbiddenVersion, UnsupportedVersion, ZeroId, ControlCharacter); a tag names its constructor as the"
+      default: throw "bend: Error has no tag " + v?.$ + " (its tags: UnexpectedEnd, InvalidHex, InvalidByte, ExpectedSeparator, TrailingInput, ForbiddenVersion, UnsupportedVersion, ZeroId, ControlCharacter); a tag names its constructor as the"
       + " loading file sees it, which a later version will make the same"
       + " everywhere (#1105)";
     }
@@ -3923,7 +4063,46 @@ function $0m8(v) {
   }
 }
 
+function $0m9(v) {
+  const top = [v];
+  for (let at = top, key = 0;;) {
+    switch (v.$) {
+      case "Fail": at = at[key] = {...v, "error": $0m1(v["error"])}; return top[0];
+      case "Done": at[key] = v; return top[0];
+      default: throw "bend: Result has no tag " + v?.$ + " (its tags: Fail, Done); a tag names its constructor as the"
+      + " loading file sees it, which a later version will make the same"
+      + " everywhere (#1105)";
+    }
+  }
+}
+
 function $0m10(v) {
+  const top = [v];
+  for (let at = top, key = 0;;) {
+    switch (v.$) {
+      case "Fail": at = at[key] = {...v, "error": $0m1(v["error"])}; return top[0];
+      case "Done": at[key] = v; return top[0];
+      default: throw "bend: Result has no tag " + v?.$ + " (its tags: Fail, Done); a tag names its constructor as the"
+      + " loading file sees it, which a later version will make the same"
+      + " everywhere (#1105)";
+    }
+  }
+}
+
+function $0m11(v) {
+  const top = [v];
+  for (let at = top, key = 0;;) {
+    switch (v.$) {
+      case "Fail": at = at[key] = {...v, "error": $0m1(v["error"])}; return top[0];
+      case "Done": at[key] = v; return top[0];
+      default: throw "bend: Result has no tag " + v?.$ + " (its tags: Fail, Done); a tag names its constructor as the"
+      + " loading file sees it, which a later version will make the same"
+      + " everywhere (#1105)";
+    }
+  }
+}
+
+function $0m13(v) {
   const top = [v];
   for (let at = top, key = 0;;) {
     switch (v.$) {
@@ -3936,11 +4115,11 @@ function $0m10(v) {
   }
 }
 
-function $0m9(v) {
+function $0m12(v) {
   const top = [v];
   for (let at = top, key = 0;;) {
     switch (v.$) {
-      case "NeedWord": at = at[key] = {...v, "draw": $0m10(v["draw"])}; return top[0];
+      case "NeedWord": at = at[key] = {...v, "draw": $0m13(v["draw"])}; return top[0];
       case "Created": at[key] = v; return top[0];
       case "Failed": at[key] = v; return top[0];
       default: throw "bend: Step has no tag " + v?.$ + " (its tags: NeedWord, Created, Failed); a tag names its constructor as the"
@@ -3950,7 +4129,7 @@ function $0m9(v) {
   }
 }
 
-function $0m11(v) {
+function $0m14(v) {
   const top = [v];
   for (let at = top, key = 0;;) {
     switch (v.$) {
@@ -3963,11 +4142,11 @@ function $0m11(v) {
   }
 }
 
-function $0m12(v) {
+function $0m15(v) {
   const top = [v];
   for (let at = top, key = 0;;) {
     switch (v.$) {
-      case "NeedWord": at = at[key] = {...v, "draw": $0m11(v["draw"])}; return top[0];
+      case "NeedWord": at = at[key] = {...v, "draw": $0m14(v["draw"])}; return top[0];
       case "Created": at[key] = v; return top[0];
       case "Failed": at[key] = v; return top[0];
       default: throw "bend: Step has no tag " + v?.$ + " (its tags: NeedWord, Created, Failed); a tag names its constructor as the"
@@ -3977,19 +4156,7 @@ function $0m12(v) {
   }
 }
 
-function $0m13(v) {
-  const top = [v];
-  for (let at = top, key = 0;;) {
-    switch (v.$) {
-      case "Tuple": at = at[key] = {...v, "snd": $0m9(v["snd"])}; return top[0];
-      default: throw "bend: Sigma has no tag " + v?.$ + " (its tags: Tuple); a tag names its constructor as the"
-      + " loading file sees it, which a later version will make the same"
-      + " everywhere (#1105)";
-    }
-  }
-}
-
-function $0m14(v) {
+function $0m16(v) {
   const top = [v];
   for (let at = top, key = 0;;) {
     switch (v.$) {
@@ -4001,36 +4168,12 @@ function $0m14(v) {
   }
 }
 
-function $0m15(v) {
-  const top = [v];
-  for (let at = top, key = 0;;) {
-    switch (v.$) {
-      case "Tuple": at = at[key] = {...v, "snd": $0m9(v["snd"])}; return top[0];
-      default: throw "bend: Sigma has no tag " + v?.$ + " (its tags: Tuple); a tag names its constructor as the"
-      + " loading file sees it, which a later version will make the same"
-      + " everywhere (#1105)";
-    }
-  }
-}
-
-function $0m16(v) {
-  const top = [v];
-  for (let at = top, key = 0;;) {
-    switch (v.$) {
-      case "Generation": at = at[key] = {...v, "fuel": BigInt(v["fuel"]), "step": $0m9(v["step"])}; return top[0];
-      default: throw "bend: Generation has no tag " + v?.$ + " (its tags: Generation); a tag names its constructor as the"
-      + " loading file sees it, which a later version will make the same"
-      + " everywhere (#1105)";
-    }
-  }
-}
-
 function $0m17(v) {
   const top = [v];
   for (let at = top, key = 0;;) {
     switch (v.$) {
-      case "Generation": at = at[key] = {...v, "fuel": nat_host(v["fuel"]), "step": $0m12(v["step"])}; return top[0];
-      default: throw "bend: Generation has no tag " + v?.$ + " (its tags: Generation); a tag names its constructor as the"
+      case "Tuple": at = at[key] = {...v, "snd": $0m15(v["snd"])}; return top[0];
+      default: throw "bend: Sigma has no tag " + v?.$ + " (its tags: Tuple); a tag names its constructor as the"
       + " loading file sees it, which a later version will make the same"
       + " everywhere (#1105)";
     }
@@ -4041,15 +4184,20 @@ function $0m18(v) {
   const top = [v];
   for (let at = top, key = 0;;) {
     switch (v.$) {
-      case "UnexpectedEnd": at = at[key] = {...v, "offset": nat_host(v["offset"])}; return top[0];
-      case "InvalidHex": at = at[key] = {...v, "offset": nat_host(v["offset"])}; return top[0];
-      case "ExpectedSeparator": at = at[key] = {...v, "offset": nat_host(v["offset"])}; return top[0];
-      case "TrailingInput": at[key] = v; return top[0];
-      case "ForbiddenVersion": at[key] = v; return top[0];
-      case "UnsupportedVersion": at[key] = v; return top[0];
-      case "ZeroId": at[key] = v; return top[0];
-      case "ControlCharacter": at = at[key] = {...v, "offset": nat_host(v["offset"])}; return top[0];
-      default: throw "bend: Error has no tag " + v?.$ + " (its tags: UnexpectedEnd, InvalidHex, ExpectedSeparator, TrailingInput, ForbiddenVersion, UnsupportedVersion, ZeroId, ControlCharacter); a tag names its constructor as the"
+      case "Tuple": at = at[key] = {...v, "snd": $0m12(v["snd"])}; return top[0];
+      default: throw "bend: Sigma has no tag " + v?.$ + " (its tags: Tuple); a tag names its constructor as the"
+      + " loading file sees it, which a later version will make the same"
+      + " everywhere (#1105)";
+    }
+  }
+}
+
+function $0m19(v) {
+  const top = [v];
+  for (let at = top, key = 0;;) {
+    switch (v.$) {
+      case "Generation": at = at[key] = {...v, "fuel": BigInt(v["fuel"]), "step": $0m12(v["step"])}; return top[0];
+      default: throw "bend: Generation has no tag " + v?.$ + " (its tags: Generation); a tag names its constructor as the"
       + " loading file sees it, which a later version will make the same"
       + " everywhere (#1105)";
     }
@@ -4057,6 +4205,38 @@ function $0m18(v) {
 }
 
 function $0m20(v) {
+  const top = [v];
+  for (let at = top, key = 0;;) {
+    switch (v.$) {
+      case "Generation": at = at[key] = {...v, "fuel": nat_host(v["fuel"]), "step": $0m15(v["step"])}; return top[0];
+      default: throw "bend: Generation has no tag " + v?.$ + " (its tags: Generation); a tag names its constructor as the"
+      + " loading file sees it, which a later version will make the same"
+      + " everywhere (#1105)";
+    }
+  }
+}
+
+function $0m21(v) {
+  const top = [v];
+  for (let at = top, key = 0;;) {
+    switch (v.$) {
+      case "UnexpectedEnd": at = at[key] = {...v, "offset": nat_host(v["offset"])}; return top[0];
+      case "InvalidHex": at = at[key] = {...v, "offset": nat_host(v["offset"])}; return top[0];
+      case "InvalidByte": at = at[key] = {...v, "offset": nat_host(v["offset"])}; return top[0];
+      case "ExpectedSeparator": at = at[key] = {...v, "offset": nat_host(v["offset"])}; return top[0];
+      case "TrailingInput": at[key] = v; return top[0];
+      case "ForbiddenVersion": at[key] = v; return top[0];
+      case "UnsupportedVersion": at[key] = v; return top[0];
+      case "ZeroId": at[key] = v; return top[0];
+      case "ControlCharacter": at = at[key] = {...v, "offset": nat_host(v["offset"])}; return top[0];
+      default: throw "bend: Error has no tag " + v?.$ + " (its tags: UnexpectedEnd, InvalidHex, InvalidByte, ExpectedSeparator, TrailingInput, ForbiddenVersion, UnsupportedVersion, ZeroId, ControlCharacter); a tag names its constructor as the"
+      + " loading file sees it, which a later version will make the same"
+      + " everywhere (#1105)";
+    }
+  }
+}
+
+function $0m23(v) {
   const top = [v];
   for (let at = top, key = 0;;) {
     switch (v.$) {
@@ -4068,12 +4248,12 @@ function $0m20(v) {
   }
 }
 
-function $0m19(v) {
+function $0m22(v) {
   const top = [v];
   for (let at = top, key = 0;;) {
     switch (v.$) {
       case "Fail": at[key] = v; return top[0];
-      case "Done": at = at[key] = {...v, "value": $0m20(v["value"])}; return top[0];
+      case "Done": at = at[key] = {...v, "value": $0m23(v["value"])}; return top[0];
       default: throw "bend: Result has no tag " + v?.$ + " (its tags: Fail, Done); a tag names its constructor as the"
       + " loading file sees it, which a later version will make the same"
       + " everywhere (#1105)";
@@ -4081,7 +4261,7 @@ function $0m19(v) {
   }
 }
 
-function $0m21(v) {
+function $0m24(v) {
   const top = [v];
   for (let at = top, key = 0;;) {
     switch (v.$) {
@@ -4093,7 +4273,7 @@ function $0m21(v) {
   }
 }
 
-function $0m22(v) {
+function $0m25(v) {
   const top = [v];
   for (let at = top, key = 0;;) {
     switch (v.$) {
@@ -4106,7 +4286,7 @@ function $0m22(v) {
   }
 }
 
-function $0m23(v) {
+function $0m26(v) {
   const top = [v];
   for (let at = top, key = 0;;) {
     switch (v.$) {
@@ -4119,7 +4299,7 @@ function $0m23(v) {
   }
 }
 
-function $0m25(v) {
+function $0m28(v) {
   const top = [v];
   for (let at = top, key = 0;;) {
     switch (v.$) {
@@ -4133,12 +4313,12 @@ function $0m25(v) {
   }
 }
 
-function $0m24(v) {
+function $0m27(v) {
   const top = [v];
   for (let at = top, key = 0;;) {
     switch (v.$) {
       case "Scanning": at = at[key] = {...v, "member": BigInt(v["member"]), "room": BigInt(v["room"])}; return top[0];
-      case "Stopped": at = at[key] = {...v, "error": $0m25(v["error"])}; return top[0];
+      case "Stopped": at = at[key] = {...v, "error": $0m28(v["error"])}; return top[0];
       default: throw "bend: Scan has no tag " + v?.$ + " (its tags: Scanning, Stopped); a tag names its constructor as the"
       + " loading file sees it, which a later version will make the same"
       + " everywhere (#1105)";
@@ -4146,7 +4326,7 @@ function $0m24(v) {
   }
 }
 
-function $0m27(v) {
+function $0m30(v) {
   const top = [v];
   for (let at = top, key = 0;;) {
     switch (v.$) {
@@ -4160,12 +4340,12 @@ function $0m27(v) {
   }
 }
 
-function $0m26(v) {
+function $0m29(v) {
   const top = [v];
   for (let at = top, key = 0;;) {
     switch (v.$) {
       case "Scanning": at = at[key] = {...v, "member": nat_host(v["member"]), "room": nat_host(v["room"])}; return top[0];
-      case "Stopped": at = at[key] = {...v, "error": $0m27(v["error"])}; return top[0];
+      case "Stopped": at = at[key] = {...v, "error": $0m30(v["error"])}; return top[0];
       default: throw "bend: Scan has no tag " + v?.$ + " (its tags: Scanning, Stopped); a tag names its constructor as the"
       + " loading file sees it, which a later version will make the same"
       + " everywhere (#1105)";
@@ -4173,11 +4353,11 @@ function $0m26(v) {
   }
 }
 
-function $0m28(v) {
+function $0m31(v) {
   const top = [v];
   for (let at = top, key = 0;;) {
     switch (v.$) {
-      case "Fail": at = at[key] = {...v, "error": $0m25(v["error"])}; return top[0];
+      case "Fail": at = at[key] = {...v, "error": $0m28(v["error"])}; return top[0];
       case "Done": at[key] = v; return top[0];
       default: throw "bend: Result has no tag " + v?.$ + " (its tags: Fail, Done); a tag names its constructor as the"
       + " loading file sees it, which a later version will make the same"
@@ -4186,7 +4366,7 @@ function $0m28(v) {
   }
 }
 
-function $0m29(v) {
+function $0m32(v) {
   const top = [v];
   for (let at = top, key = 0;;) {
     switch (v.$) {
@@ -4199,11 +4379,11 @@ function $0m29(v) {
   }
 }
 
-function $0m30(v) {
+function $0m33(v) {
   const top = [v];
   for (let at = top, key = 0;;) {
     switch (v.$) {
-      case "Fail": at = at[key] = {...v, "error": $0m18(v["error"])}; return top[0];
+      case "Fail": at = at[key] = {...v, "error": $0m21(v["error"])}; return top[0];
       case "Done": at[key] = v; return top[0];
       default: throw "bend: Result has no tag " + v?.$ + " (its tags: Fail, Done); a tag names its constructor as the"
       + " loading file sees it, which a later version will make the same"
@@ -4212,7 +4392,7 @@ function $0m30(v) {
   }
 }
 
-function $0m32(v) {
+function $0m35(v) {
   const top = [v];
   for (let at = top, key = 0;;) {
     switch (v.$) {
@@ -4226,11 +4406,11 @@ function $0m32(v) {
   }
 }
 
-function $0m31(v) {
+function $0m34(v) {
   const top = [v];
   for (let at = top, key = 0;;) {
     switch (v.$) {
-      case "Fail": at = at[key] = {...v, "error": $0m32(v["error"])}; return top[0];
+      case "Fail": at = at[key] = {...v, "error": $0m35(v["error"])}; return top[0];
       case "Done": at[key] = v; return top[0];
       default: throw "bend: Result has no tag " + v?.$ + " (its tags: Fail, Done); a tag names its constructor as the"
       + " loading file sees it, which a later version will make the same"
@@ -4239,13 +4419,13 @@ function $0m31(v) {
   }
 }
 
-function $0m33(v) {
+function $0m36(v) {
   const top = [v];
   for (let at = top, key = 0;;) {
     switch (v.$) {
       case "StateAbsent": at[key] = v; return top[0];
       case "StateAccepted": at[key] = v; return top[0];
-      case "StateDiscarded": at = at[key] = {...v, "error": $0m25(v["error"])}; return top[0];
+      case "StateDiscarded": at = at[key] = {...v, "error": $0m28(v["error"])}; return top[0];
       case "StateIgnored": at[key] = v; return top[0];
       default: throw "bend: StateOutcome has no tag " + v?.$ + " (its tags: StateAbsent, StateAccepted, StateDiscarded, StateIgnored); a tag names its constructor as the"
       + " loading file sees it, which a later version will make the same"
@@ -4254,13 +4434,13 @@ function $0m33(v) {
   }
 }
 
-function $0m35(v) {
+function $0m38(v) {
   const top = [v];
   for (let at = top, key = 0;;) {
     switch (v.$) {
       case "RepeatedTraceParent": at[key] = v; return top[0];
       case "TraceParentTooLarge": at[key] = v; return top[0];
-      case "InvalidTraceParent": at = at[key] = {...v, "error": $0m18(v["error"])}; return top[0];
+      case "InvalidTraceParent": at = at[key] = {...v, "error": $0m21(v["error"])}; return top[0];
       default: throw "bend: TraceParentError has no tag " + v?.$ + " (its tags: RepeatedTraceParent, TraceParentTooLarge, InvalidTraceParent); a tag names its constructor as the"
       + " loading file sees it, which a later version will make the same"
       + " everywhere (#1105)";
@@ -4268,7 +4448,21 @@ function $0m35(v) {
   }
 }
 
-function $0m34(v) {
+function $0m37(v) {
+  const top = [v];
+  for (let at = top, key = 0;;) {
+    switch (v.$) {
+      case "TraceParentAccepted": at[key] = v; return top[0];
+      case "TraceParentAbsent": at[key] = v; return top[0];
+      case "TraceParentRejected": at = at[key] = {...v, "error": $0m38(v["error"])}; return top[0];
+      default: throw "bend: TraceParentOutcome has no tag " + v?.$ + " (its tags: TraceParentAccepted, TraceParentAbsent, TraceParentRejected); a tag names its constructor as the"
+      + " loading file sees it, which a later version will make the same"
+      + " everywhere (#1105)";
+    }
+  }
+}
+
+function $0m39(v) {
   const top = [v];
   for (let at = top, key = 0;;) {
     switch (v.$) {
@@ -4282,52 +4476,12 @@ function $0m34(v) {
   }
 }
 
-function $0m36(v) {
+function $0m40(v) {
   const top = [v];
   for (let at = top, key = 0;;) {
     switch (v.$) {
-      case "TraceParentAccepted": at[key] = v; return top[0];
-      case "TraceParentAbsent": at[key] = v; return top[0];
-      case "TraceParentRejected": at = at[key] = {...v, "error": $0m32(v["error"])}; return top[0];
-      default: throw "bend: TraceParentOutcome has no tag " + v?.$ + " (its tags: TraceParentAccepted, TraceParentAbsent, TraceParentRejected); a tag names its constructor as the"
-      + " loading file sees it, which a later version will make the same"
-      + " everywhere (#1105)";
-    }
-  }
-}
-
-function $0m37(v) {
-  const top = [v];
-  for (let at = top, key = 0;;) {
-    switch (v.$) {
-      case "Extraction": at = at[key] = {...v, "parent": $0m36(v["parent"]), "state": $0m33(v["state"])}; return top[0];
+      case "Extraction": at = at[key] = {...v, "parent": $0m39(v["parent"]), "state": $0m36(v["state"])}; return top[0];
       default: throw "bend: Extraction has no tag " + v?.$ + " (its tags: Extraction); a tag names its constructor as the"
-      + " loading file sees it, which a later version will make the same"
-      + " everywhere (#1105)";
-    }
-  }
-}
-
-function $0m38(v) {
-  const top = [v];
-  for (let at = top, key = 0;;) {
-    switch (v.$) {
-      case "Fail": at = at[key] = {...v, "error": $0m27(v["error"])}; return top[0];
-      case "Done": at[key] = v; return top[0];
-      default: throw "bend: Result has no tag " + v?.$ + " (its tags: Fail, Done); a tag names its constructor as the"
-      + " loading file sees it, which a later version will make the same"
-      + " everywhere (#1105)";
-    }
-  }
-}
-
-function $0m39(v) {
-  const top = [v];
-  for (let at = top, key = 0;;) {
-    switch (v.$) {
-      case "Fail": at = at[key] = {...v, "error": $0m35(v["error"])}; return top[0];
-      case "Done": at[key] = v; return top[0];
-      default: throw "bend: Result has no tag " + v?.$ + " (its tags: Fail, Done); a tag names its constructor as the"
       + " loading file sees it, which a later version will make the same"
       + " everywhere (#1105)";
     }
@@ -4338,38 +4492,9 @@ function $0m41(v) {
   const top = [v];
   for (let at = top, key = 0;;) {
     switch (v.$) {
-      case "StateAbsent": at[key] = v; return top[0];
-      case "StateAccepted": at[key] = v; return top[0];
-      case "StateDiscarded": at = at[key] = {...v, "error": $0m27(v["error"])}; return top[0];
-      case "StateIgnored": at[key] = v; return top[0];
-      default: throw "bend: StateOutcome has no tag " + v?.$ + " (its tags: StateAbsent, StateAccepted, StateDiscarded, StateIgnored); a tag names its constructor as the"
-      + " loading file sees it, which a later version will make the same"
-      + " everywhere (#1105)";
-    }
-  }
-}
-
-function $0m40(v) {
-  const top = [v];
-  for (let at = top, key = 0;;) {
-    switch (v.$) {
-      case "Extraction": at = at[key] = {...v, "parent": $0m34(v["parent"]), "state": $0m41(v["state"])}; return top[0];
-      default: throw "bend: Extraction has no tag " + v?.$ + " (its tags: Extraction); a tag names its constructor as the"
-      + " loading file sees it, which a later version will make the same"
-      + " everywhere (#1105)";
-    }
-  }
-}
-
-function $0m43(v) {
-  const top = [v];
-  for (let at = top, key = 0;;) {
-    switch (v.$) {
-      case "NothingToForward": at[key] = v; return top[0];
-      case "ForwardTooLarge": at[key] = v; return top[0];
-      case "InvalidForwardParent": at = at[key] = {...v, "error": $0m32(v["error"])}; return top[0];
-      case "InvalidForwardState": at = at[key] = {...v, "error": $0m25(v["error"])}; return top[0];
-      default: throw "bend: ForwardError has no tag " + v?.$ + " (its tags: NothingToForward, ForwardTooLarge, InvalidForwardParent, InvalidForwardState); a tag names its constructor as the"
+      case "Fail": at = at[key] = {...v, "error": $0m30(v["error"])}; return top[0];
+      case "Done": at[key] = v; return top[0];
+      default: throw "bend: Result has no tag " + v?.$ + " (its tags: Fail, Done); a tag names its constructor as the"
       + " loading file sees it, which a later version will make the same"
       + " everywhere (#1105)";
     }
@@ -4380,7 +4505,7 @@ function $0m42(v) {
   const top = [v];
   for (let at = top, key = 0;;) {
     switch (v.$) {
-      case "Fail": at = at[key] = {...v, "error": $0m43(v["error"])}; return top[0];
+      case "Fail": at = at[key] = {...v, "error": $0m38(v["error"])}; return top[0];
       case "Done": at[key] = v; return top[0];
       default: throw "bend: Result has no tag " + v?.$ + " (its tags: Fail, Done); a tag names its constructor as the"
       + " loading file sees it, which a later version will make the same"
@@ -4393,10 +4518,37 @@ function $0m44(v) {
   const top = [v];
   for (let at = top, key = 0;;) {
     switch (v.$) {
+      case "StateAbsent": at[key] = v; return top[0];
+      case "StateAccepted": at[key] = v; return top[0];
+      case "StateDiscarded": at = at[key] = {...v, "error": $0m30(v["error"])}; return top[0];
+      case "StateIgnored": at[key] = v; return top[0];
+      default: throw "bend: StateOutcome has no tag " + v?.$ + " (its tags: StateAbsent, StateAccepted, StateDiscarded, StateIgnored); a tag names its constructor as the"
+      + " loading file sees it, which a later version will make the same"
+      + " everywhere (#1105)";
+    }
+  }
+}
+
+function $0m43(v) {
+  const top = [v];
+  for (let at = top, key = 0;;) {
+    switch (v.$) {
+      case "Extraction": at = at[key] = {...v, "parent": $0m37(v["parent"]), "state": $0m44(v["state"])}; return top[0];
+      default: throw "bend: Extraction has no tag " + v?.$ + " (its tags: Extraction); a tag names its constructor as the"
+      + " loading file sees it, which a later version will make the same"
+      + " everywhere (#1105)";
+    }
+  }
+}
+
+function $0m46(v) {
+  const top = [v];
+  for (let at = top, key = 0;;) {
+    switch (v.$) {
       case "NothingToForward": at[key] = v; return top[0];
       case "ForwardTooLarge": at[key] = v; return top[0];
       case "InvalidForwardParent": at = at[key] = {...v, "error": $0m35(v["error"])}; return top[0];
-      case "InvalidForwardState": at = at[key] = {...v, "error": $0m27(v["error"])}; return top[0];
+      case "InvalidForwardState": at = at[key] = {...v, "error": $0m28(v["error"])}; return top[0];
       default: throw "bend: ForwardError has no tag " + v?.$ + " (its tags: NothingToForward, ForwardTooLarge, InvalidForwardParent, InvalidForwardState); a tag names its constructor as the"
       + " loading file sees it, which a later version will make the same"
       + " everywhere (#1105)";
@@ -4408,22 +4560,9 @@ function $0m45(v) {
   const top = [v];
   for (let at = top, key = 0;;) {
     switch (v.$) {
-      case "ContinuePlan": at = at[key] = {...v, "generation": $0m16(v["generation"])}; return top[0];
-      case "StartPlan": at = at[key] = {...v, "generation": $0m16(v["generation"])}; return top[0];
-      default: throw "bend: ServicePlan has no tag " + v?.$ + " (its tags: ContinuePlan, StartPlan); a tag names its constructor as the"
-      + " loading file sees it, which a later version will make the same"
-      + " everywhere (#1105)";
-    }
-  }
-}
-
-function $0m46(v) {
-  const top = [v];
-  for (let at = top, key = 0;;) {
-    switch (v.$) {
-      case "ContinuePlan": at = at[key] = {...v, "generation": $0m17(v["generation"])}; return top[0];
-      case "StartPlan": at = at[key] = {...v, "generation": $0m17(v["generation"])}; return top[0];
-      default: throw "bend: ServicePlan has no tag " + v?.$ + " (its tags: ContinuePlan, StartPlan); a tag names its constructor as the"
+      case "Fail": at = at[key] = {...v, "error": $0m46(v["error"])}; return top[0];
+      case "Done": at[key] = v; return top[0];
+      default: throw "bend: Result has no tag " + v?.$ + " (its tags: Fail, Done); a tag names its constructor as the"
       + " loading file sees it, which a later version will make the same"
       + " everywhere (#1105)";
     }
@@ -4434,22 +4573,11 @@ function $0m47(v) {
   const top = [v];
   for (let at = top, key = 0;;) {
     switch (v.$) {
-      case "Fail": at = at[key] = {...v, "error": $0m44(v["error"])}; return top[0];
-      case "Done": at[key] = v; return top[0];
-      default: throw "bend: Result has no tag " + v?.$ + " (its tags: Fail, Done); a tag names its constructor as the"
-      + " loading file sees it, which a later version will make the same"
-      + " everywhere (#1105)";
-    }
-  }
-}
-
-function $0m49(v) {
-  const top = [v];
-  for (let at = top, key = 0;;) {
-    switch (v.$) {
-      case "NothingKept": at[key] = v; return top[0];
-      case "ForwardFailed": at = at[key] = {...v, "error": $0m43(v["error"])}; return top[0];
-      default: throw "bend: Unforwarded has no tag " + v?.$ + " (its tags: NothingKept, ForwardFailed); a tag names its constructor as the"
+      case "NothingToForward": at[key] = v; return top[0];
+      case "ForwardTooLarge": at[key] = v; return top[0];
+      case "InvalidForwardParent": at = at[key] = {...v, "error": $0m38(v["error"])}; return top[0];
+      case "InvalidForwardState": at = at[key] = {...v, "error": $0m30(v["error"])}; return top[0];
+      default: throw "bend: ForwardError has no tag " + v?.$ + " (its tags: NothingToForward, ForwardTooLarge, InvalidForwardParent, InvalidForwardState); a tag names its constructor as the"
       + " loading file sees it, which a later version will make the same"
       + " everywhere (#1105)";
     }
@@ -4460,10 +4588,22 @@ function $0m48(v) {
   const top = [v];
   for (let at = top, key = 0;;) {
     switch (v.$) {
-      case "Fresh": at[key] = v; return top[0];
-      case "Forwarded": at[key] = v; return top[0];
-      case "NoContext": at = at[key] = {...v, "reason": $0m49(v["reason"])}; return top[0];
-      default: throw "bend: Sent has no tag " + v?.$ + " (its tags: Fresh, Forwarded, NoContext); a tag names its constructor as the"
+      case "ContinuePlan": at = at[key] = {...v, "generation": $0m19(v["generation"])}; return top[0];
+      case "StartPlan": at = at[key] = {...v, "generation": $0m19(v["generation"])}; return top[0];
+      default: throw "bend: ServicePlan has no tag " + v?.$ + " (its tags: ContinuePlan, StartPlan); a tag names its constructor as the"
+      + " loading file sees it, which a later version will make the same"
+      + " everywhere (#1105)";
+    }
+  }
+}
+
+function $0m49(v) {
+  const top = [v];
+  for (let at = top, key = 0;;) {
+    switch (v.$) {
+      case "ContinuePlan": at = at[key] = {...v, "generation": $0m20(v["generation"])}; return top[0];
+      case "StartPlan": at = at[key] = {...v, "generation": $0m20(v["generation"])}; return top[0];
+      default: throw "bend: ServicePlan has no tag " + v?.$ + " (its tags: ContinuePlan, StartPlan); a tag names its constructor as the"
       + " loading file sees it, which a later version will make the same"
       + " everywhere (#1105)";
     }
@@ -4474,22 +4614,9 @@ function $0m50(v) {
   const top = [v];
   for (let at = top, key = 0;;) {
     switch (v.$) {
-      case "SendChild": at = at[key] = {...v, "generation": $0m16(v["generation"]), "limits": $0m20(v["limits"])}; return top[0];
-      case "SendFallback": at = at[key] = {...v, "limits": $0m20(v["limits"])}; return top[0];
-      default: throw "bend: SendPlan has no tag " + v?.$ + " (its tags: SendChild, SendFallback); a tag names its constructor as the"
-      + " loading file sees it, which a later version will make the same"
-      + " everywhere (#1105)";
-    }
-  }
-}
-
-function $0m51(v) {
-  const top = [v];
-  for (let at = top, key = 0;;) {
-    switch (v.$) {
-      case "SendChild": at = at[key] = {...v, "generation": $0m17(v["generation"]), "limits": $0m21(v["limits"])}; return top[0];
-      case "SendFallback": at = at[key] = {...v, "limits": $0m21(v["limits"])}; return top[0];
-      default: throw "bend: SendPlan has no tag " + v?.$ + " (its tags: SendChild, SendFallback); a tag names its constructor as the"
+      case "Fail": at = at[key] = {...v, "error": $0m47(v["error"])}; return top[0];
+      case "Done": at[key] = v; return top[0];
+      default: throw "bend: Result has no tag " + v?.$ + " (its tags: Fail, Done); a tag names its constructor as the"
       + " loading file sees it, which a later version will make the same"
       + " everywhere (#1105)";
     }
@@ -4500,21 +4627,23 @@ function $0m52(v) {
   const top = [v];
   for (let at = top, key = 0;;) {
     switch (v.$) {
-      case "Tuple": at = at[key] = {...v, "snd": $0m48(v["snd"])}; return top[0];
-      default: throw "bend: Sigma has no tag " + v?.$ + " (its tags: Tuple); a tag names its constructor as the"
+      case "NothingKept": at[key] = v; return top[0];
+      case "ForwardFailed": at = at[key] = {...v, "error": $0m46(v["error"])}; return top[0];
+      default: throw "bend: Unforwarded has no tag " + v?.$ + " (its tags: NothingKept, ForwardFailed); a tag names its constructor as the"
       + " loading file sees it, which a later version will make the same"
       + " everywhere (#1105)";
     }
   }
 }
 
-function $0m54(v) {
+function $0m51(v) {
   const top = [v];
   for (let at = top, key = 0;;) {
     switch (v.$) {
-      case "NothingKept": at[key] = v; return top[0];
-      case "ForwardFailed": at = at[key] = {...v, "error": $0m44(v["error"])}; return top[0];
-      default: throw "bend: Unforwarded has no tag " + v?.$ + " (its tags: NothingKept, ForwardFailed); a tag names its constructor as the"
+      case "Fresh": at[key] = v; return top[0];
+      case "Forwarded": at[key] = v; return top[0];
+      case "NoContext": at = at[key] = {...v, "reason": $0m52(v["reason"])}; return top[0];
+      default: throw "bend: Sent has no tag " + v?.$ + " (its tags: Fresh, Forwarded, NoContext); a tag names its constructor as the"
       + " loading file sees it, which a later version will make the same"
       + " everywhere (#1105)";
     }
@@ -4525,10 +4654,22 @@ function $0m53(v) {
   const top = [v];
   for (let at = top, key = 0;;) {
     switch (v.$) {
-      case "Fresh": at[key] = v; return top[0];
-      case "Forwarded": at[key] = v; return top[0];
-      case "NoContext": at = at[key] = {...v, "reason": $0m54(v["reason"])}; return top[0];
-      default: throw "bend: Sent has no tag " + v?.$ + " (its tags: Fresh, Forwarded, NoContext); a tag names its constructor as the"
+      case "SendChild": at = at[key] = {...v, "generation": $0m19(v["generation"]), "limits": $0m23(v["limits"])}; return top[0];
+      case "SendFallback": at = at[key] = {...v, "limits": $0m23(v["limits"])}; return top[0];
+      default: throw "bend: SendPlan has no tag " + v?.$ + " (its tags: SendChild, SendFallback); a tag names its constructor as the"
+      + " loading file sees it, which a later version will make the same"
+      + " everywhere (#1105)";
+    }
+  }
+}
+
+function $0m54(v) {
+  const top = [v];
+  for (let at = top, key = 0;;) {
+    switch (v.$) {
+      case "SendChild": at = at[key] = {...v, "generation": $0m20(v["generation"]), "limits": $0m24(v["limits"])}; return top[0];
+      case "SendFallback": at = at[key] = {...v, "limits": $0m24(v["limits"])}; return top[0];
+      default: throw "bend: SendPlan has no tag " + v?.$ + " (its tags: SendChild, SendFallback); a tag names its constructor as the"
       + " loading file sees it, which a later version will make the same"
       + " everywhere (#1105)";
     }
@@ -4539,8 +4680,47 @@ function $0m55(v) {
   const top = [v];
   for (let at = top, key = 0;;) {
     switch (v.$) {
+      case "Tuple": at = at[key] = {...v, "snd": $0m51(v["snd"])}; return top[0];
+      default: throw "bend: Sigma has no tag " + v?.$ + " (its tags: Tuple); a tag names its constructor as the"
+      + " loading file sees it, which a later version will make the same"
+      + " everywhere (#1105)";
+    }
+  }
+}
+
+function $0m57(v) {
+  const top = [v];
+  for (let at = top, key = 0;;) {
+    switch (v.$) {
+      case "NothingKept": at[key] = v; return top[0];
+      case "ForwardFailed": at = at[key] = {...v, "error": $0m47(v["error"])}; return top[0];
+      default: throw "bend: Unforwarded has no tag " + v?.$ + " (its tags: NothingKept, ForwardFailed); a tag names its constructor as the"
+      + " loading file sees it, which a later version will make the same"
+      + " everywhere (#1105)";
+    }
+  }
+}
+
+function $0m56(v) {
+  const top = [v];
+  for (let at = top, key = 0;;) {
+    switch (v.$) {
+      case "Fresh": at[key] = v; return top[0];
+      case "Forwarded": at[key] = v; return top[0];
+      case "NoContext": at = at[key] = {...v, "reason": $0m57(v["reason"])}; return top[0];
+      default: throw "bend: Sent has no tag " + v?.$ + " (its tags: Fresh, Forwarded, NoContext); a tag names its constructor as the"
+      + " loading file sees it, which a later version will make the same"
+      + " everywhere (#1105)";
+    }
+  }
+}
+
+function $0m58(v) {
+  const top = [v];
+  for (let at = top, key = 0;;) {
+    switch (v.$) {
       case "Fail": at[key] = v; return top[0];
-      case "Done": at = at[key] = {...v, "value": $0m48(v["value"])}; return top[0];
+      case "Done": at = at[key] = {...v, "value": $0m51(v["value"])}; return top[0];
       default: throw "bend: Result has no tag " + v?.$ + " (its tags: Fail, Done); a tag names its constructor as the"
       + " loading file sees it, which a later version will make the same"
       + " everywhere (#1105)";
@@ -4564,6 +4744,9 @@ export default {
   "src/digits.Digits.is_zero": run_lib((a0, a1) => { const r = (run_loop($src$047digits$Digits$is_zero$(nat_host(a0), (a1)))); BigInt(a0); (a1); return r; }, 2),
   "src/digits.Digits.of_u32": run_lib((a0) => { const r = (run_loop($src$047digits$Digits$of_u32$((a0)))); (a0); return r; }, 1),
   "src/digits.Digits.to_u32": run_lib((a0) => { const r = (run_loop($src$047digits$Digits$to_u32$((a0)))); (a0); return r; }, 1),
+  "src/digits.Digits.to_byte": run_lib((a0) => { const r = (run_loop($src$047digits$Digits$to_byte$((a0)))); (a0); return r; }, 1),
+  "src/digits.Digits.of_byte": run_lib((a0) => { const r = (run_loop($src$047digits$Digits$of_byte$((a0)))); (a0); return r; }, 1),
+  "src/digits.Digits.to_bytes": run_lib((a0, a1) => { const r = (run_loop($src$047digits$Digits$to_bytes$(nat_host(a0), (a1)))); BigInt(a0); (a1); return r; }, 2),
   "src/digits.Digits.append": run_lib((a0, a1, a2) => { const r = (run_loop($src$047digits$Digits$append$(nat_host(a0), (a1), (a2)))); BigInt(a0); (a1); (a2); return r; }, 3),
   "src/digits.NonZero.new.checked": run_lib((a0, a1, a2) => { const r = (run_loop($src$047digits$NonZero$new$checked$((a0), (a1), (a2)))); (a0); (a1); (a2); return r; }, 3),
   "src/digits.NonZero.new": run_lib((a0, a1) => { const r = (run_loop($src$047digits$NonZero$new$(nat_host(a0), (a1)))); BigInt(a0); (a1); return r; }, 2),
@@ -4624,46 +4807,57 @@ export default {
   "TraceId.from_words": run_lib((a0, a1, a2, a3) => { const r = (run_loop($TraceId$from_words$((a0), (a1), (a2), (a3)))); (a0); (a1); (a2); (a3); return r; }, 4),
   "SpanId.from_digits": run_lib((a0) => { const r = (run_loop($SpanId$from_digits$((a0)))); (a0); return r; }, 1),
   "SpanId.from_words": run_lib((a0, a1) => { const r = (run_loop($SpanId$from_words$((a0), (a1)))); (a0); (a1); return r; }, 2),
-  "Draw.root": run_lib(() => { const r = $0m9(run_loop($Draw$root$()));  return r; }, 0),
-  "Draw.restart": run_lib((a0) => { const r = $0m9(run_loop($Draw$restart$((a0)))); (a0); return r; }, 1),
-  "Draw.child": run_lib((a0, a1) => { const r = $0m9(run_loop($Draw$child$((a0), (a1)))); (a0); (a1); return r; }, 2),
-  "Draw.retry_trace": run_lib((a0, a1) => { const r = $0m9(run_loop($Draw$retry_trace$(nat_host(a0), (a1)))); BigInt(a0); (a1); return r; }, 2),
-  "Draw.accept_trace": run_lib((a0) => { const r = $0m9(run_loop($Draw$accept_trace$((a0)))); (a0); return r; }, 1),
-  "Draw.reuse_trace": run_lib((a0, a1, a2, a3) => { const r = $0m9(run_loop($Draw$reuse_trace$((a0), (a1), (a2), nat_host(a3)))); (a0); (a1); (a2); BigInt(a3); return r; }, 4),
-  "Draw.check_trace": run_lib((a0, a1, a2) => { const r = $0m9(run_loop($Draw$check_trace$((a0), (a1), nat_host(a2)))); (a0); (a1); BigInt(a2); return r; }, 3),
-  "Draw.retry_span": run_lib((a0, a1) => { const r = $0m9(run_loop($Draw$retry_span$(nat_host(a0), (a1)))); BigInt(a0); (a1); return r; }, 2),
-  "Draw.accept_span": run_lib((a0, a1) => { const r = $0m9(run_loop($Draw$accept_span$((a0), (a1)))); (a0); (a1); return r; }, 2),
-  "Draw.reuse_span": run_lib((a0, a1, a2, a3) => { const r = $0m9(run_loop($Draw$reuse_span$((a0), (a1), (a2), nat_host(a3)))); (a0); (a1); (a2); BigInt(a3); return r; }, 4),
-  "Draw.check_span": run_lib((a0, a1, a2) => { const r = $0m9(run_loop($Draw$check_span$((a0), (a1), nat_host(a2)))); (a0); (a1); BigInt(a2); return r; }, 3),
+  "ParsedBytes.prepend": run_lib((a0, a1) => { const r = (run_loop($ParsedBytes$prepend$((a0), (a1)))); (a0); (a1); return r; }, 2),
+  "Parse.byte.checked": run_lib((a0, a1, a2) => { const r = $0m9(run_loop($Parse$byte$checked$((a0), (a1), nat_host(a2)))); (a0); (a1); BigInt(a2); return r; }, 3),
+  "Parse.byte": run_lib((a0, a1) => { const r = $0m9(run_loop($Parse$byte$((a0), nat_host(a1)))); (a0); BigInt(a1); return r; }, 2),
+  "Parse.bytes": run_lib((a0, a1, a2) => { const r = $0m10(run_loop($Parse$bytes$(nat_host(a0), (a1), nat_host(a2)))); BigInt(a0); (a1); BigInt(a2); return r; }, 3),
+  "Parse.bytes_end": run_lib((a0) => { const r = $0m4(run_loop($Parse$bytes_end$((a0)))); (a0); return r; }, 1),
+  "Parse.id_bytes.finish": run_lib((a0, a1, a2) => { const r = $0m11(run_loop($Parse$id_bytes$finish$(nat_host(a0), (a1), (a2)))); BigInt(a0); (a1); (a2); return r; }, 3),
+  "Parse.id_bytes": run_lib((a0, a1, a2) => { const r = $0m11(run_loop($Parse$id_bytes$(nat_host(a0), (a1), (a2)))); BigInt(a0); (a1); (a2); return r; }, 3),
+  "TraceId.to_bytes": run_lib((a0) => { const r = (run_loop($TraceId$to_bytes$((a0)))); (a0); return r; }, 1),
+  "TraceId.from_bytes": run_lib((a0) => { const r = $0m7(run_loop($TraceId$from_bytes$((a0)))); (a0); return r; }, 1),
+  "SpanId.to_bytes": run_lib((a0) => { const r = (run_loop($SpanId$to_bytes$((a0)))); (a0); return r; }, 1),
+  "SpanId.from_bytes": run_lib((a0) => { const r = $0m8(run_loop($SpanId$from_bytes$((a0)))); (a0); return r; }, 1),
+  "Draw.root": run_lib(() => { const r = $0m12(run_loop($Draw$root$()));  return r; }, 0),
+  "Draw.restart": run_lib((a0) => { const r = $0m12(run_loop($Draw$restart$((a0)))); (a0); return r; }, 1),
+  "Draw.child": run_lib((a0, a1) => { const r = $0m12(run_loop($Draw$child$((a0), (a1)))); (a0); (a1); return r; }, 2),
+  "Draw.retry_trace": run_lib((a0, a1) => { const r = $0m12(run_loop($Draw$retry_trace$(nat_host(a0), (a1)))); BigInt(a0); (a1); return r; }, 2),
+  "Draw.accept_trace": run_lib((a0) => { const r = $0m12(run_loop($Draw$accept_trace$((a0)))); (a0); return r; }, 1),
+  "Draw.reuse_trace": run_lib((a0, a1, a2, a3) => { const r = $0m12(run_loop($Draw$reuse_trace$((a0), (a1), (a2), nat_host(a3)))); (a0); (a1); (a2); BigInt(a3); return r; }, 4),
+  "Draw.check_trace": run_lib((a0, a1, a2) => { const r = $0m12(run_loop($Draw$check_trace$((a0), (a1), nat_host(a2)))); (a0); (a1); BigInt(a2); return r; }, 3),
+  "Draw.retry_span": run_lib((a0, a1) => { const r = $0m12(run_loop($Draw$retry_span$(nat_host(a0), (a1)))); BigInt(a0); (a1); return r; }, 2),
+  "Draw.accept_span": run_lib((a0, a1) => { const r = $0m12(run_loop($Draw$accept_span$((a0), (a1)))); (a0); (a1); return r; }, 2),
+  "Draw.reuse_span": run_lib((a0, a1, a2, a3) => { const r = $0m12(run_loop($Draw$reuse_span$((a0), (a1), (a2), nat_host(a3)))); (a0); (a1); (a2); BigInt(a3); return r; }, 4),
+  "Draw.check_span": run_lib((a0, a1, a2) => { const r = $0m12(run_loop($Draw$check_span$((a0), (a1), nat_host(a2)))); (a0); (a1); BigInt(a2); return r; }, 3),
   "Draw.asserted": run_lib((a0) => { const r = (run_loop($Draw$asserted$((a0)))); (a0); return r; }, 1),
-  "Draw.feed": run_lib((a0, a1) => { const r = $0m9(run_loop($Draw$feed$((a0), $0m11(a1)))); (a0); $0m10(a1); return r; }, 2),
-  "Step.result": run_lib((a0) => { const r = (run_loop($Step$result$($0m12(a0)))); $0m9(a0); return r; }, 1),
-  "Step.is_finished": run_lib((a0) => { const r = (run_loop($Step$is_finished$($0m12(a0)))); $0m9(a0); return r; }, 1),
+  "Draw.feed": run_lib((a0, a1) => { const r = $0m12(run_loop($Draw$feed$((a0), $0m14(a1)))); (a0); $0m13(a1); return r; }, 2),
+  "Step.result": run_lib((a0) => { const r = (run_loop($Step$result$($0m15(a0)))); $0m12(a0); return r; }, 1),
+  "Step.is_finished": run_lib((a0) => { const r = (run_loop($Step$is_finished$($0m15(a0)))); $0m12(a0); return r; }, 1),
   "Tape.next": run_lib((a0) => { const r = (run_loop($Tape$next$((a0)))); (a0); return r; }, 1),
-  "Draw.fed_by": run_lib((a0, a1) => { const r = $0m13(run_loop($Draw$fed_by$((a0), $0m11(a1)))); (a0); $0m10(a1); return r; }, 2),
+  "Draw.fed_by": run_lib((a0, a1) => { const r = $0m16(run_loop($Draw$fed_by$((a0), $0m14(a1)))); (a0); $0m13(a1); return r; }, 2),
   "Draw.ended": run_lib((a0) => { const r = (run_loop($Draw$ended$((a0)))); (a0); return r; }, 1),
   "Draw.run": run_lib((a0, a1) => { const r = (run_loop($Draw$run$(nat_host(a0), (a1)))); BigInt(a0); (a1); return r; }, 2),
-  "Draw.outcome": run_lib((a0) => { const r = (run_loop($Draw$outcome$($0m14(a0)))); $0m15(a0); return r; }, 1),
-  "Generation.root": run_lib(() => { const r = $0m16(run_loop($Generation$root$()));  return r; }, 0),
-  "Generation.restart": run_lib((a0) => { const r = $0m16(run_loop($Generation$restart$((a0)))); (a0); return r; }, 1),
-  "Generation.child": run_lib((a0, a1) => { const r = $0m16(run_loop($Generation$child$((a0), (a1)))); (a0); (a1); return r; }, 2),
-  "Generation.needs.of": run_lib((a0, a1) => { const r = (run_loop($Generation$needs$of$(nat_host(a0), $0m12(a1)))); BigInt(a0); $0m9(a1); return r; }, 2),
-  "Generation.needs": run_lib((a0) => { const r = (run_loop($Generation$needs$($0m17(a0)))); $0m16(a0); return r; }, 1),
-  "Generation.fed": run_lib((a0, a1, a2) => { const r = $0m16(run_loop($Generation$fed$(nat_host(a0), $0m12(a1), (a2)))); BigInt(a0); $0m9(a1); (a2); return r; }, 3),
-  "Generation.feed": run_lib((a0, a1) => { const r = $0m16(run_loop($Generation$feed$($0m17(a0), (a1)))); $0m16(a0); (a1); return r; }, 2),
-  "Generation.result": run_lib((a0) => { const r = (run_loop($Generation$result$($0m17(a0)))); $0m16(a0); return r; }, 1),
+  "Draw.outcome": run_lib((a0) => { const r = (run_loop($Draw$outcome$($0m17(a0)))); $0m18(a0); return r; }, 1),
+  "Generation.root": run_lib(() => { const r = $0m19(run_loop($Generation$root$()));  return r; }, 0),
+  "Generation.restart": run_lib((a0) => { const r = $0m19(run_loop($Generation$restart$((a0)))); (a0); return r; }, 1),
+  "Generation.child": run_lib((a0, a1) => { const r = $0m19(run_loop($Generation$child$((a0), (a1)))); (a0); (a1); return r; }, 2),
+  "Generation.needs.of": run_lib((a0, a1) => { const r = (run_loop($Generation$needs$of$(nat_host(a0), $0m15(a1)))); BigInt(a0); $0m12(a1); return r; }, 2),
+  "Generation.needs": run_lib((a0) => { const r = (run_loop($Generation$needs$($0m20(a0)))); $0m19(a0); return r; }, 1),
+  "Generation.fed": run_lib((a0, a1, a2) => { const r = $0m19(run_loop($Generation$fed$(nat_host(a0), $0m15(a1), (a2)))); BigInt(a0); $0m12(a1); (a2); return r; }, 3),
+  "Generation.feed": run_lib((a0, a1) => { const r = $0m19(run_loop($Generation$feed$($0m20(a0), (a1)))); $0m19(a0); (a1); return r; }, 2),
+  "Generation.result": run_lib((a0) => { const r = (run_loop($Generation$result$($0m20(a0)))); $0m19(a0); return r; }, 1),
   "Source.tape": run_lib((a0) => { const r = (run_loop($Source$tape$((a0)))); (a0); return r; }, 1),
-  "Error.show": run_lib((a0) => { const r = (run_loop($Error$show$($0m18(a0)))); $0m1(a0); return r; }, 1),
+  "Error.show": run_lib((a0) => { const r = (run_loop($Error$show$($0m21(a0)))); $0m1(a0); return r; }, 1),
   "ContextError.show": run_lib((a0) => { const r = (run_loop($ContextError$show$((a0)))); (a0); return r; }, 1),
   "GenerationError.show": run_lib((a0) => { const r = (run_loop($GenerationError$show$((a0)))); (a0); return r; }, 1),
   "Limits.is_valid": run_lib((a0, a1, a2) => { const r = (run_loop($Limits$is_valid$(nat_host(a0), nat_host(a1), nat_host(a2)))); BigInt(a0); BigInt(a1); BigInt(a2); return r; }, 3),
   "Limits.error": run_lib((a0, a1) => { const r = (run_loop($Limits$error$(nat_host(a0), nat_host(a1)))); BigInt(a0); BigInt(a1); return r; }, 2),
-  "Limits.new.checked": run_lib((a0, a1, a2, a3, a4) => { const r = $0m19(run_loop($Limits$new$checked$(nat_host(a0), nat_host(a1), nat_host(a2), (a3), (a4)))); BigInt(a0); BigInt(a1); BigInt(a2); (a3); (a4); return r; }, 5),
-  "Limits.new": run_lib((a0, a1, a2) => { const r = $0m19(run_loop($Limits$new$(nat_host(a0), nat_host(a1), nat_host(a2)))); BigInt(a0); BigInt(a1); BigInt(a2); return r; }, 3),
-  "Limits.default": run_lib(() => { const r = $0m20(run_loop($Limits$default$()));  return r; }, 0),
-  "Limits.traceparent_input": run_lib((a0) => { const r = BigInt(run_loop($Limits$traceparent_input$($0m21(a0)))); $0m20(a0); return r; }, 1),
-  "Limits.tracestate_input": run_lib((a0) => { const r = BigInt(run_loop($Limits$tracestate_input$($0m21(a0)))); $0m20(a0); return r; }, 1),
-  "Limits.tracestate_output": run_lib((a0) => { const r = BigInt(run_loop($Limits$tracestate_output$($0m21(a0)))); $0m20(a0); return r; }, 1),
+  "Limits.new.checked": run_lib((a0, a1, a2, a3, a4) => { const r = $0m22(run_loop($Limits$new$checked$(nat_host(a0), nat_host(a1), nat_host(a2), (a3), (a4)))); BigInt(a0); BigInt(a1); BigInt(a2); (a3); (a4); return r; }, 5),
+  "Limits.new": run_lib((a0, a1, a2) => { const r = $0m22(run_loop($Limits$new$(nat_host(a0), nat_host(a1), nat_host(a2)))); BigInt(a0); BigInt(a1); BigInt(a2); return r; }, 3),
+  "Limits.default": run_lib(() => { const r = $0m23(run_loop($Limits$default$()));  return r; }, 0),
+  "Limits.traceparent_input": run_lib((a0) => { const r = BigInt(run_loop($Limits$traceparent_input$($0m24(a0)))); $0m23(a0); return r; }, 1),
+  "Limits.tracestate_input": run_lib((a0) => { const r = BigInt(run_loop($Limits$tracestate_input$($0m24(a0)))); $0m23(a0); return r; }, 1),
+  "Limits.tracestate_output": run_lib((a0) => { const r = BigInt(run_loop($Limits$tracestate_output$($0m24(a0)))); $0m23(a0); return r; }, 1),
   "LimitsError.show": run_lib((a0) => { const r = (run_loop($LimitsError$show$((a0)))); (a0); return r; }, 1),
   "StateChar.in_range": run_lib((a0, a1, a2) => { const r = (run_loop($StateChar$in_range$((a0), (a1), (a2)))); (a0); (a1); (a2); return r; }, 3),
   "StateChar.is_key_start": run_lib((a0) => { const r = (run_loop($StateChar$is_key_start$((a0)))); (a0); return r; }, 1),
@@ -4700,10 +4894,10 @@ export default {
   "TraceState.format": run_lib((a0) => { const r = (run_loop($TraceState$format$((a0)))); (a0); return r; }, 1),
   "Utf8.width": run_lib((a0) => { const r = BigInt(run_loop($Utf8$width$((a0)))); (a0); return r; }, 1),
   "Utf8.length": run_lib((a0) => { const r = BigInt(run_loop($Utf8$length$((a0)))); (a0); return r; }, 1),
-  "Budget.take": run_lib((a0, a1) => { const r = $0m22(run_loop($Budget$take$(nat_host(a0), nat_host(a1)))); BigInt(a0); BigInt(a1); return r; }, 2),
-  "Utf8.left": run_lib((a0, a1) => { const r = $0m22(run_loop($Utf8$left$((a0), $0m23(a1)))); (a0); $0m22(a1); return r; }, 2),
-  "Utf8.left_more": run_lib((a0, a1) => { const r = $0m22(run_loop($Utf8$left_more$((a0), $0m23(a1)))); (a0); $0m22(a1); return r; }, 2),
-  "Utf8.left_fields": run_lib((a0, a1) => { const r = $0m22(run_loop($Utf8$left_fields$((a0), $0m23(a1)))); (a0); $0m22(a1); return r; }, 2),
+  "Budget.take": run_lib((a0, a1) => { const r = $0m25(run_loop($Budget$take$(nat_host(a0), nat_host(a1)))); BigInt(a0); BigInt(a1); return r; }, 2),
+  "Utf8.left": run_lib((a0, a1) => { const r = $0m25(run_loop($Utf8$left$((a0), $0m26(a1)))); (a0); $0m25(a1); return r; }, 2),
+  "Utf8.left_more": run_lib((a0, a1) => { const r = $0m25(run_loop($Utf8$left_more$((a0), $0m26(a1)))); (a0); $0m25(a1); return r; }, 2),
+  "Utf8.left_fields": run_lib((a0, a1) => { const r = $0m25(run_loop($Utf8$left_fields$((a0), $0m26(a1)))); (a0); $0m25(a1); return r; }, 2),
   "Value.restore.step": run_lib((a0, a1, a2, a3) => { const r = (run_loop($Value$restore$step$((a0), (a1), (a2), (a3)))); (a0); (a1); (a2); (a3); return r; }, 4),
   "Value.restore.go": run_lib((a0, a1) => { const r = (run_loop($Value$restore$go$((a0), (a1)))); (a0); (a1); return r; }, 2),
   "Value.restore": run_lib((a0) => { const r = (run_loop($Value$restore$((a0)))); (a0); return r; }, 1),
@@ -4713,22 +4907,22 @@ export default {
   "Scan.validate": run_lib((a0, a1) => { const r = (run_loop($Scan$validate$((a0), (a1)))); (a0); (a1); return r; }, 2),
   "Entries.add.if": run_lib((a0, a1, a2) => { const r = (run_loop($Entries$add$if$((a0), (a1), (a2)))); (a0); (a1); (a2); return r; }, 3),
   "Entries.add": run_lib((a0, a1) => { const r = (run_loop($Entries$add$((a0), (a1)))); (a0); (a1); return r; }, 2),
-  "Scan.keep": run_lib((a0, a1, a2, a3) => { const r = $0m24(run_loop($Scan$keep$(nat_host(a0), nat_host(a1), (a2), (a3)))); BigInt(a0); BigInt(a1); (a2); (a3); return r; }, 4),
-  "Scan.entry": run_lib((a0, a1, a2, a3) => { const r = $0m24(run_loop($Scan$entry$((a0), nat_host(a1), nat_host(a2), (a3)))); (a0); BigInt(a1); BigInt(a2); (a3); return r; }, 4),
-  "Scan.close": run_lib((a0, a1, a2, a3) => { const r = $0m24(run_loop($Scan$close$(nat_host(a0), nat_host(a1), (a2), (a3)))); BigInt(a0); BigInt(a1); (a2); (a3); return r; }, 4),
-  "Scan.read": run_lib((a0, a1, a2, a3, a4, a5) => { const r = $0m24(run_loop($Scan$read$((a0), (a1), nat_host(a2), nat_host(a3), (a4), (a5)))); (a0); (a1); BigInt(a2); BigInt(a3); (a4); (a5); return r; }, 6),
-  "Scan.char": run_lib((a0, a1) => { const r = $0m24(run_loop($Scan$char$((a0), $0m26(a1)))); (a0); $0m24(a1); return r; }, 2),
-  "Scan.text": run_lib((a0, a1) => { const r = $0m24(run_loop($Scan$text$((a0), $0m26(a1)))); (a0); $0m24(a1); return r; }, 2),
-  "Scan.more": run_lib((a0, a1) => { const r = $0m24(run_loop($Scan$more$((a0), $0m26(a1)))); (a0); $0m24(a1); return r; }, 2),
-  "Scan.fields": run_lib((a0, a1) => { const r = $0m24(run_loop($Scan$fields$((a0), $0m26(a1)))); (a0); $0m24(a1); return r; }, 2),
-  "Scan.start": run_lib(() => { const r = $0m24(run_loop($Scan$start$()));  return r; }, 0),
-  "Scan.state": run_lib((a0, a1, a2) => { const r = $0m28(run_loop($Scan$state$((a0), (a1), (a2)))); (a0); (a1); (a2); return r; }, 3),
-  "Scan.result": run_lib((a0) => { const r = $0m28(run_loop($Scan$result$($0m26(a0)))); $0m24(a0); return r; }, 1),
-  "Scan.finish": run_lib((a0) => { const r = $0m28(run_loop($Scan$finish$($0m26(a0)))); $0m24(a0); return r; }, 1),
-  "Scan.within": run_lib((a0, a1) => { const r = $0m28(run_loop($Scan$within$($0m23(a0), (a1)))); $0m22(a0); (a1); return r; }, 2),
-  "TraceState.parse_fields": run_lib((a0, a1) => { const r = $0m28(run_loop($TraceState$parse_fields$($0m21(a0), (a1)))); $0m20(a0); (a1); return r; }, 2),
-  "TraceState.parse": run_lib((a0, a1) => { const r = $0m28(run_loop($TraceState$parse$($0m21(a0), (a1)))); $0m20(a0); (a1); return r; }, 2),
-  "StateError.show": run_lib((a0) => { const r = (run_loop($StateError$show$($0m27(a0)))); $0m25(a0); return r; }, 1),
+  "Scan.keep": run_lib((a0, a1, a2, a3) => { const r = $0m27(run_loop($Scan$keep$(nat_host(a0), nat_host(a1), (a2), (a3)))); BigInt(a0); BigInt(a1); (a2); (a3); return r; }, 4),
+  "Scan.entry": run_lib((a0, a1, a2, a3) => { const r = $0m27(run_loop($Scan$entry$((a0), nat_host(a1), nat_host(a2), (a3)))); (a0); BigInt(a1); BigInt(a2); (a3); return r; }, 4),
+  "Scan.close": run_lib((a0, a1, a2, a3) => { const r = $0m27(run_loop($Scan$close$(nat_host(a0), nat_host(a1), (a2), (a3)))); BigInt(a0); BigInt(a1); (a2); (a3); return r; }, 4),
+  "Scan.read": run_lib((a0, a1, a2, a3, a4, a5) => { const r = $0m27(run_loop($Scan$read$((a0), (a1), nat_host(a2), nat_host(a3), (a4), (a5)))); (a0); (a1); BigInt(a2); BigInt(a3); (a4); (a5); return r; }, 6),
+  "Scan.char": run_lib((a0, a1) => { const r = $0m27(run_loop($Scan$char$((a0), $0m29(a1)))); (a0); $0m27(a1); return r; }, 2),
+  "Scan.text": run_lib((a0, a1) => { const r = $0m27(run_loop($Scan$text$((a0), $0m29(a1)))); (a0); $0m27(a1); return r; }, 2),
+  "Scan.more": run_lib((a0, a1) => { const r = $0m27(run_loop($Scan$more$((a0), $0m29(a1)))); (a0); $0m27(a1); return r; }, 2),
+  "Scan.fields": run_lib((a0, a1) => { const r = $0m27(run_loop($Scan$fields$((a0), $0m29(a1)))); (a0); $0m27(a1); return r; }, 2),
+  "Scan.start": run_lib(() => { const r = $0m27(run_loop($Scan$start$()));  return r; }, 0),
+  "Scan.state": run_lib((a0, a1, a2) => { const r = $0m31(run_loop($Scan$state$((a0), (a1), (a2)))); (a0); (a1); (a2); return r; }, 3),
+  "Scan.result": run_lib((a0) => { const r = $0m31(run_loop($Scan$result$($0m29(a0)))); $0m27(a0); return r; }, 1),
+  "Scan.finish": run_lib((a0) => { const r = $0m31(run_loop($Scan$finish$($0m29(a0)))); $0m27(a0); return r; }, 1),
+  "Scan.within": run_lib((a0, a1) => { const r = $0m31(run_loop($Scan$within$($0m26(a0), (a1)))); $0m25(a0); (a1); return r; }, 2),
+  "TraceState.parse_fields": run_lib((a0, a1) => { const r = $0m31(run_loop($TraceState$parse_fields$($0m24(a0), (a1)))); $0m23(a0); (a1); return r; }, 2),
+  "TraceState.parse": run_lib((a0, a1) => { const r = $0m31(run_loop($TraceState$parse$($0m24(a0), (a1)))); $0m23(a0); (a1); return r; }, 2),
+  "StateError.show": run_lib((a0) => { const r = (run_loop($StateError$show$($0m30(a0)))); $0m28(a0); return r; }, 1),
   "Entries.unless": run_lib((a0, a1, a2) => { const r = (run_loop($Entries$unless$((a0), (a1), (a2)))); (a0); (a1); (a2); return r; }, 3),
   "Entries.without": run_lib((a0, a1) => { const r = (run_loop($Entries$without$((a0), (a1)))); (a0); (a1); return r; }, 2),
   "TraceState.from_entries.checked": run_lib((a0, a1, a2, a3) => { const r = (run_loop($TraceState$from_entries$checked$((a0), (a1), (a2), (a3)))); (a0); (a1); (a2); (a3); return r; }, 4),
@@ -4748,7 +4942,7 @@ export default {
   "Entries.shrink": run_lib((a0) => { const r = (run_loop($Entries$shrink$((a0)))); (a0); return r; }, 1),
   "Entries.truncate": run_lib((a0, a1, a2) => { const r = (run_loop($Entries$truncate$(nat_host(a0), nat_host(a1), (a2)))); BigInt(a0); BigInt(a1); (a2); return r; }, 3),
   "Entries.dropped": run_lib((a0, a1) => { const r = (run_loop($Entries$dropped$((a0), (a1)))); (a0); (a1); return r; }, 2),
-  "TraceState.truncate": run_lib((a0, a1) => { const r = (run_loop($TraceState$truncate$($0m21(a0), (a1)))); $0m20(a0); (a1); return r; }, 2),
+  "TraceState.truncate": run_lib((a0, a1) => { const r = (run_loop($TraceState$truncate$($0m24(a0), (a1)))); $0m23(a0); (a1); return r; }, 2),
   "OutgoingContext.new": run_lib((a0) => { const r = (run_loop($OutgoingContext$new$((a0)))); (a0); return r; }, 1),
   "OutgoingContext.with_state": run_lib((a0, a1) => { const r = (run_loop($OutgoingContext$with_state$((a0), (a1)))); (a0); (a1); return r; }, 2),
   "OutgoingContext.context": run_lib((a0) => { const r = (run_loop($OutgoingContext$context$((a0)))); (a0); return r; }, 1),
@@ -4757,7 +4951,7 @@ export default {
   "OutgoingContext.set": run_lib((a0, a1, a2) => { const r = (run_loop($OutgoingContext$set$((a0), (a1), (a2)))); (a0); (a1); (a2); return r; }, 3),
   "OutgoingContext.remove": run_lib((a0, a1) => { const r = (run_loop($OutgoingContext$remove$((a0), (a1)))); (a0); (a1); return r; }, 2),
   "Emission.of": run_lib((a0, a1) => { const r = (run_loop($Emission$of$((a0), (a1)))); (a0); (a1); return r; }, 2),
-  "OutgoingContext.emit": run_lib((a0, a1) => { const r = (run_loop($OutgoingContext$emit$($0m21(a0), (a1)))); $0m20(a0); (a1); return r; }, 2),
+  "OutgoingContext.emit": run_lib((a0, a1) => { const r = (run_loop($OutgoingContext$emit$($0m24(a0), (a1)))); $0m23(a0); (a1); return r; }, 2),
   "Emission.traceparent": run_lib((a0) => { const r = (run_loop($Emission$traceparent$((a0)))); (a0); return r; }, 1),
   "Emission.tracestate": run_lib((a0) => { const r = (run_loop($Emission$tracestate$((a0)))); (a0); return r; }, 1),
   "Emission.dropped": run_lib((a0) => { const r = (run_loop($Emission$dropped$((a0)))); (a0); return r; }, 1),
@@ -4775,33 +4969,33 @@ export default {
   "Text.has_comma.go": run_lib((a0, a1) => { const r = (run_loop($Text$has_comma$go$((a0), (a1)))); (a0); (a1); return r; }, 2),
   "Text.has_comma": run_lib((a0) => { const r = (run_loop($Text$has_comma$((a0)))); (a0); return r; }, 1),
   "Text.is_control": run_lib((a0) => { const r = (run_loop($Text$is_control$((a0)))); (a0); return r; }, 1),
-  "Text.control.go": run_lib((a0, a1, a2) => { const r = $0m22(run_loop($Text$control$go$((a0), nat_host(a1), $0m23(a2)))); (a0); BigInt(a1); $0m22(a2); return r; }, 3),
-  "Read.is_later": run_lib((a0) => { const r = $0m29(run_loop($Read$is_later$((a0)))); (a0); return r; }, 1),
-  "Read.is_later.parsed": run_lib((a0) => { const r = $0m29(run_loop($Read$is_later$parsed$((a0)))); (a0); return r; }, 1),
-  "Read.clean": run_lib((a0) => { const r = $0m4(run_loop($Read$clean$($0m23(a0)))); $0m22(a0); return r; }, 1),
+  "Text.control.go": run_lib((a0, a1, a2) => { const r = $0m25(run_loop($Text$control$go$((a0), nat_host(a1), $0m26(a2)))); (a0); BigInt(a1); $0m25(a2); return r; }, 3),
+  "Read.is_later": run_lib((a0) => { const r = $0m32(run_loop($Read$is_later$((a0)))); (a0); return r; }, 1),
+  "Read.is_later.parsed": run_lib((a0) => { const r = $0m32(run_loop($Read$is_later$parsed$((a0)))); (a0); return r; }, 1),
+  "Read.clean": run_lib((a0) => { const r = $0m4(run_loop($Read$clean$($0m26(a0)))); $0m25(a0); return r; }, 1),
   "Read.extension": run_lib((a0) => { const r = $0m4(run_loop($Read$extension$((a0)))); (a0); return r; }, 1),
   "Read.prefix": run_lib((a0) => { const r = $0m6(run_loop($Read$prefix$((a0)))); (a0); return r; }, 1),
   "Read.by_version": run_lib((a0, a1) => { const r = $0m6(run_loop($Read$by_version$((a0), (a1)))); (a0); (a1); return r; }, 2),
   "Read.known": run_lib((a0) => { const r = $0m6(run_loop($Read$known$((a0)))); (a0); return r; }, 1),
-  "Read.invalid": run_lib((a0) => { const r = $0m31(run_loop($Read$invalid$($0m30(a0)))); $0m6(a0); return r; }, 1),
-  "Read.single": run_lib((a0, a1) => { const r = $0m31(run_loop($Read$single$((a0), (a1)))); (a0); (a1); return r; }, 2),
-  "Read.trimmed": run_lib((a0) => { const r = $0m31(run_loop($Read$trimmed$((a0)))); (a0); return r; }, 1),
-  "Read.within": run_lib((a0, a1) => { const r = $0m31(run_loop($Read$within$($0m23(a0), (a1)))); $0m22(a0); (a1); return r; }, 2),
-  "TraceParent.read": run_lib((a0, a1) => { const r = $0m31(run_loop($TraceParent$read$($0m21(a0), (a1)))); $0m20(a0); (a1); return r; }, 2),
-  "Extract.ignored": run_lib((a0) => { const r = $0m33(run_loop($Extract$ignored$((a0)))); (a0); return r; }, 1),
-  "Extract.kept": run_lib((a0, a1, a2) => { const r = $0m37(run_loop($Extract$kept$((a0), $0m34(a1), (a2)))); (a0); $0m36(a1); (a2); return r; }, 3),
+  "Read.invalid": run_lib((a0) => { const r = $0m34(run_loop($Read$invalid$($0m33(a0)))); $0m6(a0); return r; }, 1),
+  "Read.single": run_lib((a0, a1) => { const r = $0m34(run_loop($Read$single$((a0), (a1)))); (a0); (a1); return r; }, 2),
+  "Read.trimmed": run_lib((a0) => { const r = $0m34(run_loop($Read$trimmed$((a0)))); (a0); return r; }, 1),
+  "Read.within": run_lib((a0, a1) => { const r = $0m34(run_loop($Read$within$($0m26(a0), (a1)))); $0m25(a0); (a1); return r; }, 2),
+  "TraceParent.read": run_lib((a0, a1) => { const r = $0m34(run_loop($TraceParent$read$($0m24(a0), (a1)))); $0m23(a0); (a1); return r; }, 2),
+  "Extract.ignored": run_lib((a0) => { const r = $0m36(run_loop($Extract$ignored$((a0)))); (a0); return r; }, 1),
+  "Extract.kept": run_lib((a0, a1, a2) => { const r = $0m40(run_loop($Extract$kept$((a0), $0m37(a1), (a2)))); (a0); $0m39(a1); (a2); return r; }, 3),
   "Extract.incoming": run_lib((a0, a1, a2) => { const r = (run_loop($Extract$incoming$((a0), (a1), (a2)))); (a0); (a1); (a2); return r; }, 3),
-  "Extract.parsed": run_lib((a0, a1, a2, a3) => { const r = $0m37(run_loop($Extract$parsed$($0m38(a0), (a1), (a2), (a3)))); $0m28(a0); (a1); (a2); (a3); return r; }, 4),
-  "Extract.state": run_lib((a0, a1, a2, a3) => { const r = $0m37(run_loop($Extract$state$($0m21(a0), (a1), (a2), (a3)))); $0m20(a0); (a1); (a2); (a3); return r; }, 4),
-  "Extract.read": run_lib((a0, a1, a2, a3, a4) => { const r = $0m37(run_loop($Extract$read$($0m39(a0), (a1), $0m21(a2), (a3), (a4)))); $0m31(a0); (a1); $0m20(a2); (a3); (a4); return r; }, 5),
-  "Extract.parents": run_lib((a0, a1, a2, a3) => { const r = $0m37(run_loop($Extract$parents$($0m21(a0), (a1), (a2), (a3)))); $0m20(a0); (a1); (a2); (a3); return r; }, 4),
-  "Context.extract": run_lib((a0, a1, a2) => { const r = $0m37(run_loop($Context$extract$($0m21(a0), (a1), (a2)))); $0m20(a0); (a1); (a2); return r; }, 3),
-  "Extraction.context": run_lib((a0) => { const r = (run_loop($Extraction$context$($0m40(a0)))); $0m37(a0); return r; }, 1),
-  "Extraction.parent": run_lib((a0) => { const r = $0m36(run_loop($Extraction$parent$($0m40(a0)))); $0m37(a0); return r; }, 1),
-  "Extraction.state": run_lib((a0) => { const r = $0m33(run_loop($Extraction$state$($0m40(a0)))); $0m37(a0); return r; }, 1),
+  "Extract.parsed": run_lib((a0, a1, a2, a3) => { const r = $0m40(run_loop($Extract$parsed$($0m41(a0), (a1), (a2), (a3)))); $0m31(a0); (a1); (a2); (a3); return r; }, 4),
+  "Extract.state": run_lib((a0, a1, a2, a3) => { const r = $0m40(run_loop($Extract$state$($0m24(a0), (a1), (a2), (a3)))); $0m23(a0); (a1); (a2); (a3); return r; }, 4),
+  "Extract.read": run_lib((a0, a1, a2, a3, a4) => { const r = $0m40(run_loop($Extract$read$($0m42(a0), (a1), $0m24(a2), (a3), (a4)))); $0m34(a0); (a1); $0m23(a2); (a3); (a4); return r; }, 5),
+  "Extract.parents": run_lib((a0, a1, a2, a3) => { const r = $0m40(run_loop($Extract$parents$($0m24(a0), (a1), (a2), (a3)))); $0m23(a0); (a1); (a2); (a3); return r; }, 4),
+  "Context.extract": run_lib((a0, a1, a2) => { const r = $0m40(run_loop($Context$extract$($0m24(a0), (a1), (a2)))); $0m23(a0); (a1); (a2); return r; }, 3),
+  "Extraction.context": run_lib((a0) => { const r = (run_loop($Extraction$context$($0m43(a0)))); $0m40(a0); return r; }, 1),
+  "Extraction.parent": run_lib((a0) => { const r = $0m39(run_loop($Extraction$parent$($0m43(a0)))); $0m40(a0); return r; }, 1),
+  "Extraction.state": run_lib((a0) => { const r = $0m36(run_loop($Extraction$state$($0m43(a0)))); $0m40(a0); return r; }, 1),
   "Extraction.incoming.base": run_lib((a0) => { const r = (run_loop($Extraction$incoming$base$((a0)))); (a0); return r; }, 1),
-  "Extraction.incoming.of": run_lib((a0, a1) => { const r = (run_loop($Extraction$incoming$of$($0m34(a0), (a1)))); $0m36(a0); (a1); return r; }, 2),
-  "Extraction.incoming": run_lib((a0) => { const r = (run_loop($Extraction$incoming$($0m40(a0)))); $0m37(a0); return r; }, 1),
+  "Extraction.incoming.of": run_lib((a0, a1) => { const r = (run_loop($Extraction$incoming$of$($0m37(a0), (a1)))); $0m39(a0); (a1); return r; }, 2),
+  "Extraction.incoming": run_lib((a0) => { const r = (run_loop($Extraction$incoming$($0m43(a0)))); $0m40(a0); return r; }, 1),
   "IncomingContext.context": run_lib((a0) => { const r = (run_loop($IncomingContext$context$((a0)))); (a0); return r; }, 1),
   "IncomingContext.state": run_lib((a0) => { const r = (run_loop($IncomingContext$state$((a0)))); (a0); return r; }, 1),
   "IncomingContext.received": run_lib((a0) => { const r = (run_loop($IncomingContext$received$((a0)))); (a0); return r; }, 1),
@@ -4811,10 +5005,10 @@ export default {
   "ReceivedPair.tracestate": run_lib((a0) => { const r = (run_loop($ReceivedPair$tracestate$((a0)))); (a0); return r; }, 1),
   "BaseContext.parent": run_lib((a0) => { const r = (run_loop($BaseContext$parent$((a0)))); (a0); return r; }, 1),
   "BaseContext.state": run_lib((a0) => { const r = (run_loop($BaseContext$state$((a0)))); (a0); return r; }, 1),
-  "TraceParentError.show": run_lib((a0) => { const r = (run_loop($TraceParentError$show$($0m35(a0)))); $0m32(a0); return r; }, 1),
-  "TraceParentOutcome.show": run_lib((a0) => { const r = (run_loop($TraceParentOutcome$show$($0m34(a0)))); $0m36(a0); return r; }, 1),
-  "StateOutcome.show": run_lib((a0) => { const r = (run_loop($StateOutcome$show$($0m41(a0)))); $0m33(a0); return r; }, 1),
-  "Extraction.show": run_lib((a0) => { const r = (run_loop($Extraction$show$($0m40(a0)))); $0m37(a0); return r; }, 1),
+  "TraceParentError.show": run_lib((a0) => { const r = (run_loop($TraceParentError$show$($0m38(a0)))); $0m35(a0); return r; }, 1),
+  "TraceParentOutcome.show": run_lib((a0) => { const r = (run_loop($TraceParentOutcome$show$($0m37(a0)))); $0m39(a0); return r; }, 1),
+  "StateOutcome.show": run_lib((a0) => { const r = (run_loop($StateOutcome$show$($0m44(a0)))); $0m36(a0); return r; }, 1),
+  "Extraction.show": run_lib((a0) => { const r = (run_loop($Extraction$show$($0m43(a0)))); $0m40(a0); return r; }, 1),
   "Carrier.is_context": run_lib((a0) => { const r = (run_loop($Carrier$is_context$((a0)))); (a0); return r; }, 1),
   "Carrier.keep_unrelated": run_lib((a0, a1, a2) => { const r = (run_loop($Carrier$keep_unrelated$((a0), (a1), (a2)))); (a0); (a1); (a2); return r; }, 3),
   "Carrier.unrelated.go": run_lib((a0, a1) => { const r = (run_loop($Carrier$unrelated$go$((a0), (a1)))); (a0); (a1); return r; }, 2),
@@ -4823,18 +5017,18 @@ export default {
   "Carrier.context_fields": run_lib((a0, a1) => { const r = (run_loop($Carrier$context_fields$((a0), (a1)))); (a0); (a1); return r; }, 2),
   "Context.clear": run_lib((a0) => { const r = (run_loop($Context$clear$((a0)))); (a0); return r; }, 1),
   "Injection.of": run_lib((a0, a1) => { const r = (run_loop($Injection$of$((a0), (a1)))); (a0); (a1); return r; }, 2),
-  "Context.inject": run_lib((a0, a1, a2) => { const r = (run_loop($Context$inject$($0m21(a0), (a1), (a2)))); $0m20(a0); (a1); (a2); return r; }, 3),
+  "Context.inject": run_lib((a0, a1, a2) => { const r = (run_loop($Context$inject$($0m24(a0), (a1), (a2)))); $0m23(a0); (a1); (a2); return r; }, 3),
   "Injection.carrier": run_lib((a0) => { const r = (run_loop($Injection$carrier$((a0)))); (a0); return r; }, 1),
   "Injection.dropped": run_lib((a0) => { const r = (run_loop($Injection$dropped$((a0)))); (a0); return r; }, 1),
   "Text.joined.go": run_lib((a0, a1) => { const r = (run_loop($Text$joined$go$((a0), (a1)))); (a0); (a1); return r; }, 2),
   "Text.joined": run_lib((a0) => { const r = (run_loop($Text$joined$((a0)))); (a0); return r; }, 1),
   "Forward.carrier": run_lib((a0, a1, a2) => { const r = (run_loop($Forward$carrier$((a0), (a1), (a2)))); (a0); (a1); (a2); return r; }, 3),
-  "Forward.state": run_lib((a0, a1, a2, a3) => { const r = $0m42(run_loop($Forward$state$($0m38(a0), (a1), (a2), (a3)))); $0m28(a0); (a1); (a2); (a3); return r; }, 4),
-  "Forward.parent": run_lib((a0, a1, a2, a3, a4) => { const r = $0m42(run_loop($Forward$parent$($0m39(a0), $0m21(a1), (a2), (a3), (a4)))); $0m31(a0); $0m20(a1); (a2); (a3); (a4); return r; }, 5),
-  "Forward.fits": run_lib((a0, a1, a2, a3, a4) => { const r = $0m42(run_loop($Forward$fits$($0m23(a0), $0m21(a1), (a2), (a3), (a4)))); $0m22(a0); $0m20(a1); (a2); (a3); (a4); return r; }, 5),
-  "Forward.pair": run_lib((a0, a1, a2) => { const r = $0m42(run_loop($Forward$pair$($0m21(a0), (a1), (a2)))); $0m20(a0); (a1); (a2); return r; }, 3),
-  "Context.forward": run_lib((a0, a1, a2) => { const r = $0m42(run_loop($Context$forward$($0m21(a0), (a1), (a2)))); $0m20(a0); (a1); (a2); return r; }, 3),
-  "ForwardError.show": run_lib((a0) => { const r = (run_loop($ForwardError$show$($0m44(a0)))); $0m43(a0); return r; }, 1),
+  "Forward.state": run_lib((a0, a1, a2, a3) => { const r = $0m45(run_loop($Forward$state$($0m41(a0), (a1), (a2), (a3)))); $0m31(a0); (a1); (a2); (a3); return r; }, 4),
+  "Forward.parent": run_lib((a0, a1, a2, a3, a4) => { const r = $0m45(run_loop($Forward$parent$($0m42(a0), $0m24(a1), (a2), (a3), (a4)))); $0m34(a0); $0m23(a1); (a2); (a3); (a4); return r; }, 5),
+  "Forward.fits": run_lib((a0, a1, a2, a3, a4) => { const r = $0m45(run_loop($Forward$fits$($0m26(a0), $0m24(a1), (a2), (a3), (a4)))); $0m25(a0); $0m23(a1); (a2); (a3); (a4); return r; }, 5),
+  "Forward.pair": run_lib((a0, a1, a2) => { const r = $0m45(run_loop($Forward$pair$($0m24(a0), (a1), (a2)))); $0m23(a0); (a1); (a2); return r; }, 3),
+  "Context.forward": run_lib((a0, a1, a2) => { const r = $0m45(run_loop($Context$forward$($0m24(a0), (a1), (a2)))); $0m23(a0); (a1); (a2); return r; }, 3),
+  "ForwardError.show": run_lib((a0) => { const r = (run_loop($ForwardError$show$($0m47(a0)))); $0m46(a0); return r; }, 1),
   "FailurePolicy.result": run_lib((a0, a1) => { const r = (run_loop($FailurePolicy$result$((a0), (a1)))); (a0); (a1); return r; }, 2),
   "Policy.apply": run_lib((a0, a1, a2) => { const r = (run_loop($Policy$apply$((a0), (a1), (a2)))); (a0); (a1); (a2); return r; }, 3),
   "Policy.apply.done": run_lib((a0, a1, a2) => { const r = (run_loop($Policy$apply$done$((a0), (a1), (a2)))); (a0); (a1); (a2); return r; }, 3),
@@ -4842,21 +5036,21 @@ export default {
   "Serve.from_child": run_lib((a0, a1, a2) => { const r = (run_loop($Serve$from_child$((a0), (a1), (a2)))); (a0); (a1); (a2); return r; }, 3),
   "Serve.from_start": run_lib((a0, a1, a2) => { const r = (run_loop($Serve$from_start$((a0), (a1), (a2)))); (a0); (a1); (a2); return r; }, 3),
   "Serve.replaced": run_lib((a0) => { const r = (run_loop($Serve$replaced$((a0)))); (a0); return r; }, 1),
-  "Serve.usable": run_lib((a0, a1, a2, a3) => { const r = $0m45(run_loop($Serve$usable$((a0), (a1), (a2), (a3)))); (a0); (a1); (a2); (a3); return r; }, 4),
-  "Serve.kept": run_lib((a0, a1, a2, a3) => { const r = $0m45(run_loop($Serve$kept$((a0), (a1), (a2), (a3)))); (a0); (a1); (a2); (a3); return r; }, 4),
-  "ServicePlan.new": run_lib((a0, a1, a2) => { const r = $0m45(run_loop($ServicePlan$new$($0m40(a0), (a1), (a2)))); $0m37(a0); (a1); (a2); return r; }, 3),
-  "ServicePlan.generation": run_lib((a0) => { const r = $0m16(run_loop($ServicePlan$generation$($0m46(a0)))); $0m45(a0); return r; }, 1),
-  "ServicePlan.service": run_lib((a0, a1) => { const r = (run_loop($ServicePlan$service$($0m46(a0), (a1)))); $0m45(a0); (a1); return r; }, 2),
-  "Serve.finish": run_lib((a0, a1) => { const r = (run_loop($Serve$finish$($0m46(a0), (a1)))); $0m45(a0); (a1); return r; }, 2),
+  "Serve.usable": run_lib((a0, a1, a2, a3) => { const r = $0m48(run_loop($Serve$usable$((a0), (a1), (a2), (a3)))); (a0); (a1); (a2); (a3); return r; }, 4),
+  "Serve.kept": run_lib((a0, a1, a2, a3) => { const r = $0m48(run_loop($Serve$kept$((a0), (a1), (a2), (a3)))); (a0); (a1); (a2); (a3); return r; }, 4),
+  "ServicePlan.new": run_lib((a0, a1, a2) => { const r = $0m48(run_loop($ServicePlan$new$($0m43(a0), (a1), (a2)))); $0m40(a0); (a1); (a2); return r; }, 3),
+  "ServicePlan.generation": run_lib((a0) => { const r = $0m19(run_loop($ServicePlan$generation$($0m49(a0)))); $0m48(a0); return r; }, 1),
+  "ServicePlan.service": run_lib((a0, a1) => { const r = (run_loop($ServicePlan$service$($0m49(a0), (a1)))); $0m48(a0); (a1); return r; }, 2),
+  "Serve.finish": run_lib((a0, a1) => { const r = (run_loop($Serve$finish$($0m49(a0), (a1)))); $0m48(a0); (a1); return r; }, 2),
   "Serve.strict": run_lib((a0) => { const r = (run_loop($Serve$strict$((a0)))); (a0); return r; }, 1),
-  "Send.forwarded": run_lib((a0, a1, a2) => { const r = $0m48(run_loop($Send$forwarded$($0m47(a0), (a1), (a2)))); $0m42(a0); (a1); (a2); return r; }, 3),
-  "Send.fallback": run_lib((a0, a1, a2, a3) => { const r = $0m48(run_loop($Send$fallback$($0m21(a0), (a1), (a2), (a3)))); $0m20(a0); (a1); (a2); (a3); return r; }, 4),
-  "Send.of": run_lib((a0, a1, a2, a3, a4) => { const r = $0m48(run_loop($Send$of$($0m21(a0), (a1), (a2), (a3), (a4)))); $0m20(a0); (a1); (a2); (a3); (a4); return r; }, 5),
-  "SendPlan.new": run_lib((a0, a1, a2, a3) => { const r = $0m50(run_loop($SendPlan$new$($0m21(a0), (a1), (a2), (a3)))); $0m20(a0); (a1); (a2); (a3); return r; }, 4),
-  "SendPlan.generation": run_lib((a0) => { const r = $0m16(run_loop($SendPlan$generation$($0m51(a0)))); $0m50(a0); return r; }, 1),
-  "SendPlan.sent": run_lib((a0, a1) => { const r = $0m48(run_loop($SendPlan$sent$($0m51(a0), (a1)))); $0m50(a0); (a1); return r; }, 2),
-  "Send.finish": run_lib((a0, a1) => { const r = $0m52(run_loop($Send$finish$($0m51(a0), (a1)))); $0m50(a0); (a1); return r; }, 2),
-  "Send.strict": run_lib((a0) => { const r = $0m55(run_loop($Send$strict$($0m53(a0)))); $0m48(a0); return r; }, 1),
+  "Send.forwarded": run_lib((a0, a1, a2) => { const r = $0m51(run_loop($Send$forwarded$($0m50(a0), (a1), (a2)))); $0m45(a0); (a1); (a2); return r; }, 3),
+  "Send.fallback": run_lib((a0, a1, a2, a3) => { const r = $0m51(run_loop($Send$fallback$($0m24(a0), (a1), (a2), (a3)))); $0m23(a0); (a1); (a2); (a3); return r; }, 4),
+  "Send.of": run_lib((a0, a1, a2, a3, a4) => { const r = $0m51(run_loop($Send$of$($0m24(a0), (a1), (a2), (a3), (a4)))); $0m23(a0); (a1); (a2); (a3); (a4); return r; }, 5),
+  "SendPlan.new": run_lib((a0, a1, a2, a3) => { const r = $0m53(run_loop($SendPlan$new$($0m24(a0), (a1), (a2), (a3)))); $0m23(a0); (a1); (a2); (a3); return r; }, 4),
+  "SendPlan.generation": run_lib((a0) => { const r = $0m19(run_loop($SendPlan$generation$($0m54(a0)))); $0m53(a0); return r; }, 1),
+  "SendPlan.sent": run_lib((a0, a1) => { const r = $0m51(run_loop($SendPlan$sent$($0m54(a0), (a1)))); $0m53(a0); (a1); return r; }, 2),
+  "Send.finish": run_lib((a0, a1) => { const r = $0m55(run_loop($Send$finish$($0m54(a0), (a1)))); $0m53(a0); (a1); return r; }, 2),
+  "Send.strict": run_lib((a0) => { const r = $0m58(run_loop($Send$strict$($0m56(a0)))); $0m51(a0); return r; }, 1),
   "Origin.show": run_lib((a0) => { const r = (run_loop($Origin$show$((a0)))); (a0); return r; }, 1),
   "Service.origin": run_lib((a0) => { const r = (run_loop($Service$origin$((a0)))); (a0); return r; }, 1),
   "Service.outgoing": run_lib((a0) => { const r = (run_loop($Service$outgoing$((a0)))); (a0); return r; }, 1),
@@ -4864,11 +5058,11 @@ export default {
   "Service.set": run_lib((a0, a1, a2) => { const r = (run_loop($Service$set$((a0), (a1), (a2)))); (a0); (a1); (a2); return r; }, 3),
   "Service.remove": run_lib((a0, a1) => { const r = (run_loop($Service$remove$((a0), (a1)))); (a0); (a1); return r; }, 2),
   "Service.show": run_lib((a0) => { const r = (run_loop($Service$show$((a0)))); (a0); return r; }, 1),
-  "Unforwarded.show": run_lib((a0) => { const r = (run_loop($Unforwarded$show$($0m54(a0)))); $0m49(a0); return r; }, 1),
-  "Sent.carrier": run_lib((a0) => { const r = (run_loop($Sent$carrier$($0m53(a0)))); $0m48(a0); return r; }, 1),
-  "Sent.operation": run_lib((a0) => { const r = (run_loop($Sent$operation$($0m53(a0)))); $0m48(a0); return r; }, 1),
-  "Sent.error": run_lib((a0) => { const r = (run_loop($Sent$error$($0m53(a0)))); $0m48(a0); return r; }, 1),
-  "Sent.dropped": run_lib((a0) => { const r = (run_loop($Sent$dropped$($0m53(a0)))); $0m48(a0); return r; }, 1),
+  "Unforwarded.show": run_lib((a0) => { const r = (run_loop($Unforwarded$show$($0m57(a0)))); $0m52(a0); return r; }, 1),
+  "Sent.carrier": run_lib((a0) => { const r = (run_loop($Sent$carrier$($0m56(a0)))); $0m51(a0); return r; }, 1),
+  "Sent.operation": run_lib((a0) => { const r = (run_loop($Sent$operation$($0m56(a0)))); $0m51(a0); return r; }, 1),
+  "Sent.error": run_lib((a0) => { const r = (run_loop($Sent$error$($0m56(a0)))); $0m51(a0); return r; }, 1),
+  "Sent.dropped": run_lib((a0) => { const r = (run_loop($Sent$dropped$($0m56(a0)))); $0m51(a0); return r; }, 1),
   "Send.fresh": run_lib((a0) => { const r = (run_loop($Send$fresh$((a0)))); (a0); return r; }, 1),
-  "Sent.show": run_lib((a0) => { const r = (run_loop($Sent$show$($0m53(a0)))); $0m48(a0); return r; }, 1),
+  "Sent.show": run_lib((a0) => { const r = (run_loop($Sent$show$($0m56(a0)))); $0m51(a0); return r; }, 1),
 };
