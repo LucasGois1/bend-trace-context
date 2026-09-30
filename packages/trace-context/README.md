@@ -86,6 +86,8 @@ ContextError.show(error: ContextError) -> String
 
 RemoteContext.from_traceparent(value: TraceParentV00) -> RemoteContext
 LocalContext.to_traceparent(context: LocalContext) -> TraceParentV00
+RemoteContext.flags(context: RemoteContext) -> U32
+LocalContext.flags(context: LocalContext) -> U32
 ```
 
 The `_from_ids` operations take identifiers the caller already has. The
@@ -142,6 +144,15 @@ representation: version `00` and flags `00` to `03`, with every reserved bit
 zero. [Injection](#injecting-and-forwarding-context) writes that
 representation into a message, and forwarding sends a received value
 unchanged.
+
+`RemoteContext.flags` and `LocalContext.flags` give a context's trace flags
+as a number from 0 to 3, which an exporter writes into OTLP's `Span.flags`
+field, for example: bit 0 is sampled, and bit 1 is random-trace-id, from the
+trace ID's assertion. A local context's value is the flag byte of the
+traceparent that it emits, `00` to `03`, and a remote context's is the known
+flags that it was received or built with, never its reserved bits. The
+Booleans stay the canonical form, `is_sampled` and `TraceId.is_random`:
+there is no trace flags type.
 
 `RemoteContext` and `LocalContext` are separate types, so a received context
 cannot be passed where a local one is expected (the
@@ -621,6 +632,7 @@ TC.Context.forward(limits: TC.Limits, incoming: TC.IncomingContext, carrier: Lis
 TC.Injection.carrier(injection: TC.Injection) -> List<&2, TC.Header>
 TC.Injection.dropped(injection: TC.Injection) -> List<&2, TC.StateKey>
 TC.ForwardError.show(error: TC.ForwardError) -> String
+TC.Context.field_names() -> List<&2, String>
 ```
 
 All three remove every `traceparent` and `tracestate` field of the carrier,
@@ -647,6 +659,15 @@ does not accumulate fields.
   It never normalizes flags, downgrades a version or edits the tracestate
   (section 3.4). When the pair cannot be sent whole, it fails and writes
   nothing.
+
+`Context.field_names()` gives the names of the context fields as `inject`
+writes them, and as extraction and cleanup read them: `traceparent`, then
+`tracestate`. A propagator that lists the fields it writes, as
+OpenTelemetry's propagators do, returns them. An OpenTelemetry SDK's W3C
+propagator stays thin: it passes `Context.extract` a carrier built from what
+OpenTelemetry's getter reads, and writes the values of `OutgoingContext.emit`
+under these names through OpenTelemetry's setter, the tracestate only when it
+is not empty, as `inject` does.
 
 `forward` fails with a `ForwardError`: `NothingToForward{}` when the
 context keeps no received pair, `ForwardTooLarge{}` over the output budget,
@@ -1131,7 +1152,11 @@ section describes, and the kernel needs Lean 4.34.
   randomness assertion, span ID and sampled indication; and a received context
   keeps the bits that `TraceParentV00.is_sampled` and `is_random` read. The
   corpus checks those two readers on all 256 flag bytes; no law restates them
-  for the reserved bit patterns.
+  for the reserved bit patterns. A context's trace flags are the number of
+  its sampled indication and randomness assertion, from 0 to 3: a local
+  context's are those of the traceparent that it emits, and a remote
+  context's the known flags that it was received or built with, those of the
+  value received for a received one.
 - **Conversion:** a candidate trace ID's text is `U32.to_hex` of its four words
   in reading order and a span ID's of its two. Read as a base-16 numeral,
   `U32.to_hex(word)` is the number Base's `U32.to_nat` assigns to the word, so
@@ -1200,12 +1225,13 @@ section describes, and the kernel needs Lean 4.34.
   independently of the package's comparison.
 - **Injection:** cleanup keeps exactly the fields that are not context fields,
   in their order. Injection writes those fields followed by the emitted
-  traceparent and, unless it is empty, the emitted tracestate; it reports the
-  emission's dropped keys apart and gives the same carrier when repeated. A
-  receiver that extracts an injected carrier with the same limits accepts its
-  traceparent, finds the injected local context's trace ID with its
-  randomness assertion, span ID and sampled indication as the sender's
-  operation, and receives the entries of the truncated state.
+  traceparent and, unless it is empty, the emitted tracestate, named by
+  `Context.field_names` in its order; it reports the emission's dropped keys
+  apart and gives the same carrier when repeated. A receiver that extracts
+  an injected carrier with the same limits accepts its traceparent, finds the
+  injected local context's trace ID with its randomness assertion, span ID
+  and sampled indication as the sender's operation, and receives the entries
+  of the truncated state.
 - **Forwarding:** a successful forwarding writes the other fields followed by
   the received traceparent value and the received tracestate fields joined by
   commas, left out when empty. A context without a received pair is refused
