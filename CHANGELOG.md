@@ -10,14 +10,12 @@
   its random-trace-id bit is its trace ID's assertion.
   `IncomingContext.from_remote(context, state)` pairs a remote context with
   a tracestate and keeps no received pair, so `Context.forward` refuses it
-  with `NothingToForward` and writes nothing. The reference and the guide
-  state that a remote context leaves the participant only by forwarding its
-  received pair unchanged (W3C 3.4), and that a pass-through then clears the
-  context fields, where OpenTelemetry JavaScript's
-  `W3CTraceContextPropagator` writes a new traceparent instead. Laws
-  `remote_from_ids`, `incoming_from_remote` and `forward_from_parts` prove
-  that both constructors keep their parts and that such a context is not
-  forwarded; the consumer and a guide program show them.
+  with `NothingToForward`. The reference's "Sending a remote context" says
+  how a remote context leaves the participant, and how OpenTelemetry
+  JavaScript differs. Laws `remote_from_ids`, `incoming_from_remote` and
+  `forward_from_parts` prove that both constructors keep their parts and
+  that such a context is not forwarded; the consumer and a guide program
+  show them.
 
 ## 0.1.2 — 2026-09-29
 

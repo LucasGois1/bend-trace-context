@@ -573,11 +573,10 @@ def continuation() -> IO(Unit):
 # An OpenTelemetry SDK's remote span context from its parts, as a link or a
 # propagator of another format gives them: a remote context from its IDs and
 # sampled indication, whose random-trace-id bit is its trace ID's own
-# assertion, and an incoming context from it and a tracestate. Built from
-# parts, the incoming context keeps no received pair, so forwarding refuses
-# it and writes nothing, and the SDK's pass-through clears the stale context
-# fields of the message it sends instead.
-def sdk_parts.remote(+context: TC.RemoteContext) -> String:
+# assertion, and an incoming context from it and a tracestate. It has no
+# received pair to forward, so the SDK's relay clears the stale context
+# fields of the message it sends.
+def sdk_parts.show(+context: TC.RemoteContext) -> String:
   TC.TraceId.to_string(TC.RemoteContext.trace_id(context)) ++ " " ++
     TC.SpanId.to_string(TC.RemoteContext.span_id(context)) ++ " sampled: " ++
     Bool.show(TC.RemoteContext.is_sampled(context)) ++ " random: " ++
@@ -589,12 +588,12 @@ def sdk_parts() -> IO(Unit):
     +trace : TC.TraceId <- trace_id("4bf92f3577b34da6a3ce929d0e0e4736")
     +span : TC.SpanId <- span_id("00f067aa0ba902b7")
     +remote : TC.RemoteContext = TC.RemoteContext.from_ids(trace, span, True{})
-    Unit <- IO.print("sdk parts: remote context: " ++ sdk_parts.remote(remote))
-    Unit <- IO.print("sdk parts: remote context of a random trace ID: " ++ sdk_parts.remote(
+    Unit <- IO.print("sdk parts: remote context: " ++ sdk_parts.show(remote))
+    Unit <- IO.print("sdk parts: remote context of a random trace ID: " ++ sdk_parts.show(
       TC.RemoteContext.from_ids(TC.TraceId.assert_random(trace), span, False{})))
     vendor : TC.TraceState <- state("sdk parts state", TC.TraceState.parse(limits, "congo=t61rcWkgMzE"))
     +incoming : TC.IncomingContext = TC.IncomingContext.from_remote(remote, vendor)
-    Unit <- IO.print("sdk parts: incoming context: " ++ sdk_parts.remote(TC.IncomingContext.context(incoming)) ++
+    Unit <- IO.print("sdk parts: incoming context: " ++ sdk_parts.show(TC.IncomingContext.context(incoming)) ++
       " state: " ++ TC.TraceState.format(TC.IncomingContext.state(incoming)) ++ " received pair: " ++
       forwardable(TC.IncomingContext.received(incoming)))
     +message : List<&2, TC.Header> = [TC.Header{"Accept", "application/json"},

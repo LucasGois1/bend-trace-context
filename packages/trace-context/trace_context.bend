@@ -535,11 +535,12 @@ def RemoteContext.from_traceparent(value: TraceParentV00) -> RemoteContext:
 
 # Build the sender's context from its parts, as an OpenTelemetry SDK does for
 # a link or for a propagator of another format: its trace ID, its span ID and
-# its sampled indication. It is total, since the IDs are valid by
-# construction, and its random-trace-id bit is the trace ID's own assertion:
-# none for a parsed ID, unless TraceId.assert_random adds it. The result is
-# still a received context, which a child continues and which cannot be sent
-# as this participant's operation (law remote_from_ids).
+# its sampled indication, kept as they are. It is total, since the IDs are
+# valid by construction, and its random-trace-id bit is the trace ID's own
+# assertion: none for a parsed ID, unless TraceId.assert_random adds it (law
+# remote_from_ids). The result is still a received context, which a child
+# continues: it cannot be sent as this participant's operation
+# (tests/reject/remote_as_local.bend).
 def RemoteContext.from_ids(trace_id: TraceId, span_id: SpanId, sampled: Bool) -> RemoteContext:
   RemoteContext{trace_id, span_id, sampled}
 
@@ -2102,12 +2103,13 @@ type TraceParentError is Data:
 type ReceivedPair is Data:
   ReceivedPair{traceparent: String, tracestate: List<&2, String>}
 
-# A context extracted from a message: the sender's operation, the state that
-# came with it, and the received pair when the whole pair was accepted. It is
-# not this participant's operation: a service continues it with a child
-# (Context.child_from_id with IncomingContext.parent), or forwards the
-# received pair unchanged (Context.forward). IncomingContext.from_remote
-# builds one from parts, with no received pair.
+# The sender's operation together with the tracestate that goes with it: one
+# extracted from a message, which also keeps the received pair when the whole
+# pair was accepted, or one built from its parts (IncomingContext.from_remote),
+# which keeps none. It is not this participant's operation: a service
+# continues it with a child (Context.child_from_id with
+# IncomingContext.parent), or forwards the received pair unchanged
+# (Context.forward).
 type IncomingContext is Data:
   IncomingContext{context: RemoteContext, state: TraceState, received: Maybe<&2, ReceivedPair>}
 
@@ -2567,9 +2569,9 @@ def IncomingContext.parent(incoming: IncomingContext) -> Parent:
 # An incoming context from its parts: a remote context and the tracestate
 # that goes with it, so that an OpenTelemetry SDK's remote span contexts have
 # one shape whatever format they came from. No message's fields were
-# accepted, so it keeps no received pair: Context.forward refuses it with
-# NothingToForward and writes nothing (laws incoming_from_remote and
-# forward_from_parts). A child continues it as any incoming context.
+# accepted, so it keeps no received pair, and Context.forward refuses it with
+# NothingToForward (laws incoming_from_remote and forward_from_parts). A
+# child continues it as any incoming context.
 def IncomingContext.from_remote(context: RemoteContext, state: TraceState) -> IncomingContext:
   IncomingContext{context, state, None{}}
 
@@ -2745,11 +2747,8 @@ def Injection.dropped(injection: Injection) -> List<&2, StateKey>:
 # possible"), and the old context fields of the carrier are replaced, as by
 # injection. When the pair cannot be sent whole within the limits, forwarding
 # refuses it: the caller may continue the trace with a child operation
-# instead, whose own traceparent lets its state be truncated (spec #1).
-# Forwarding is the only way a remote context leaves the participant: no
-# operation writes a traceparent again from a remote context, so nothing is
-# sent for a context without a received pair, one built from parts among
-# them, and a pass-through clears the context fields instead (spec #41).
+# instead, whose own traceparent lets its state be truncated (spec #1). An
+# incoming context built from parts has no pair to send (spec #41).
 
 # Why a received context could not be forwarded unchanged:
 #   NothingToForward{}            it keeps no received pair: its tracestate was

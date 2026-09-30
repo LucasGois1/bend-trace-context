@@ -542,6 +542,11 @@ def Laws.state_independent(limits, first, second, base, same):
 def Laws.received_bounds(limits, carrier, base, incoming, pair, extracted, kept):
   ExtractProof.received_bounds(limits, carrier, base, incoming, pair, extracted, kept)
 
+# By computation: the accessors read back the constructor's fields, and the
+# received pair is None{}.
+def Laws.incoming_from_remote(context, state):
+  ({==}, ({==}, {==}))
+
 # The value is measured, trimmed, found free of commas and read by the strict
 # codec, which reads its text back.
 def Laws.read_v00(limits, known, before, after, before_ows, after_ows, fits):
@@ -606,11 +611,6 @@ def Laws.forward_carrier(limits, incoming, carrier, pair, forwarded, kept, done)
 # Without a received pair, forwarding refuses at once.
 def Laws.forward_nothing(limits, incoming, carrier, none):
   InjectProof.forward_nothing(limits, incoming, carrier, none)
-
-# By computation: the accessors read back the constructor's fields, and the
-# received pair is None{}.
-def Laws.incoming_from_remote(context, state):
-  ({==}, ({==}, {==}))
 
 # forward_nothing, whose hypothesis holds by computation for a context built
 # from parts.

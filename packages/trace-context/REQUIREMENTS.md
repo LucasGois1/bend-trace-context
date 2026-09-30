@@ -9,8 +9,8 @@ adds the building blocks that an OpenTelemetry SDK composes, in a section of
 their own whose rows are numbered 41.N after its user stories. Two more
 tables cover the six formal proof obligations and the five
 external protocol and release gates. The last section states the limits of
-the evidence: what is tested but not proved, and what depends on the
-environment.
+the evidence: what is tested but not proved, what is read in a dependency's
+code but not tested, and what depends on the environment.
 
 The matrix describes the commit that holds it, and a release for its tag,
 and `scripts/check-requirements.sh` requires it to cite every law.
@@ -182,8 +182,8 @@ was read from the GitHub API on 2026-09-28.
 | 41.19 Incoming context from parts | `IncomingContext.from_remote(context, state)` pairs a remote context with a tracestate, so that remote span contexts have one shape whatever format they came from. A child continues it as any incoming context (#41, "Contexts from parts"). | `incoming_from_remote`, `child` | `main.bend` ("sdk parts: incoming context"); `guide-remote-parts` ("operation:") | `validate:*`, `consumer:*` |
 | 41.20 No received pair from parts | An incoming context built from parts keeps no received pair, so it is never forwarded as if it had arrived in a message: forwarding answers `NothingToForward` (#41, "Contexts from parts"). | `incoming_from_remote`, `forward_from_parts`, `forward_nothing` | `main.bend` ("received pair: none", "sdk parts: forwarded: refused: NothingToForward"); `guide-remote-parts` ("not forwarded: NothingToForward") | `validate:*`, `consumer:*` |
 | 41.21 Span contexts wrap incoming and outgoing contexts | The SDK's `SpanContext` holds an `IncomingContext` for a remote span and an `OutgoingContext` for a local one; `IsRemote` is the variant, and the package gains no remote flag. Injection takes an `OutgoingContext`, which holds a `LocalContext`, so a received context, parsed or built from parts, cannot be injected as this participant's operation (#41, "Boundary"). | none: a type rule, which the checker enforces | `reject/remote_as_local.bend` must fail the checker; `main.bend` ("sdk parts: incoming context": an incoming context holds the remote context built from parts) | `validate:*`, `consumer:*` |
-| 41.24 A remote context leaves only by forwarding | A remote context leaves the participant only through `Context.forward`, with its received pair unchanged (W3C 3.4). Without a received pair nothing is written, the caller learns it from `NothingToForward`, and an SDK's pass-through clears the context fields. No operation re-serializes a remote context's traceparent (#41, "Forwarding a remote context"). | `forward_carrier`, `forward_extracted`, `forward_nothing`, `forward_from_parts`, `clear_carrier` | INJECT.bend "transparent forwarding", "a discarded tracestate leaves nothing to forward"; `main.bend` ("sdk parts: forwarded: refused: NothingToForward", "sdk parts: cleared:"); `guide-remote-parts`; `guide-relay` | `validate:*`, `consumer:*` |
-| 41.32 The pass-through difference documented | The documentation says that a pass-through sends no context without a received pair, unlike OpenTelemetry JavaScript, whose `W3CTraceContextPropagator` writes a new traceparent from a remote span context's IDs and flags (#41, "Forwarding a remote context"). | none: documentation, and OpenTelemetry JavaScript's behavior (*env*) | README "Sending a remote context"; GUIDE.md "Remote span contexts from parts", with `guide-remote-parts` compared with its output; ERRORS.md "Forwarding"; `opentelemetry.test.mjs` "the package continues a context that OpenTelemetry injects", in which OpenTelemetry writes a traceparent from a span context's IDs and flags | `consumer:*`, `js:node` |
+| 41.24 A remote context leaves only by forwarding | A remote context leaves the participant only by `Context.forward` of its received pair, unchanged (W3C 3.4); without one, nothing is written, and a relay clears the context fields (#41, "Forwarding a remote context"; README "Sending a remote context"). | `forward_carrier`, `forward_extracted`, `forward_nothing`, `forward_from_parts`, `clear_carrier` | INJECT.bend "transparent forwarding", "a discarded tracestate leaves nothing to forward"; `main.bend` ("sdk parts: forwarded: refused: NothingToForward", "sdk parts: cleared:"); `guide-remote-parts`; `guide-relay` | `validate:*`, `consumer:*` |
+| 41.32 The difference from OpenTelemetry JavaScript documented | The reference says that a relay sends no context without a received pair, unlike OpenTelemetry JavaScript (#41, "Forwarding a remote context"). | none: documentation | README "Sending a remote context"; GUIDE.md "Remote span contexts from parts", with `guide-remote-parts` compared with its output. What OpenTelemetry JavaScript writes for a remote span context, a new traceparent of version `00`, is read from `W3CTraceContextPropagator.inject` in `@opentelemetry/core` 2.11.0 (`build/src/trace/W3CTraceContextPropagator.js`), not tested (Limits, "Read, not tested") | `consumer:*` |
 
 ## Formal proof obligations
 
@@ -247,6 +247,15 @@ it.
   `read_over_budget` prove the outcome, and the stop follows from the
   definition of `Utf8.left`, which counts the budget down; the mebibyte
   cases check the outcome only.
+
+### Read, not tested
+
+- What OpenTelemetry JavaScript's `W3CTraceContextPropagator.inject` writes
+  for a remote span context (story 41.32): a new traceparent of version `00`
+  from the span context's IDs and flags. The README states it from that
+  function's code in `@opentelemetry/core` 2.11.0, which `package-lock.json`
+  pins; `opentelemetry.test.mjs` injects only span contexts that are not
+  remote.
 
 ### Proof assurance
 

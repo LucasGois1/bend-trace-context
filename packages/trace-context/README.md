@@ -24,8 +24,12 @@ Most services need three operations: `TC.Context.extract`,
 `Generate.Context.continue_or_start` and `Generate.Context.send`, in
 [Extracting context](#extracting-context) and
 [Continuing or starting a trace](#continuing-or-starting-a-trace). The
-sections below build up to them from the codec. "Spec #1" is the package's
-approved [specification](https://github.com/LucasGois1/bend-trace-context/issues/1).
+sections below build up to them from the codec. The package has two approved
+specifications: "spec #1", its
+[specification](https://github.com/LucasGois1/bend-trace-context/issues/1),
+and "spec #41", which adds the
+[building blocks](https://github.com/LucasGois1/bend-trace-context/issues/41)
+that an OpenTelemetry SDK composes.
 
 - [Codec API](#codec-api)
 - [Supplied IDs and contexts](#supplied-ids-and-contexts)
@@ -144,9 +148,9 @@ format ([spec #41](https://github.com/LucasGois1/bend-trace-context/issues/41)).
 It is total, since the IDs are valid by construction, and it keeps them and
 the sampled indication as they are. Its random-trace-id bit is its trace
 ID's assertion: a parsed trace ID makes none, and `TraceId.assert_random`
-adds one when the sender asserted it. It is still a received context: a
-child continues it, and it leaves the participant only by
-[forwarding](#injecting-and-forwarding-context).
+adds one when the sender asserted it. It is still a received context, with
+no received pair to forward: it never leaves the participant as itself, and
+only a child of it does ([Sending a remote context](#sending-a-remote-context)).
 `LocalContext.to_traceparent` gives the participating
 representation: version `00` and flags `00` to `03`, with every reserved bit
 zero. [Injection](#injecting-and-forwarding-context) writes that
@@ -516,7 +520,7 @@ TC.StateOutcome.show(outcome: TC.StateOutcome) -> String
 | Type | Meaning |
 | --- | --- |
 | `Header` | `Header{name, value}`: one field of a message. A carrier is a `List<&2, Header>` in the message's order |
-| `IncomingContext` | A context extracted from a message: the sender's `RemoteContext`, the state received with it, and the received pair when the whole pair was accepted. One built from parts has no received pair |
+| `IncomingContext` | The sender's `RemoteContext` together with the state that goes with it: one extracted from a message, which also keeps the received pair when the whole pair was accepted, or one built from parts, which keeps none |
 | `ReceivedPair` | The accepted traceparent value, without the whitespace around it, and the tracestate field values as they came |
 | `BaseContext` | `IncomingBase{incoming}` or `OutgoingBase{outgoing}`: the context to continue from when a message has no usable traceparent |
 | `Extraction` | The context to continue from, if any, with a `TraceParentOutcome` and a `StateOutcome` |
@@ -599,8 +603,8 @@ gives its remote span contexts this one shape, whatever format they came
 from ([spec #41](https://github.com/LucasGois1/bend-trace-context/issues/41)).
 It keeps both parts as they are and no received pair, since no message's
 fields were accepted: a child continues it as any incoming context, and
-[forwarding](#injecting-and-forwarding-context) refuses it with
-`NothingToForward{}`.
+forwarding refuses it with `NothingToForward{}`, as
+[Sending a remote context](#sending-a-remote-context) describes.
 
 The carrier holds what the host hands over. A host that joins repeated fields
 into one value turns a repeated traceparent into a value with a comma, which
@@ -714,22 +718,25 @@ dropped or rewritten. No operation of the package writes one.
 An incoming context without a received pair, one that
 [`IncomingContext.from_remote`](#extracting-context) builds from parts or
 one whose tracestate extraction discarded, has nothing to forward: `forward`
-fails with `NothingToForward{}` and nothing is written. A pass-through then
-sends the message without context, and `clear` removes the context fields
-that it still holds, such as those of a reused container. A service that
-takes part in the trace continues the context with a child and injects the
-child instead.
-
-OpenTelemetry JavaScript does otherwise: the `inject` of its
-`W3CTraceContextPropagator` (`@opentelemetry/core` 2.11.0, which the
-interoperability test runs) writes a new traceparent from any valid span
-context, remote ones included: version `00`, the span context's trace ID,
-span ID and trace flags, with the tracestate that it holds. A pass-through
-built on it sends a context where one built on this package sends none, and
-a traceparent received with a later version goes out as version `00`. The
+fails with `NothingToForward{}` and nothing is written. A relay, which
+forwards transparently, then sends the message without context, and `clear`
+removes the context fields that it still holds, such as those of a reused
+container. A service that takes part in the trace continues the context with
+a child and injects the child instead. The
 [consumer example](../../tests/consumer/main.bend) builds a remote and an
 incoming context from parts, and shows forwarding refused with
 `NothingToForward` and the message's context fields cleared.
+
+OpenTelemetry JavaScript does otherwise. The code of its
+`W3CTraceContextPropagator.inject` in `@opentelemetry/core` 2.11.0, the
+version that `package-lock.json` pins
+(`build/src/trace/W3CTraceContextPropagator.js`), writes a new traceparent
+from any valid span context, remote ones included: version `00`, the span
+context's trace ID, span ID and trace flags, with the tracestate that it
+holds. A relay built on it therefore sends a context where one built on this
+package sends none, and a traceparent received with a later version goes out
+as version `00`. This description comes from reading that code: no test of
+this repository injects a remote span context with it.
 
 ## Continuing or starting a trace
 
@@ -1170,9 +1177,7 @@ section describes, and the kernel needs Lean 4.34.
   that span ID. `assert_random` changes only the assertion.
 - **Construction:** `from_ids` keeps its IDs and sampled indication, and a root
   is `from_ids` with sampled `0`. `RemoteContext.from_ids` keeps its IDs and
-  sampled indication too, so its randomness assertion is its trace ID's, and
-  `IncomingContext.from_remote` keeps its remote context and tracestate and
-  no received pair.
+  sampled indication too, so its randomness assertion is its trace ID's.
 - **Children:** a successful child keeps the parent's trace ID and randomness
   assertion, uses the supplied span ID, whose text differs from the parent's,
   and takes sampled from `Sampling.resolve`: the parent's indication for
@@ -1247,7 +1252,9 @@ section describes, and the kernel needs Lean 4.34.
   there are none or they are refused, and the received pair unless the state
   was refused. Two messages with the same traceparent fields give the same
   outcome and the same sender's operation whatever their tracestate, and a
-  kept pair fits the input budgets. `TraceParent.read` reads every strict v00
+  kept pair fits the input budgets. An incoming context built with
+  `IncomingContext.from_remote` keeps its remote context and tracestate, and
+  no received pair. `TraceParent.read` reads every strict v00
   text, with any optional whitespace around it, as its value, refuses a
   strict v00 text followed by more characters, reads versions `01` to `fe` by
   their known prefix, refuses `ff` and any value with a comma, and refuses a
@@ -1351,7 +1358,8 @@ randomness assertion, the quality of a source or global uniqueness.
 The sources are written to be read by developers new to Bend. Each law in
 [LAWS.bend](LAWS.bend) is preceded by a comment that states its claim in
 words, the requirement it verifies (a section of W3C Trace Context Level 2 or
-of the approved specification), why it matters and how to read its statement.
+of an approved specification, spec #1 or spec #41), why it matters and how to
+read its statement.
 [PROOF.bend](PROOF.bend) opens with a guide to reading Bend proofs and a map of
 the modules under [proofs](proofs), each of which starts with a summary of what
 it proves. [trace_context.bend](trace_context.bend) opens with notes on the

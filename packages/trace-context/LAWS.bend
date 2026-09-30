@@ -1793,10 +1793,11 @@ law emit_accepted:
 # accepted, the message gives an incoming context with the state of its
 # tracestate fields; otherwise the base context the caller passed is kept and
 # the tracestate is not read. These laws state that policy for every carrier,
-# value, state and limits. The corpus, tests/EXTRACT.bend, covers the pinned
-# W3C harness's inputs, the offsets in diagnostics, exact budget boundaries,
-# whitespace inside unknown fields and names that differ from the field names
-# by other than ASCII case.
+# value, state and limits, and what an incoming context built from parts
+# with IncomingContext.from_remote keeps (spec #41). The corpus,
+# tests/EXTRACT.bend, covers the pinned W3C harness's inputs, the offsets in
+# diagnostics, exact budget boundaries, whitespace inside unknown fields and
+# names that differ from the field names by other than ASCII case.
 
 # The values of the fields of `carrier` whose name, with its ASCII letters in
 # lowercase (Base's String.to_lower), is `name`, in their order. This is the
@@ -2040,6 +2041,25 @@ law received_bounds:
   {Nat.is_le(Trace.Utf8.length(String.join(Trace.ReceivedPair.tracestate(pair), ",")),
     Trace.Limits.tracestate_input(limits)) == True{} : Bool}
 
+# LAW incoming_from_remote
+#   Claim: IncomingContext.from_remote keeps exactly the remote context and
+#     the tracestate it is given, and keeps no received pair.
+#   Requirement: spec #41, "Contexts from parts": IncomingContext.from_remote
+#     builds an incoming context with no received pair (user stories 19 and
+#     20).
+#   Why: an OpenTelemetry SDK gives its remote span contexts one shape,
+#     whatever format they came from. A context built from parts arrived in
+#     no message, so a received pair would claim fields that nobody sent.
+#   Proof: Laws.incoming_from_remote, by computation.
+law incoming_from_remote:
+  for context: Trace.RemoteContext
+  for state: Trace.TraceState
+  {Trace.IncomingContext.context(Trace.IncomingContext.from_remote(context, state)) == context :
+    Trace.RemoteContext} &
+  {Trace.IncomingContext.state(Trace.IncomingContext.from_remote(context, state)) == state : Trace.TraceState} &
+  {Trace.IncomingContext.received(Trace.IncomingContext.from_remote(context, state)) == None{} :
+    Maybe<&2, Trace.ReceivedPair>}
+
 # Whether the text has no comma, space or horizontal tab.
 def plain(+text: String) -> Bool:
   Bool.and(lacks(',', text), Bool.and(lacks(' ', text), lacks('\t', text)))
@@ -2247,16 +2267,14 @@ law read_within_budgets:
 # the carrier of an outgoing message, and Context.clear removes the context
 # fields of a message sent without context (spec #1, "Participant
 # injection"). Context.forward sends a received context on unchanged (W3C
-# Level 2, section 3.4, "Unmodified header propagation"), and it is the only
-# way a remote context leaves the participant: an incoming context built from
-# parts keeps no received pair, so nothing is written for it (spec #41). All
-# three remove every old traceparent and tracestate field, whatever the ASCII
-# case of its name, and keep the other fields in their order. These laws
-# state the carriers written, the diagnostics apart from them, and what a
-# receiver extracts from them. The corpus, tests/INJECT.bend, covers names in
-# every case, empty and truncated states, all flags, a later version with
-# unknown fields, spec #1's 600-octet state, pairs built directly and
-# carriers of 100000 fields.
+# Level 2, section 3.4, "Unmodified header propagation"). All three remove
+# every old traceparent and tracestate field, whatever the ASCII case of its
+# name, and keep the other fields in their order. These laws state the
+# carriers written, the diagnostics apart from them, and what a receiver
+# extracts from them. The corpus, tests/INJECT.bend, covers names in every
+# case, empty and truncated states, all flags, a later version with unknown
+# fields, spec #1's 600-octet state, pairs built directly and carriers of
+# 100000 fields.
 
 # Whether a field name, with its ASCII letters in lowercase, is "traceparent"
 # or "tracestate".
@@ -2451,40 +2469,18 @@ law forward_nothing:
   {Trace.Context.forward(limits, incoming, carrier) == Fail{Trace.NothingToForward{}} :
     Result<&2, &2, Trace.ForwardError, List<&2, Trace.Header>>}
 
-# LAW incoming_from_remote
-#   Claim: IncomingContext.from_remote keeps exactly the remote context and
-#     the tracestate it is given, and keeps no received pair.
-#   Requirement: spec #41, "Contexts from parts": IncomingContext.from_remote
-#     builds an incoming context with no received pair (user stories 19 and
-#     20).
-#   Why: an OpenTelemetry SDK gives its remote span contexts one shape,
-#     whatever format they came from. A context built from parts arrived in
-#     no message, so a received pair would claim fields that nobody sent.
-#   Proof: Laws.incoming_from_remote, by computation.
-law incoming_from_remote:
-  for context: Trace.RemoteContext
-  for state: Trace.TraceState
-  {Trace.IncomingContext.context(Trace.IncomingContext.from_remote(context, state)) == context :
-    Trace.RemoteContext} &
-  {Trace.IncomingContext.state(Trace.IncomingContext.from_remote(context, state)) == state : Trace.TraceState} &
-  {Trace.IncomingContext.received(Trace.IncomingContext.from_remote(context, state)) == None{} :
-    Maybe<&2, Trace.ReceivedPair>}
-
 # LAW forward_from_parts
 #   Claim: an incoming context built from parts is not forwarded: forwarding
 #     fails with NothingToForward, whatever its remote context, its
-#     tracestate, the limits and the carrier, and writes nothing.
-#   Requirement: spec #41, "Forwarding a remote context": a remote context
-#     leaves the participant only through Context.forward, with its received
-#     pair unchanged, and without a received pair nothing is written (user
-#     stories 20 and 24); W3C Level 2, section 3.4: a traceparent sent
-#     unchanged keeps its tracestate unchanged.
-#   Why: a pass-through service must never send a traceparent that it
-#     re-serialized from parts, with a tracestate it chose. It learns that
-#     there is nothing to forward, and clears the context fields instead
-#     (clear_carrier).
-#   Reading: with incoming_from_remote, this is forward_nothing for the
-#     contexts that IncomingContext.from_remote builds.
+#     tracestate, the limits and the carrier.
+#   Requirement: spec #41, "Forwarding a remote context": without a received
+#     pair nothing is written (user stories 20 and 24); W3C Level 2, section
+#     3.4.
+#   Why: a relay must never send a traceparent written again from parts,
+#     with a tracestate of its choosing; it learns that there is nothing to
+#     forward.
+#   Reading: with incoming_from_remote (section 12), this is forward_nothing
+#     for the contexts that IncomingContext.from_remote builds.
 #   Proof: Laws.forward_from_parts, via proofs/inject.bend.
 law forward_from_parts:
   for +limits: Trace.Limits
