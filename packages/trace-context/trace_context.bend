@@ -560,8 +560,8 @@ def Flags.known(sampled: Bool, random: Bool) -> U32:
 # its sampled indication and bit 1 its trace ID's randomness assertion, the
 # known flags that it was received or built with. Reserved bits are never
 # among them. The Booleans stay the canonical form; the number is for an
-# exporter, such as one that writes OTLP's span flags. Laws: remote_flags and
-# received_trace_flags.
+# exporter, such as one that writes OTLP's Span.flags field. Laws:
+# remote_flags and received_trace_flags.
 def RemoteContext.flags(context: RemoteContext) -> U32:
   match context:
     case RemoteContext{trace_id, span_id, sampled}:
@@ -597,8 +597,9 @@ def LocalContext.to_traceparent(context: LocalContext) -> TraceParentV00:
 # The trace flags of the context as a number from 0 to 3: bit 0 is its sampled
 # indication and bit 1 its trace ID's randomness assertion. It is the flag
 # byte of the traceparent that the context emits, 00 to 03, so an exporter
-# that writes it, as OTLP's span flags for example, agrees with what the
-# context propagates. The Booleans stay the canonical form. Law: local_flags.
+# that writes it, into OTLP's Span.flags field for example, agrees with what
+# the context propagates. The Booleans stay the canonical form. Law:
+# local_flags.
 def LocalContext.flags(context: LocalContext) -> U32:
   match context:
     case LocalContext{trace_id, span_id, sampled}:
@@ -2179,6 +2180,16 @@ def Header.value(header: Header) -> String:
     case Header{name, value}:
       value
 
+# The names of the two context fields, in lowercase (W3C 3.2.1 and 3.3.1),
+# written in this one place: extraction selects the fields by them, whatever
+# the case of the names received; cleanup, injection and forwarding remove
+# and write the fields under them; and Context.field_names publishes them.
+def Carrier.traceparent_name() -> String:
+  "traceparent"
+
+def Carrier.tracestate_name() -> String:
+  "tracestate"
+
 # Whether `text` is `name` without regard to ASCII case (W3C 3.2.1 and
 # 3.3.1): each character of `text`, with the letters A to Z lowered, is the
 # character of `name` at its position. Other characters are compared as they
@@ -2504,7 +2515,8 @@ def Extract.parents(+limits: Limits, parents: List<&2, String>, +states: List<&2
 # Laws: extract_absent, extract_repeated, extract_refused, extract_read,
 # state_independent and received_bounds.
 def Context.extract(+limits: Limits, +carrier: List<&2, Header>, base: Maybe<&2, BaseContext>) -> Extraction:
-  Extract.parents(limits, Carrier.values(carrier, "traceparent"), Carrier.values(carrier, "tracestate"), base)
+  Extract.parents(limits, Carrier.values(carrier, Carrier.traceparent_name()),
+    Carrier.values(carrier, Carrier.tracestate_name()), base)
 
 # Extraction: results and diagnostics
 # ===================================
@@ -2669,7 +2681,7 @@ type Injection is Data:
 # Whether a field name is traceparent or tracestate, without regard to ASCII
 # case.
 def Carrier.is_context(+name: String) -> Bool:
-  Bool.or(Carrier.named("traceparent", name), Carrier.named("tracestate", name))
+  Bool.or(Carrier.named(Carrier.traceparent_name(), name), Carrier.named(Carrier.tracestate_name(), name))
 
 # `header` before `kept` unless it is a context field (`context_field`): one
 # step of Carrier.unrelated.go.
@@ -2696,19 +2708,19 @@ def Carrier.replace(carrier: List<&2, Header>, fields: List<&2, Header>) -> List
   List.reverse.go(&2, Header, Carrier.unrelated.go(carrier, Nil{}), fields)
 
 # The names of the context fields as injection writes them: traceparent, then
-# tracestate, in lowercase (W3C 3.2.1 and 3.3.1). A propagator lists them as
-# the fields it writes, and an adapter that writes the values of
-# OutgoingContext.emit through its own setter writes them under these names,
-# the tracestate field only when its value is not empty, as injection does.
-# Law: inject_names.
+# tracestate, in lowercase (W3C 3.2.1 and 3.3.1), the names that extraction
+# and cleanup read too. A propagator lists them as the fields it writes, and
+# one that writes the values of OutgoingContext.emit through a setter of its
+# own writes them under these names, the tracestate field only when its value
+# is not empty, as injection does. Law: inject_names.
 def Context.field_names() -> List<&2, String>:
-  ["traceparent", "tracestate"]
+  [Carrier.traceparent_name(), Carrier.tracestate_name()]
 
 # The context fields of a traceparent value and a tracestate value, with
 # lowercase names; the tracestate field is left out when its value is empty.
 def Carrier.context_fields(traceparent: String, +tracestate: String) -> List<&2, Header>:
-  Con{Header{"traceparent", traceparent}, Bool.pick(List<&2, Header>, String.is_empty(tracestate), Nil{},
-    Con{Header{"tracestate", tracestate}, Nil{}})}
+  Con{Header{Carrier.traceparent_name(), traceparent}, Bool.pick(List<&2, Header>, String.is_empty(tracestate),
+    Nil{}, Con{Header{Carrier.tracestate_name(), tracestate}, Nil{}})}
 
 # Remove every traceparent and tracestate field, whatever the case of its
 # name, and keep the other fields in their order: the carrier of a message

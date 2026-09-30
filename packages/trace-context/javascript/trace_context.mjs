@@ -2310,6 +2310,14 @@ function $Header$value$(_header_0) {
   return _value_0;
 }
 
+function $Carrier$traceparent_name$() {
+  return "traceparent";
+}
+
+function $Carrier$tracestate_name$() {
+  return "tracestate";
+}
+
 function $Carrier$named$(_name_0, _text_0) {
   if (_name_0 === "") {
     if (_text_0 === "") {
@@ -2644,7 +2652,7 @@ function $Extract$parents$(_limits_0, _parents_0, _states_0, _base_0) {
 }
 
 function $Context$extract$(_limits_0, _carrier_0, _base_0) {
-  return $Extract$parents$(_limits_0, ($Carrier$values$(_carrier_0, "traceparent")), ($Carrier$values$(_carrier_0, "tracestate")), _base_0);
+  return $Extract$parents$(_limits_0, ($Carrier$values$(_carrier_0, ($Carrier$traceparent_name$()))), ($Carrier$values$(_carrier_0, ($Carrier$tracestate_name$()))), _base_0);
 }
 
 function $Extraction$context$(_extraction_0) {
@@ -2789,8 +2797,8 @@ function $Extraction$show$(_extraction_0) {
 }
 
 function $Carrier$is_context$(_name_0) {
-  const _x_0 = ($Carrier$named$("traceparent", _name_0));
-  const _x_1 = ($Carrier$named$("tracestate", _name_0));
+  const _x_0 = ($Carrier$named$(($Carrier$traceparent_name$()), _name_0));
+  const _x_1 = ($Carrier$named$(($Carrier$tracestate_name$()), _name_0));
   return (_x_0 || _x_1);
 }
 
@@ -2825,11 +2833,11 @@ function $Carrier$replace$(_carrier_0, _fields_0) {
 }
 
 function $Context$field_names$() {
-  return {$: "Con", "head": "traceparent", "tail": {$: "Con", "head": "tracestate", "tail": {$: "Nil"}}};
+  return {$: "Con", "head": ($Carrier$traceparent_name$()), "tail": {$: "Con", "head": ($Carrier$tracestate_name$()), "tail": {$: "Nil"}}};
 }
 
 function $Carrier$context_fields$(_traceparent_0, _tracestate_0) {
-  return {$: "Con", "head": {$: "Header", "name": "traceparent", "value": _traceparent_0}, "tail": ($Bool$pick$(($String$is_empty$(_tracestate_0)), {$: "Nil"}, {$: "Con", "head": {$: "Header", "name": "tracestate", "value": _tracestate_0}, "tail": {$: "Nil"}}))};
+  return {$: "Con", "head": {$: "Header", "name": ($Carrier$traceparent_name$()), "value": _traceparent_0}, "tail": ($Bool$pick$(($String$is_empty$(_tracestate_0)), {$: "Nil"}, {$: "Con", "head": {$: "Header", "name": ($Carrier$tracestate_name$()), "value": _tracestate_0}, "tail": {$: "Nil"}}))};
 }
 
 function $Context$clear$(_carrier_0) {
@@ -4746,6 +4754,8 @@ export default {
   "Emission.dropped": run_lib((a0) => { const r = (run_loop($Emission$dropped$((a0)))); (a0); return r; }, 1),
   "Header.name": run_lib((a0) => { const r = (run_loop($Header$name$((a0)))); (a0); return r; }, 1),
   "Header.value": run_lib((a0) => { const r = (run_loop($Header$value$((a0)))); (a0); return r; }, 1),
+  "Carrier.traceparent_name": run_lib(() => { const r = (run_loop($Carrier$traceparent_name$()));  return r; }, 0),
+  "Carrier.tracestate_name": run_lib(() => { const r = (run_loop($Carrier$tracestate_name$()));  return r; }, 0),
   "Carrier.named": run_lib((a0, a1) => { const r = (run_loop($Carrier$named$((a0), (a1)))); (a0); (a1); return r; }, 2),
   "Carrier.keep": run_lib((a0, a1, a2) => { const r = (run_loop($Carrier$keep$((a0), (a1), (a2)))); (a0); (a1); (a2); return r; }, 3),
   "Carrier.values.go": run_lib((a0, a1, a2) => { const r = (run_loop($Carrier$values$go$((a0), (a1), (a2)))); (a0); (a1); (a2); return r; }, 3),

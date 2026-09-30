@@ -146,12 +146,13 @@ representation into a message, and forwarding sends a received value
 unchanged.
 
 `RemoteContext.flags` and `LocalContext.flags` give a context's trace flags
-as a number from 0 to 3, which an exporter writes as OTLP's span flags, for
-example: bit 0 is sampled, and bit 1 is random-trace-id, from the trace ID's
-assertion. A local context's value is the flag byte of the traceparent that
-it emits, `00` to `03`, and a remote context's is the known flags that it was
-received with, without its reserved bits. The Booleans stay the canonical
-form, `is_sampled` and `TraceId.is_random`: there is no trace flags type.
+as a number from 0 to 3, which an exporter writes into OTLP's `Span.flags`
+field, for example: bit 0 is sampled, and bit 1 is random-trace-id, from the
+trace ID's assertion. A local context's value is the flag byte of the
+traceparent that it emits, `00` to `03`, and a remote context's is the known
+flags that it was received or built with, never its reserved bits. The
+Booleans stay the canonical form, `is_sampled` and `TraceId.is_random`:
+there is no trace flags type.
 
 `RemoteContext` and `LocalContext` are separate types, so a received context
 cannot be passed where a local one is expected (the
@@ -660,12 +661,13 @@ does not accumulate fields.
   nothing.
 
 `Context.field_names()` gives the names of the context fields as `inject`
-writes them: `traceparent`, then `tracestate`. A propagator that lists the
-fields it writes, as OpenTelemetry's propagators do, returns them. An adapter
-that writes the values of `OutgoingContext.emit` through a setter of its own
-writes them under these names, the tracestate only when it is not empty, as
-`inject` does, and extracts with `Context.extract` from a carrier that it
-builds from what its getter reads.
+writes them, and as extraction and cleanup read them: `traceparent`, then
+`tracestate`. A propagator that lists the fields it writes, as
+OpenTelemetry's propagators do, returns them. An OpenTelemetry SDK's W3C
+propagator stays thin: it passes `Context.extract` a carrier built from what
+OpenTelemetry's getter reads, and writes the values of `OutgoingContext.emit`
+under these names through OpenTelemetry's setter, the tracestate only when it
+is not empty, as `inject` does.
 
 `forward` fails with a `ForwardError`: `NothingToForward{}` when the
 context keeps no received pair, `ForwardTooLarge{}` over the output budget,
@@ -1152,8 +1154,9 @@ section describes, and the kernel needs Lean 4.34.
   corpus checks those two readers on all 256 flag bytes; no law restates them
   for the reserved bit patterns. A context's trace flags are the number of
   its sampled indication and randomness assertion, from 0 to 3: a local
-  context's are those of the traceparent that it emits, and a received
-  context's the known flags of the value received.
+  context's are those of the traceparent that it emits, and a remote
+  context's the known flags that it was received or built with, those of the
+  value received for a received one.
 - **Conversion:** a candidate trace ID's text is `U32.to_hex` of its four words
   in reading order and a span ID's of its two. Read as a base-16 numeral,
   `U32.to_hex(word)` is the number Base's `U32.to_nat` assigns to the word, so

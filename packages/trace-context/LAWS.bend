@@ -389,10 +389,10 @@ def known_flags(sampled: Bool, random: Bool) -> U32:
 #     random-trace-id, from the trace ID's assertion", and "A local context's
 #     value equals the flags of the traceparent it emits" (user stories 15
 #     and 16).
-#   Why: an exporter writes these flags into the span that it exports, as
-#     OTLP's span flags for example, while the traceparent carries the same
-#     operation to the next service. If they differed, the exported span and
-#     the propagated context would disagree.
+#   Why: an exporter writes these flags into the span that it exports, into
+#     OTLP's Span.flags field for example, while the traceparent carries the
+#     same operation to the next service. If they differed, the exported span
+#     and the propagated context would disagree.
 #   Reading: known_flags, above, gives the number of each pair of flags
 #     literally. The second equation reads the two known flags back from the
 #     emitted traceparent with the codec's readers. Its reserved bits are zero
@@ -2401,9 +2401,9 @@ def written_names(published: List<&2, String>, tracestate: String) -> List<&2, S
 #     tracestate" (user stories 22 and 23).
 #   Why: a propagator lists the fields that it writes, as OpenTelemetry's
 #     propagators do, so that a carrier can be cleared of them before it is
-#     reused, and an SDK's adapter that writes the emitted values through its
-#     own setter writes them under these names. Both must be the names that
-#     injection writes.
+#     reused, and an SDK's propagator that writes the emitted values through
+#     OpenTelemetry's setter writes them under these names. Both must be the
+#     names that injection writes.
 #   Reading: names and written_names are defined just above, and unrelated at
 #     the start of this section. inject_carrier gives the names themselves,
 #     traceparent and tracestate in lowercase, so the published list is
