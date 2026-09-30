@@ -28,7 +28,8 @@
 #   Identifiers and contexts         TraceId, SpanId, contexts, children,
 #                                    restarts
 #   Identifiers from source words    U32.to_hex, TraceId.from_words, ...
-#   Generation machine               TraceDraw.*, SpanDraw.*, Draw.*, Step.*,
+#   Generation machine               Drive.*, TraceDraw.*, SpanDraw.*,
+#                                    SpanPlan.*, Step.*, Draw.*,
 #                                    TraceId.generate_with,
 #                                    SpanId.generate_with, Generation.*,
 #                                    Context.*_with, Source.tape
@@ -52,10 +53,11 @@
 #   Sending                          Context.send_with, Sent, SendPlan
 #
 # The public names are documented in packages/trace-context/README.md. Names in
-# the Parse, TraceDraw, SpanDraw, Draw, Step, Tape, Scan, Member, Value,
-# Budget, Utf8, Entries, StateChar, Carrier, Text, Read, Extract, Forward,
-# Policy, Serve and Send namespaces are internal: Bend lets any module import
-# them, but they are not a compatibility contract.
+# the Parse, Drive, TraceDraw, SpanDraw, TraceStep, SpanStep, SpanPlan, Draw,
+# Step, Tape, Scan, Member, Value, Budget, Utf8, Entries, StateChar, Carrier,
+# Text, Read, Extract, Forward, Policy, Serve and Send namespaces are
+# internal: Bend lets any module import them, but they are not a
+# compatibility contract.
 #
 # Notes for readers new to Bend
 # -----------------------------
@@ -223,44 +225,53 @@ type SpanWords is Data:
   OneSpanWord{first: U32}
 
 # The generation machine below is shared by the IO operations and stated in
-# the laws. Its types and its TraceDraw, SpanDraw and Draw functions are
-# internal: callers use TraceId.generate_with, SpanId.generate_with and the
-# `Context.*_with` operations, or generation.bend, and a host that feeds
-# words itself uses Generation.
+# the laws. Its types and its TraceDraw, SpanDraw, TraceStep, SpanStep,
+# SpanPlan, Draw, Step and Drive functions are internal: callers use
+# TraceId.generate_with, SpanId.generate_with and the `Context.*_with`
+# operations, or generation.bend, and a host that feeds words itself uses
+# Generation.
 #
+# A trace ID draw that waits for a word: `remaining` counts the further
+# candidates allowed after the current one, so each draw gets eight
+# candidates in all, `words` holds the words of the current candidate, and
+# `excluded` is the trace ID that no candidate may repeat, such as the
+# received one that a restart replaces.
+type TraceDraw is Data:
+  TraceDraw{remaining: Nat, words: TraceWords, excluded: Maybe<&2, TraceId>}
+
+# A span ID draw that waits for a word, as TraceDraw: `excluded` is the span
+# ID that no candidate may repeat, such as a child's parent's.
+type SpanDraw is Data:
+  SpanDraw{remaining: Nat, words: SpanWords, excluded: Maybe<&2, SpanId>}
+
 # A trace ID draw after each source word, whether it generates a trace ID
-# alone or the trace ID of a root or a restart: it needs another word for its
-# current candidate, it drew a trace ID, or it failed. `remaining` counts the
-# further candidates allowed after the current one, so each draw gets eight
-# candidates in all, and `excluded` is the trace ID that no candidate may
-# repeat, such as the received one that a restart replaces.
+# alone or the trace ID of a root or a restart: it waits for another word, it
+# drew a trace ID, or it failed.
 type TraceStep is Data:
-  NeedTraceWord{remaining: Nat, words: TraceWords, excluded: Maybe<&2, TraceId>}
+  NeedTraceWord{draw: TraceDraw}
   DrawnTraceId{id: TraceId}
   TraceFailed{error: GenerationError}
 
 # A span ID draw after each source word, whether it generates a span ID alone
-# or the span ID of a root, a child or a restart, as TraceStep: `excluded` is
-# the span ID that no candidate may repeat, such as a child's parent's.
+# or the span ID of a root, a child or a restart, as TraceStep.
 type SpanStep is Data:
-  NeedSpanWord{remaining: Nat, words: SpanWords, excluded: Maybe<&2, SpanId>}
+  NeedSpanWord{draw: SpanDraw}
   DrawnSpanId{id: SpanId}
   SpanFailed{error: GenerationError}
 
-# What a new local context needs besides its span ID: the trace ID it belongs
-# to, its sampled indication, and for a child the parent's span ID, which the
-# new span ID must not repeat.
+# What a new local context needs besides its span ID: the span ID that it must
+# not repeat (`excluded`), such as a child's parent's, the trace ID that it
+# belongs to, and its sampled indication. SpanPlan.root and SpanPlan.child
+# give the plans of a root and a child.
 type SpanPlan is Data:
-  SpanPlan{trace_id: TraceId, sampled: Bool, parent: Maybe<&2, SpanId>}
+  SpanPlan{excluded: Maybe<&2, SpanId>, trace_id: TraceId, sampled: Bool}
 
-# A generation in progress: its trace ID draw, in the state of a
-# NeedTraceWord step, whose `previous` is the trace ID to exclude, the
-# received one of a restart; or its span ID draw, in the state of a
-# NeedSpanWord step, with the plan of the context that the span ID completes,
-# whose `parent` is the span ID to exclude.
+# A generation in progress: the trace ID draw of a root or a restart, or a
+# span ID draw, with the trace ID and the sampled indication of the context
+# that its span ID completes.
 type Draw is Data:
-  DrawTrace{remaining: Nat, words: TraceWords, previous: Maybe<&2, TraceId>}
-  DrawSpan{remaining: Nat, words: SpanWords, plan: SpanPlan}
+  DrawTrace{draw: TraceDraw}
+  DrawSpan{draw: SpanDraw, trace_id: TraceId, sampled: Bool}
 
 # The state of a generation after each source word: it needs another word, it
 # created a context, or it failed.
@@ -727,11 +738,12 @@ def SpanId.from_words(first: U32, second: U32) -> Maybe<&2, SpanId>:
 # (SpanDraw, SpanStep) two. Each piece gives its identifier eight
 # candidates, rejects zero and the identifier to exclude, and stops at the
 # first source error. TraceId.generate_with and SpanId.generate_with run one
-# piece alone. A generation (Draw, Step) composes them: a root or a restart
-# draws its trace ID, then its span ID, and a child only its span ID, which
-# excludes its parent's. Context.root_with and its siblings compose the two
-# operations in the same order. The same machine runs over a replayed tape in
-# the laws and over the host's cryptographic source in generation.bend.
+# piece alone. A generation (Draw, Step) runs the pieces in turn: a root or
+# a restart draws its trace ID, then its span ID, and a child only its span
+# ID, as its span plan (SpanPlan) says. Context.root_with and its siblings
+# compose the two operations in the same order. One driver (Drive) runs the
+# three machines, over a replayed tape in the laws and over the host's
+# cryptographic source in generation.bend.
 
 # Generation reads its words from a source trusted to be random, so each
 # trace ID candidate asserts random-trace-id.
@@ -742,10 +754,90 @@ def Draw.asserted(candidate: Maybe<&2, TraceId>) -> Maybe<&2, TraceId>:
     case Some{id}:
       Some{TraceId.assert_random(id)}
 
+# A deterministic word source for tests and replay: each read takes the next
+# result, and an empty tape fails with code 1, tape-exhausted.
+def Tape.next(tape: List<&1, Result<&1, &1, U32 & String, U32>>) ->
+  List<&1, Result<&1, &1, U32 & String, U32>> & Result<&1, &1, U32 & String, U32>:
+  match tape:
+    case Nil{}:
+      (Nil{}, Fail{(1, "tape-exhausted")})
+    case Con{word, rest}:
+      (rest, word)
+
+# The driver of the three machines: a trace ID draw, a span ID draw and a
+# generation. It feeds a machine one source word at a time while the
+# machine's step waits for one, and stops as soon as it has ended. Each
+# machine gives, as templates, `waiting`, the draw that a step feeds its next
+# word to, if it waits for one, and `feed`, the step after that word. The
+# driver keeps each step beside what `waiting` says of it.
+#
+# Feed a word that a source returned, keeping the source's next state.
+def Drive.fed(~T: Data, ~D: Data, ~waiting: T -> Maybe<&2, D>, ~feed: Result<&1, &1, U32 & String, U32> -> D -> T,
+  -S: Type, got: S & Result<&1, &1, U32 & String, U32>, draw: D) -> S & (T & Maybe<&2, D>):
+  (state, word) = got
+  +next = feed(word, draw)
+  (state, (next, waiting(next)))
+
+# Drive a machine from a tape, stopping as soon as its step has ended; unread
+# words stay on the tape. `fuel` bounds the steps, which Bend requires for
+# termination; the laws show the budgets suffice.
+def Drive.run(~T: Data, ~D: Data, ~waiting: T -> Maybe<&2, D>, ~feed: Result<&1, &1, U32 & String, U32> -> D -> T,
+  fuel: Nat, current: List<&1, Result<&1, &1, U32 & String, U32>> & (T & Maybe<&2, D>)) ->
+  List<&1, Result<&1, &1, U32 & String, U32>> & T:
+  match fuel current:
+    case _ Tuple{tape, Tuple{step, None{}}}:
+      (tape, step)
+    case 0n Tuple{tape, Tuple{step, Some{draw}}}:
+      (tape, step)
+    case 1n+p Tuple{tape, Tuple{step, Some{draw}}}:
+      Drive.run(~T, ~D, ~waiting, ~feed, p, Drive.fed(~T, ~D, ~waiting, ~feed,
+        List<&1, Result<&1, &1, U32 & String, U32>>, Tape.next(tape), draw))
+
+# Drive a machine from any source, one word at a time. `read` returns the
+# source's next state with each word, and the driver stops as soon as the
+# machine's step has ended; the final source state is handed back, so a
+# caller can see what was read. `fuel` bounds the words read, as in
+# Drive.run. Templates keep this driver free of any host effect: the effect,
+# if any, lives in the source.
+def Drive.read(~T: Data, ~D: Data, ~waiting: T -> Maybe<&2, D>, ~feed: Result<&1, &1, U32 & String, U32> -> D -> T,
+  ~S: Type, ~read: S -> IO(S & Result<&1, &1, U32 & String, U32>), fuel: Nat, current: S & (T & Maybe<&2, D>)) ->
+  IO(S & T):
+  match fuel current:
+    case _ Tuple{state, Tuple{step, None{}}}:
+      IO.pure(S & T, (state, step))
+    case 0n Tuple{state, Tuple{step, Some{draw}}}:
+      IO.pure(S & T, (state, step))
+    case 1n+p Tuple{state, Tuple{step, Some{draw}}}:
+      IO.bind(S & Result<&1, &1, U32 & String, U32>, S & T, read(state),
+        got => Drive.read(~T, ~D, ~waiting, ~feed, ~S, ~read, p, Drive.fed(~T, ~D, ~waiting, ~feed, S, got, draw)))
+
+# Whether the machine in a driver's result has ended.
+def Drive.ended(~T: Data, ~D: Data, ~waiting: T -> Maybe<&2, D>,
+  result: List<&1, Result<&1, &1, U32 & String, U32>> & T) -> Bool:
+  match result:
+    case Tuple{tape, step}:
+      Maybe.is_none(&2, D, waiting(step))
+
+# The source's final state with the result that `result` gives of the
+# machine's final step.
+def Drive.outcome(~T: Data, ~A: Data, ~result: T -> Result<&2, &2, GenerationError, A>, -S: Type, done: S & T) ->
+  S & Result<&2, &2, GenerationError, A>:
+  (state, step) = done
+  (state, result(step))
+
+# Turn the IO driver's final step into its result.
+def Drive.finished(~T: Data, ~A: Data, ~result: T -> Result<&2, &2, GenerationError, A>, ~S: Type,
+  action: IO(S & T)) -> IO(S & Result<&2, &2, GenerationError, A>):
+  IO.bind(S & T, S & Result<&2, &2, GenerationError, A>, action,
+    done => IO.pure(S & Result<&2, &2, GenerationError, A>, Drive.outcome(~T, ~A, ~result, S, done)))
+
+# Trace ID draws
+# --------------
+
 # A trace ID draw starts with its first candidate; seven further candidates
 # may follow it, eight in all.
 def TraceDraw.start(excluded: Maybe<&2, TraceId>) -> TraceStep:
-  NeedTraceWord{7n, NoTraceWord{}, excluded}
+  NeedTraceWord{TraceDraw{7n, NoTraceWord{}, excluded}}
 
 # Try another trace ID candidate, or fail once the eight are used.
 def TraceDraw.retry(remaining: Nat, excluded: Maybe<&2, TraceId>) -> TraceStep:
@@ -753,7 +845,7 @@ def TraceDraw.retry(remaining: Nat, excluded: Maybe<&2, TraceId>) -> TraceStep:
     case 0n:
       TraceFailed{ExhaustedTraceId{}}
     case 1n+p:
-      NeedTraceWord{p, NoTraceWord{}, excluded}
+      NeedTraceWord{TraceDraw{p, NoTraceWord{}, excluded}}
 
 # A trace ID candidate equal to the excluded one is retried.
 def TraceDraw.reuse(reused: Bool, id: TraceId, excluded: TraceId, remaining: Nat) -> TraceStep:
@@ -781,16 +873,17 @@ def TraceDraw.check(candidate: Maybe<&2, TraceId>, excluded: Maybe<&2, TraceId>,
 def TraceDraw.take(word: U32, remaining: Nat, words: TraceWords, excluded: Maybe<&2, TraceId>) -> TraceStep:
   match words:
     case NoTraceWord{}:
-      NeedTraceWord{remaining, OneTraceWord{word}, excluded}
+      NeedTraceWord{TraceDraw{remaining, OneTraceWord{word}, excluded}}
     case OneTraceWord{first}:
-      NeedTraceWord{remaining, TwoTraceWords{first, word}, excluded}
+      NeedTraceWord{TraceDraw{remaining, TwoTraceWords{first, word}, excluded}}
     case TwoTraceWords{first, second}:
-      NeedTraceWord{remaining, ThreeTraceWords{first, second, word}, excluded}
+      NeedTraceWord{TraceDraw{remaining, ThreeTraceWords{first, second, word}, excluded}}
     case ThreeTraceWords{first, second, third}:
       TraceDraw.check(Draw.asserted(TraceId.from_words(first, second, third, word)), excluded, remaining)
 
-# Feed the next source word to a trace ID draw that needs one. A source error
-# ends the draw at once with SourceFailure (law trace_id_failure).
+# Feed the next source word to a trace ID draw, given as its three fields. A
+# source error ends the draw at once with SourceFailure (law
+# trace_id_failure).
 def TraceDraw.feed(word: Result<&1, &1, U32 & String, U32>, remaining: Nat, words: TraceWords,
   excluded: Maybe<&2, TraceId>) -> TraceStep:
   match word:
@@ -799,10 +892,74 @@ def TraceDraw.feed(word: Result<&1, &1, U32 & String, U32>, remaining: Nat, word
     case Done{next}:
       TraceDraw.take(next, remaining, words, excluded)
 
+# The step of a trace ID draw after its next source word, TraceDraw.feed of
+# its fields: the `feed` that Drive takes.
+def TraceDraw.next(word: Result<&1, &1, U32 & String, U32>, draw: TraceDraw) -> TraceStep:
+  match draw:
+    case TraceDraw{remaining, words, excluded}:
+      TraceDraw.feed(word, remaining, words, excluded)
+
+# The draw that a trace ID draw's step feeds its next word to, while it
+# waits for one: the view of the step that Drive needs.
+def TraceStep.waiting(step: TraceStep) -> Maybe<&2, TraceDraw>:
+  match step:
+    case NeedTraceWord{draw}:
+      Some{draw}
+    case DrawnTraceId{id}:
+      None{}
+    case TraceFailed{error}:
+      None{}
+
+# The trace ID of a finished trace ID draw, or why it failed. A draw that has
+# not finished would report exhaustion; law trace_id_ends shows that the word
+# budget of TraceId.generate_with makes that case unreachable.
+def TraceDraw.result(step: TraceStep) -> Result<&2, &2, GenerationError, TraceId>:
+  match step:
+    case DrawnTraceId{id}:
+      Done{id}
+    case TraceFailed{error}:
+      Fail{error}
+    case NeedTraceWord{draw}:
+      Fail{ExhaustedTraceId{}}
+
+# Drive a trace ID draw from a tape (Drive.run).
+def TraceDraw.run(fuel: Nat, current: List<&1, Result<&1, &1, U32 & String, U32>> & TraceStep) ->
+  List<&1, Result<&1, &1, U32 & String, U32>> & TraceStep:
+  match current:
+    case Tuple{tape, +step}:
+      Drive.run(~TraceStep, ~TraceDraw, ~TraceStep.waiting, ~TraceDraw.next, fuel,
+        (tape, (step, TraceStep.waiting(step))))
+
+# Whether the trace ID draw in a driver's result has ended.
+def TraceDraw.ended(result: List<&1, Result<&1, &1, U32 & String, U32>> & TraceStep) -> Bool:
+  Drive.ended(~TraceStep, ~TraceDraw, ~TraceStep.waiting, result)
+
+# The source's final state with the trace ID draw's result.
+def TraceDraw.outcome(-S: Type, done: S & TraceStep) -> S & Result<&2, &2, GenerationError, TraceId>:
+  Drive.outcome(~TraceStep, ~TraceId, ~TraceDraw.result, S, done)
+
+# A trace ID alone, from a caller's source, as an OpenTelemetry SDK generates
+# one before its sampler decides on it. `read` returns the source's next state
+# with each word result, and the source's final state is returned. It reads
+# four words per candidate, most significant first, for at most eight
+# candidates, so at most 32 words; rejects all-zero candidates and `excluded`,
+# when there is one; and fails with SourceFailure or ExhaustedTraceId. The
+# source is trusted to be random: the trace ID asserts random-trace-id.
+# Laws: trace_id_tape, trace_id_failure, trace_id_candidate, trace_id_ends,
+# trace_id_exhaustion and generated_trace_id.
+def TraceId.generate_with(~S: Type, ~read: S -> IO(S & Result<&1, &1, U32 & String, U32>), source: S,
+  excluded: Maybe<&2, TraceId>) -> IO(S & Result<&2, &2, GenerationError, TraceId>):
+  +start = TraceDraw.start(excluded)
+  Drive.finished(~TraceStep, ~TraceId, ~TraceDraw.result, ~S, Drive.read(~TraceStep, ~TraceDraw, ~TraceStep.waiting,
+    ~TraceDraw.next, ~S, ~read, 32n, (source, (start, TraceStep.waiting(start)))))
+
+# Span ID draws
+# -------------
+
 # A span ID draw starts with its first candidate; seven further candidates
 # may follow it, eight in all.
 def SpanDraw.start(excluded: Maybe<&2, SpanId>) -> SpanStep:
-  NeedSpanWord{7n, NoSpanWord{}, excluded}
+  NeedSpanWord{SpanDraw{7n, NoSpanWord{}, excluded}}
 
 # Try another span ID candidate, or fail once the eight are used.
 def SpanDraw.retry(remaining: Nat, excluded: Maybe<&2, SpanId>) -> SpanStep:
@@ -810,7 +967,7 @@ def SpanDraw.retry(remaining: Nat, excluded: Maybe<&2, SpanId>) -> SpanStep:
     case 0n:
       SpanFailed{ExhaustedSpanId{}}
     case 1n+p:
-      NeedSpanWord{p, NoSpanWord{}, excluded}
+      NeedSpanWord{SpanDraw{p, NoSpanWord{}, excluded}}
 
 # A span ID candidate equal to the excluded one is retried.
 def SpanDraw.reuse(reused: Bool, id: SpanId, excluded: SpanId, remaining: Nat) -> SpanStep:
@@ -838,12 +995,13 @@ def SpanDraw.check(candidate: Maybe<&2, SpanId>, excluded: Maybe<&2, SpanId>, re
 def SpanDraw.take(word: U32, remaining: Nat, words: SpanWords, excluded: Maybe<&2, SpanId>) -> SpanStep:
   match words:
     case NoSpanWord{}:
-      NeedSpanWord{remaining, OneSpanWord{word}, excluded}
+      NeedSpanWord{SpanDraw{remaining, OneSpanWord{word}, excluded}}
     case OneSpanWord{first}:
       SpanDraw.check(SpanId.from_words(first, word), excluded, remaining)
 
-# Feed the next source word to a span ID draw that needs one. A source error
-# ends the draw at once with SourceFailure (law span_id_failure).
+# Feed the next source word to a span ID draw, given as its three fields. A
+# source error ends the draw at once with SourceFailure (law
+# span_id_failure).
 def SpanDraw.feed(word: Result<&1, &1, U32 & String, U32>, remaining: Nat, words: SpanWords,
   excluded: Maybe<&2, SpanId>) -> SpanStep:
   match word:
@@ -852,243 +1010,23 @@ def SpanDraw.feed(word: Result<&1, &1, U32 & String, U32>, remaining: Nat, words
     case Done{next}:
       SpanDraw.take(next, remaining, words, excluded)
 
-# The generation that a span ID draw's step gives, for an operation of
-# `trace_id` with the sampled indication `sampled`: drawing on, the context
-# once the span ID is drawn, or the draw's failure.
-def Draw.spanned(step: SpanStep, trace_id: TraceId, sampled: Bool) -> Step:
+# The step of a span ID draw after its next source word, SpanDraw.feed of its
+# fields: the `feed` that Drive takes.
+def SpanDraw.next(word: Result<&1, &1, U32 & String, U32>, draw: SpanDraw) -> SpanStep:
+  match draw:
+    case SpanDraw{remaining, words, excluded}:
+      SpanDraw.feed(word, remaining, words, excluded)
+
+# The draw that a span ID draw's step feeds its next word to, while it waits
+# for one.
+def SpanStep.waiting(step: SpanStep) -> Maybe<&2, SpanDraw>:
   match step:
-    case NeedSpanWord{remaining, words, excluded}:
-      NeedWord{DrawSpan{remaining, words, SpanPlan{trace_id, sampled, excluded}}}
+    case NeedSpanWord{draw}:
+      Some{draw}
     case DrawnSpanId{id}:
-      Created{Context.from_ids(trace_id, id, sampled)}
+      None{}
     case SpanFailed{error}:
-      Failed{error}
-
-# Once a root or a restart has drawn its trace ID, it starts a span ID draw,
-# with none to exclude, for a context with the root default sampled
-# indication.
-def Draw.accept_trace(trace_id: TraceId) -> Step:
-  Draw.spanned(SpanDraw.start(None{}), trace_id, False{})
-
-# The generation that a trace ID draw's step gives, for a root or a restart:
-# drawing on, then the span ID once the trace ID is drawn, or the draw's
-# failure.
-def Draw.traced(step: TraceStep) -> Step:
-  match step:
-    case NeedTraceWord{remaining, words, excluded}:
-      NeedWord{DrawTrace{remaining, words, excluded}}
-    case DrawnTraceId{id}:
-      Draw.accept_trace(id)
-    case TraceFailed{error}:
-      Failed{error}
-
-# A root draws its trace ID, with none to exclude, then its span ID, and
-# starts unsampled.
-def Draw.root() -> Step:
-  Draw.traced(TraceDraw.start(None{}))
-
-# A restart draws like a root but excludes the received trace ID.
-def Draw.restart(previous: RemoteContext) -> Step:
-  Draw.traced(TraceDraw.start(Some{RemoteContext.trace_id(previous)}))
-
-# A child keeps the parent's trace ID and draws a span ID that excludes the
-# parent's.
-def Draw.child(+parent: Parent, sampling: Sampling) -> Step:
-  Draw.spanned(SpanDraw.start(Some{Parent.span_id(parent)}), Parent.trace_id(parent),
-    Sampling.resolve(sampling, Parent.is_sampled(parent)))
-
-# Feed the next source word to the machine. A source error ends the
-# generation at once with SourceFailure (law feed_failure), as it ends each
-# draw; a word goes to the trace ID draw or to the span ID draw that the
-# generation runs.
-def Draw.feed(word: Result<&1, &1, U32 & String, U32>, draw: Draw) -> Step:
-  match word:
-    case Fail{(code, message)}:
-      Failed{SourceFailure{code, message}}
-    case Done{next}:
-      match draw:
-        case DrawTrace{remaining, words, previous}:
-          Draw.traced(TraceDraw.take(next, remaining, words, previous))
-        case DrawSpan{remaining, words, SpanPlan{trace_id, sampled, parent}}:
-          Draw.spanned(SpanDraw.take(next, remaining, words, parent), trace_id, sampled)
-
-# The result of a finished generation. A generation that has not finished
-# would report the identifier it was drawing; the root_ends, child_ends and
-# restart_ends laws show that the word budgets of the operations below make
-# those cases unreachable.
-def Step.result(step: Step) -> Result<&2, &2, GenerationError, LocalContext>:
-  match step:
-    case Created{context}:
-      Done{context}
-    case Failed{error}:
-      Fail{error}
-    case NeedWord{DrawTrace{remaining, words, previous}}:
-      Fail{ExhaustedTraceId{}}
-    case NeedWord{DrawSpan{remaining, words, plan}}:
-      Fail{ExhaustedSpanId{}}
-
-# Whether a generation has ended, with or without a context.
-def Step.is_finished(step: Step) -> Bool:
-  match step:
-    case NeedWord{draw}:
-      False{}
-    case Created{context}:
-      True{}
-    case Failed{error}:
-      True{}
-
-# A deterministic word source for tests and replay: each read takes the next
-# result, and an empty tape fails with code 1, tape-exhausted.
-def Tape.next(tape: List<&1, Result<&1, &1, U32 & String, U32>>) ->
-  List<&1, Result<&1, &1, U32 & String, U32>> & Result<&1, &1, U32 & String, U32>:
-  match tape:
-    case Nil{}:
-      (Nil{}, Fail{(1, "tape-exhausted")})
-    case Con{word, rest}:
-      (rest, word)
-
-# Feed a word that a source returned, keeping the source's next state.
-def Draw.fed_by(-S: Type, got: S & Result<&1, &1, U32 & String, U32>, draw: Draw) -> S & Step:
-  (state, word) = got
-  (state, Draw.feed(word, draw))
-
-# Whether the generation in a driver's result has ended.
-def Draw.ended(result: List<&1, Result<&1, &1, U32 & String, U32>> & Step) -> Bool:
-  (tape, step) = result
-  Step.is_finished(step)
-
-# Drive a generation from a tape, reading one word at a time and stopping as
-# soon as it ends; unread words stay on the tape. `fuel` bounds the steps,
-# which Bend requires for termination; the laws show the budgets suffice.
-def Draw.run(fuel: Nat, current: List<&1, Result<&1, &1, U32 & String, U32>> & Step) ->
-  List<&1, Result<&1, &1, U32 & String, U32>> & Step:
-  match fuel current:
-    case _ Tuple{tape, Created{context}}:
-      (tape, Created{context})
-    case _ Tuple{tape, Failed{error}}:
-      (tape, Failed{error})
-    case 0n Tuple{tape, NeedWord{draw}}:
-      (tape, NeedWord{draw})
-    case 1n+p Tuple{tape, NeedWord{draw}}:
-      Draw.run(p, Draw.fed_by(List<&1, Result<&1, &1, U32 & String, U32>>, Tape.next(tape), draw))
-
-# Drive a generation from any source. `read` returns the source's next state
-# with each word, one word at a time, and the driver stops as soon as the
-# generation ends; the final source state is handed back, so a caller can see
-# what was read. `fuel` bounds the words read, as in Draw.run. Templates keep
-# this driver free of any host effect: the effect, if any, lives in the
-# source.
-def Draw.read(~S: Type, ~read: S -> IO(S & Result<&1, &1, U32 & String, U32>), fuel: Nat,
-  current: S & Step) -> IO(S & Step):
-  match fuel current:
-    case _ Tuple{state, Created{context}}:
-      IO.pure(S & Step, (state, Created{context}))
-    case _ Tuple{state, Failed{error}}:
-      IO.pure(S & Step, (state, Failed{error}))
-    case 0n Tuple{state, NeedWord{draw}}:
-      IO.pure(S & Step, (state, NeedWord{draw}))
-    case 1n+p Tuple{state, NeedWord{draw}}:
-      IO.bind(S & Result<&1, &1, U32 & String, U32>, S & Step, read(state),
-        got => Draw.read(~S, ~read, p, Draw.fed_by(S, got, draw)))
-
-# The source's final state with the generation's result.
-def Draw.outcome(-S: Type, done: S & Step) -> S & Result<&2, &2, GenerationError, LocalContext>:
-  (state, step) = done
-  (state, Step.result(step))
-
-# Turn the driver's final step into the generation's result.
-def Draw.finished(~S: Type, action: IO(S & Step)) -> IO(S & Result<&2, &2, GenerationError, LocalContext>):
-  IO.bind(S & Step, S & Result<&2, &2, GenerationError, LocalContext>, action,
-    done => IO.pure(S & Result<&2, &2, GenerationError, LocalContext>, Draw.outcome(S, done)))
-
-# The trace ID of a finished trace ID draw, or why it failed. A draw that has
-# not finished would report exhaustion; law trace_id_ends shows that the word
-# budget of TraceId.generate_with makes that case unreachable.
-def TraceDraw.result(step: TraceStep) -> Result<&2, &2, GenerationError, TraceId>:
-  match step:
-    case DrawnTraceId{id}:
-      Done{id}
-    case TraceFailed{error}:
-      Fail{error}
-    case NeedTraceWord{remaining, words, excluded}:
-      Fail{ExhaustedTraceId{}}
-
-# Whether a trace ID draw has ended, with or without a trace ID.
-def TraceDraw.is_finished(step: TraceStep) -> Bool:
-  match step:
-    case NeedTraceWord{remaining, words, excluded}:
-      False{}
-    case DrawnTraceId{id}:
-      True{}
-    case TraceFailed{error}:
-      True{}
-
-# Feed a word that a source returned to a trace ID draw, keeping the source's
-# next state.
-def TraceDraw.fed_by(-S: Type, got: S & Result<&1, &1, U32 & String, U32>, remaining: Nat, words: TraceWords,
-  excluded: Maybe<&2, TraceId>) -> S & TraceStep:
-  (state, word) = got
-  (state, TraceDraw.feed(word, remaining, words, excluded))
-
-# Whether the trace ID draw in a driver's result has ended.
-def TraceDraw.ended(result: List<&1, Result<&1, &1, U32 & String, U32>> & TraceStep) -> Bool:
-  (tape, step) = result
-  TraceDraw.is_finished(step)
-
-# Drive a trace ID draw from a tape, as Draw.run drives a generation: one word
-# at a time, stopping as soon as the draw ends, with the unread words left on
-# the tape.
-def TraceDraw.run(fuel: Nat, current: List<&1, Result<&1, &1, U32 & String, U32>> & TraceStep) ->
-  List<&1, Result<&1, &1, U32 & String, U32>> & TraceStep:
-  match fuel current:
-    case _ Tuple{tape, DrawnTraceId{id}}:
-      (tape, DrawnTraceId{id})
-    case _ Tuple{tape, TraceFailed{error}}:
-      (tape, TraceFailed{error})
-    case 0n Tuple{tape, NeedTraceWord{remaining, words, excluded}}:
-      (tape, NeedTraceWord{remaining, words, excluded})
-    case 1n+p Tuple{tape, NeedTraceWord{remaining, words, excluded}}:
-      TraceDraw.run(p, TraceDraw.fed_by(List<&1, Result<&1, &1, U32 & String, U32>>, Tape.next(tape), remaining,
-        words, excluded))
-
-# Drive a trace ID draw from any source, as Draw.read drives a generation: the
-# source's final state is handed back, and the effect, if any, lives in the
-# source.
-def TraceDraw.read(~S: Type, ~read: S -> IO(S & Result<&1, &1, U32 & String, U32>), fuel: Nat,
-  current: S & TraceStep) -> IO(S & TraceStep):
-  match fuel current:
-    case _ Tuple{state, DrawnTraceId{id}}:
-      IO.pure(S & TraceStep, (state, DrawnTraceId{id}))
-    case _ Tuple{state, TraceFailed{error}}:
-      IO.pure(S & TraceStep, (state, TraceFailed{error}))
-    case 0n Tuple{state, NeedTraceWord{remaining, words, excluded}}:
-      IO.pure(S & TraceStep, (state, NeedTraceWord{remaining, words, excluded}))
-    case 1n+p Tuple{state, NeedTraceWord{remaining, words, excluded}}:
-      IO.bind(S & Result<&1, &1, U32 & String, U32>, S & TraceStep, read(state),
-        got => TraceDraw.read(~S, ~read, p, TraceDraw.fed_by(S, got, remaining, words, excluded)))
-
-# The source's final state with the trace ID draw's result.
-def TraceDraw.outcome(-S: Type, done: S & TraceStep) -> S & Result<&2, &2, GenerationError, TraceId>:
-  (state, step) = done
-  (state, TraceDraw.result(step))
-
-# Turn the trace ID driver's final step into its result.
-def TraceDraw.finished(~S: Type, action: IO(S & TraceStep)) -> IO(S & Result<&2, &2, GenerationError, TraceId>):
-  IO.bind(S & TraceStep, S & Result<&2, &2, GenerationError, TraceId>, action,
-    done => IO.pure(S & Result<&2, &2, GenerationError, TraceId>, TraceDraw.outcome(S, done)))
-
-# A trace ID alone, from a caller's source, as an OpenTelemetry SDK generates
-# one before its sampler decides on it. `read` returns the source's next state
-# with each word result, and the source's final state is returned. It reads
-# four words per candidate, most significant first, for at most eight
-# candidates, so at most 32 words; rejects all-zero candidates and `excluded`,
-# when there is one; and fails with SourceFailure or ExhaustedTraceId. The
-# source is trusted to be random: the trace ID asserts random-trace-id.
-# Laws: trace_id_tape, trace_id_failure, trace_id_candidate, trace_id_ends,
-# trace_id_exhaustion and generated_trace_id.
-def TraceId.generate_with(~S: Type, ~read: S -> IO(S & Result<&1, &1, U32 & String, U32>), source: S,
-  excluded: Maybe<&2, TraceId>) -> IO(S & Result<&2, &2, GenerationError, TraceId>):
-  TraceDraw.finished(~S, TraceDraw.read(~S, ~read, 32n, (source, TraceDraw.start(excluded))))
+      None{}
 
 # The span ID of a finished span ID draw, or why it failed, as
 # TraceDraw.result; law span_id_ends shows that the word budget of
@@ -1099,69 +1037,24 @@ def SpanDraw.result(step: SpanStep) -> Result<&2, &2, GenerationError, SpanId>:
       Done{id}
     case SpanFailed{error}:
       Fail{error}
-    case NeedSpanWord{remaining, words, excluded}:
+    case NeedSpanWord{draw}:
       Fail{ExhaustedSpanId{}}
 
-# Whether a span ID draw has ended, with or without a span ID.
-def SpanDraw.is_finished(step: SpanStep) -> Bool:
-  match step:
-    case NeedSpanWord{remaining, words, excluded}:
-      False{}
-    case DrawnSpanId{id}:
-      True{}
-    case SpanFailed{error}:
-      True{}
-
-# Feed a word that a source returned to a span ID draw, keeping the source's
-# next state.
-def SpanDraw.fed_by(-S: Type, got: S & Result<&1, &1, U32 & String, U32>, remaining: Nat, words: SpanWords,
-  excluded: Maybe<&2, SpanId>) -> S & SpanStep:
-  (state, word) = got
-  (state, SpanDraw.feed(word, remaining, words, excluded))
+# Drive a span ID draw from a tape (Drive.run).
+def SpanDraw.run(fuel: Nat, current: List<&1, Result<&1, &1, U32 & String, U32>> & SpanStep) ->
+  List<&1, Result<&1, &1, U32 & String, U32>> & SpanStep:
+  match current:
+    case Tuple{tape, +step}:
+      Drive.run(~SpanStep, ~SpanDraw, ~SpanStep.waiting, ~SpanDraw.next, fuel,
+        (tape, (step, SpanStep.waiting(step))))
 
 # Whether the span ID draw in a driver's result has ended.
 def SpanDraw.ended(result: List<&1, Result<&1, &1, U32 & String, U32>> & SpanStep) -> Bool:
-  (tape, step) = result
-  SpanDraw.is_finished(step)
-
-# Drive a span ID draw from a tape, as TraceDraw.run drives a trace ID draw.
-def SpanDraw.run(fuel: Nat, current: List<&1, Result<&1, &1, U32 & String, U32>> & SpanStep) ->
-  List<&1, Result<&1, &1, U32 & String, U32>> & SpanStep:
-  match fuel current:
-    case _ Tuple{tape, DrawnSpanId{id}}:
-      (tape, DrawnSpanId{id})
-    case _ Tuple{tape, SpanFailed{error}}:
-      (tape, SpanFailed{error})
-    case 0n Tuple{tape, NeedSpanWord{remaining, words, excluded}}:
-      (tape, NeedSpanWord{remaining, words, excluded})
-    case 1n+p Tuple{tape, NeedSpanWord{remaining, words, excluded}}:
-      SpanDraw.run(p, SpanDraw.fed_by(List<&1, Result<&1, &1, U32 & String, U32>>, Tape.next(tape), remaining,
-        words, excluded))
-
-# Drive a span ID draw from any source, as TraceDraw.read drives a trace ID
-# draw.
-def SpanDraw.read(~S: Type, ~read: S -> IO(S & Result<&1, &1, U32 & String, U32>), fuel: Nat,
-  current: S & SpanStep) -> IO(S & SpanStep):
-  match fuel current:
-    case _ Tuple{state, DrawnSpanId{id}}:
-      IO.pure(S & SpanStep, (state, DrawnSpanId{id}))
-    case _ Tuple{state, SpanFailed{error}}:
-      IO.pure(S & SpanStep, (state, SpanFailed{error}))
-    case 0n Tuple{state, NeedSpanWord{remaining, words, excluded}}:
-      IO.pure(S & SpanStep, (state, NeedSpanWord{remaining, words, excluded}))
-    case 1n+p Tuple{state, NeedSpanWord{remaining, words, excluded}}:
-      IO.bind(S & Result<&1, &1, U32 & String, U32>, S & SpanStep, read(state),
-        got => SpanDraw.read(~S, ~read, p, SpanDraw.fed_by(S, got, remaining, words, excluded)))
+  Drive.ended(~SpanStep, ~SpanDraw, ~SpanStep.waiting, result)
 
 # The source's final state with the span ID draw's result.
 def SpanDraw.outcome(-S: Type, done: S & SpanStep) -> S & Result<&2, &2, GenerationError, SpanId>:
-  (state, step) = done
-  (state, SpanDraw.result(step))
-
-# Turn the span ID driver's final step into its result.
-def SpanDraw.finished(~S: Type, action: IO(S & SpanStep)) -> IO(S & Result<&2, &2, GenerationError, SpanId>):
-  IO.bind(S & SpanStep, S & Result<&2, &2, GenerationError, SpanId>, action,
-    done => IO.pure(S & Result<&2, &2, GenerationError, SpanId>, SpanDraw.outcome(S, done)))
+  Drive.outcome(~SpanStep, ~SpanId, ~SpanDraw.result, S, done)
 
 # A span ID alone, from a caller's source, as an OpenTelemetry SDK generates
 # one once its sampler has decided. The source's shape is that of
@@ -1173,7 +1066,132 @@ def SpanDraw.finished(~S: Type, action: IO(S & SpanStep)) -> IO(S & Result<&2, &
 # span_id_exhaustion and generated_span_id.
 def SpanId.generate_with(~S: Type, ~read: S -> IO(S & Result<&1, &1, U32 & String, U32>), source: S,
   excluded: Maybe<&2, SpanId>) -> IO(S & Result<&2, &2, GenerationError, SpanId>):
-  SpanDraw.finished(~S, SpanDraw.read(~S, ~read, 16n, (source, SpanDraw.start(excluded))))
+  +start = SpanDraw.start(excluded)
+  Drive.finished(~SpanStep, ~SpanId, ~SpanDraw.result, ~S, Drive.read(~SpanStep, ~SpanDraw, ~SpanStep.waiting,
+    ~SpanDraw.next, ~S, ~read, 16n, (source, (start, SpanStep.waiting(start)))))
+
+# Generations
+# -----------
+
+# The generation that a span ID draw's step gives, for a context of
+# `trace_id` with the sampled indication `sampled`: waiting for the draw's
+# next word, the context once the span ID is drawn, or the draw's failure.
+def Step.of_span(step: SpanStep, trace_id: TraceId, sampled: Bool) -> Step:
+  match step:
+    case NeedSpanWord{draw}:
+      NeedWord{DrawSpan{draw, trace_id, sampled}}
+    case DrawnSpanId{id}:
+      Created{Context.from_ids(trace_id, id, sampled)}
+    case SpanFailed{error}:
+      Failed{error}
+
+# The plan of a root's span ID, once its trace ID is drawn, and of a
+# restart's: nothing to exclude, and a context that is not sampled.
+def SpanPlan.root(trace_id: TraceId) -> SpanPlan:
+  SpanPlan{None{}, trace_id, False{}}
+
+# The plan of a child's span ID: the parent's span ID excluded, the parent's
+# trace ID, and the sampled indication that `sampling` resolves from the
+# parent's.
+def SpanPlan.child(+parent: Parent, sampling: Sampling) -> SpanPlan:
+  SpanPlan{Some{Parent.span_id(parent)}, Parent.trace_id(parent), Sampling.resolve(sampling, Parent.is_sampled(parent))}
+
+# The generation that draws the span ID of a plan, from its first candidate.
+def SpanPlan.draw(plan: SpanPlan) -> Step:
+  match plan:
+    case SpanPlan{excluded, trace_id, sampled}:
+      Step.of_span(SpanDraw.start(excluded), trace_id, sampled)
+
+# The generation that a trace ID draw's step gives, for a root or a restart:
+# waiting for the draw's next word, the root's span ID draw once the trace ID
+# is drawn (SpanPlan.root), or the draw's failure.
+def Step.of_trace(step: TraceStep) -> Step:
+  match step:
+    case NeedTraceWord{draw}:
+      NeedWord{DrawTrace{draw}}
+    case DrawnTraceId{id}:
+      SpanPlan.draw(SpanPlan.root(id))
+    case TraceFailed{error}:
+      Failed{error}
+
+# The trace ID that a restart excludes: the received one that it replaces.
+def Draw.restart_excluded(previous: RemoteContext) -> Maybe<&2, TraceId>:
+  Some{RemoteContext.trace_id(previous)}
+
+# A root draws its trace ID, with none to exclude, then its span ID, and
+# starts unsampled.
+def Draw.root() -> Step:
+  Step.of_trace(TraceDraw.start(None{}))
+
+# A restart draws like a root but excludes the received trace ID.
+def Draw.restart(previous: RemoteContext) -> Step:
+  Step.of_trace(TraceDraw.start(Draw.restart_excluded(previous)))
+
+# A child draws the span ID of its plan (SpanPlan.child).
+def Draw.child(+parent: Parent, sampling: Sampling) -> Step:
+  SpanPlan.draw(SpanPlan.child(parent, sampling))
+
+# Feed the next source word, or the source's error, to the trace ID draw or
+# the span ID draw that the generation runs. A source error ends the draw,
+# and so the generation, at once with SourceFailure (law feed_failure).
+def Draw.feed(word: Result<&1, &1, U32 & String, U32>, draw: Draw) -> Step:
+  match draw:
+    case DrawTrace{trace}:
+      Step.of_trace(TraceDraw.next(word, trace))
+    case DrawSpan{span, trace_id, sampled}:
+      Step.of_span(SpanDraw.next(word, span), trace_id, sampled)
+
+# The draw that a generation's step feeds its next word to, while it waits
+# for one.
+def Step.waiting(step: Step) -> Maybe<&2, Draw>:
+  match step:
+    case NeedWord{draw}:
+      Some{draw}
+    case Created{context}:
+      None{}
+    case Failed{error}:
+      None{}
+
+# The result of a finished generation. A generation that has not finished
+# would report the identifier it was drawing; the root_ends, child_ends and
+# restart_ends laws show that the word budgets of the operations below make
+# those cases unreachable.
+def Step.result(step: Step) -> Result<&2, &2, GenerationError, LocalContext>:
+  match step:
+    case Created{context}:
+      Done{context}
+    case Failed{error}:
+      Fail{error}
+    case NeedWord{DrawTrace{draw}}:
+      Fail{ExhaustedTraceId{}}
+    case NeedWord{DrawSpan{draw, trace_id, sampled}}:
+      Fail{ExhaustedSpanId{}}
+
+# Drive a generation from a tape (Drive.run).
+def Draw.run(fuel: Nat, current: List<&1, Result<&1, &1, U32 & String, U32>> & Step) ->
+  List<&1, Result<&1, &1, U32 & String, U32>> & Step:
+  match current:
+    case Tuple{tape, +step}:
+      Drive.run(~Step, ~Draw, ~Step.waiting, ~Draw.feed, fuel, (tape, (step, Step.waiting(step))))
+
+# Drive a generation from any source (Drive.read).
+def Draw.read(~S: Type, ~read: S -> IO(S & Result<&1, &1, U32 & String, U32>), fuel: Nat,
+  current: S & Step) -> IO(S & Step):
+  match current:
+    case Tuple{state, +step}:
+      Drive.read(~Step, ~Draw, ~Step.waiting, ~Draw.feed, ~S, ~read, fuel, (state, (step, Step.waiting(step))))
+
+# Whether the generation in a driver's result has ended.
+def Draw.ended(result: List<&1, Result<&1, &1, U32 & String, U32>> & Step) -> Bool:
+  Drive.ended(~Step, ~Draw, ~Step.waiting, result)
+
+# The source's final state with the generation's result.
+def Draw.outcome(-S: Type, done: S & Step) -> S & Result<&2, &2, GenerationError, LocalContext>:
+  Drive.outcome(~Step, ~LocalContext, ~Step.result, S, done)
+
+# Turn the driver's final step into the generation's result.
+def Draw.finished(~S: Type, action: IO(S & Step)) -> IO(S & Result<&2, &2, GenerationError, LocalContext>):
+  Drive.finished(~Step, ~LocalContext, ~Step.result, ~S, action)
 
 # A root: at most 48 words, eight trace ID candidates of four words and eight
 # span ID candidates of two.
@@ -1255,19 +1273,28 @@ def Draw.span_context(-S: Type, +trace_id: TraceId, +sampled: Bool,
     case Tuple{state, Done{span_id}}:
       (state, Done{Context.from_ids(trace_id, span_id, sampled)})
 
-# What follows the trace ID of a root or a restart: its failure is the
-# generation's, and otherwise its span ID, with none to exclude, from the
-# source's next state, and the root of both, which is not sampled.
-def Draw.after_trace(~S: Type, ~read: S -> IO(S & Result<&1, &1, U32 & String, U32>),
-  done: S & Result<&2, &2, GenerationError, TraceId>) -> IO(S & Result<&2, &2, GenerationError, LocalContext>):
-  match done:
+# The local context of a span plan, from a caller's source: a span ID that
+# excludes the plan's (SpanId.generate_with), and the context of the plan's
+# trace ID and sampled indication with it.
+def SpanPlan.generate_with(~S: Type, ~read: S -> IO(S & Result<&1, &1, U32 & String, U32>), source: S,
+  plan: SpanPlan) -> IO(S & Result<&2, &2, GenerationError, LocalContext>):
+  match plan:
+    case SpanPlan{excluded, trace_id, sampled}:
+      IO.bind(S & Result<&2, &2, GenerationError, SpanId>, S & Result<&2, &2, GenerationError, LocalContext>,
+        SpanId.generate_with(~S, ~read, source, excluded),
+        outcome => IO.pure(S & Result<&2, &2, GenerationError, LocalContext>,
+          Draw.span_context(S, trace_id, sampled, outcome)))
+
+# The span ID of a root or a restart, from the source's next state, once its
+# trace ID is generated: the trace ID's failure is the generation's, and
+# otherwise the local context of the root's span plan (SpanPlan.root).
+def Draw.root_span_with(~S: Type, ~read: S -> IO(S & Result<&1, &1, U32 & String, U32>),
+  outcome: S & Result<&2, &2, GenerationError, TraceId>) -> IO(S & Result<&2, &2, GenerationError, LocalContext>):
+  match outcome:
     case Tuple{state, Fail{error}}:
       IO.pure(S & Result<&2, &2, GenerationError, LocalContext>, (state, Fail{error}))
     case Tuple{state, Done{trace_id}}:
-      IO.bind(S & Result<&2, &2, GenerationError, SpanId>, S & Result<&2, &2, GenerationError, LocalContext>,
-        SpanId.generate_with(~S, ~read, state, None{}),
-        spanned => IO.pure(S & Result<&2, &2, GenerationError, LocalContext>,
-          Draw.span_context(S, trace_id, False{}, spanned)))
+      SpanPlan.generate_with(~S, ~read, state, SpanPlan.root(trace_id))
 
 # Generated contexts from a caller's source. `read` returns the source's next
 # state with each word result. The source is trusted to be random: a generated
@@ -1279,19 +1306,16 @@ def Draw.after_trace(~S: Type, ~read: S -> IO(S & Result<&1, &1, U32 & String, U
 def Context.root_with(~S: Type, ~read: S -> IO(S & Result<&1, &1, U32 & String, U32>), source: S) ->
   IO(S & Result<&2, &2, GenerationError, LocalContext>):
   IO.bind(S & Result<&2, &2, GenerationError, TraceId>, S & Result<&2, &2, GenerationError, LocalContext>,
-    TraceId.generate_with(~S, ~read, source, None{}), traced => Draw.after_trace(~S, ~read, traced))
+    TraceId.generate_with(~S, ~read, source, None{}), outcome => Draw.root_span_with(~S, ~read, outcome))
 
-# A generated child of `parent` from a caller's source: a span ID that
-# excludes the parent's, with the parent's trace ID and the sampled
-# indication that `sampling` resolves. It reads at most 16 words.
-# Laws: child_composed, child_tape, child_ends, child_exhaustion and
-# generated_child.
+# A generated child of `parent` from a caller's source: the local context of
+# its span plan (SpanPlan.child), a span ID that excludes the parent's, with
+# the parent's trace ID and the sampled indication that `sampling` resolves.
+# It reads at most 16 words. Laws: child_composed, child_tape, child_ends,
+# child_exhaustion and generated_child.
 def Context.child_with(~S: Type, ~read: S -> IO(S & Result<&1, &1, U32 & String, U32>), source: S,
-  +parent: Parent, sampling: Sampling) -> IO(S & Result<&2, &2, GenerationError, LocalContext>):
-  IO.bind(S & Result<&2, &2, GenerationError, SpanId>, S & Result<&2, &2, GenerationError, LocalContext>,
-    SpanId.generate_with(~S, ~read, source, Some{Parent.span_id(parent)}),
-    spanned => IO.pure(S & Result<&2, &2, GenerationError, LocalContext>,
-      Draw.span_context(S, Parent.trace_id(parent), Sampling.resolve(sampling, Parent.is_sampled(parent)), spanned)))
+  parent: Parent, sampling: Sampling) -> IO(S & Result<&2, &2, GenerationError, LocalContext>):
+  SpanPlan.generate_with(~S, ~read, source, SpanPlan.child(parent, sampling))
 
 # A generated restart replacing `previous` from a caller's source: a trace ID
 # that excludes the received one, then a span ID, as for a root. It reads at
@@ -1300,8 +1324,8 @@ def Context.child_with(~S: Type, ~read: S -> IO(S & Result<&1, &1, U32 & String,
 def Context.restart_with(~S: Type, ~read: S -> IO(S & Result<&1, &1, U32 & String, U32>), source: S,
   previous: RemoteContext) -> IO(S & Result<&2, &2, GenerationError, LocalContext>):
   IO.bind(S & Result<&2, &2, GenerationError, TraceId>, S & Result<&2, &2, GenerationError, LocalContext>,
-    TraceId.generate_with(~S, ~read, source, Some{RemoteContext.trace_id(previous)}),
-    traced => Draw.after_trace(~S, ~read, traced))
+    TraceId.generate_with(~S, ~read, source, Draw.restart_excluded(previous)),
+    outcome => Draw.root_span_with(~S, ~read, outcome))
 
 # A deterministic source that replays a tape of word results.
 def Source.tape(tape: List<&1, Result<&1, &1, U32 & String, U32>>) ->

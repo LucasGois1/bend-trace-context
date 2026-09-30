@@ -3,70 +3,60 @@
 #
 # What the two pieces of the generation machine do alone, over tapes: a trace
 # ID draw (TraceDraw.feed and the TraceDraw.check, reuse and retry functions
-# that decide a candidate) and a span ID draw (the same for SpanDraw),
-# driven purely by TraceDraw.run and SpanDraw.run, and as IO actions by
-# TraceDraw.read and SpanDraw.read over Source.tape, as TraceId.generate_with
+# that decide a candidate) and a span ID draw (the same for SpanDraw), which
+# Drive runs, purely with Drive.run as TraceDraw.run and SpanDraw.run do, and
+# as IO actions with Drive.read over Source.tape, as TraceId.generate_with
 # and SpanId.generate_with do. PROOF.bend proves the laws of the "Separate
 # generation" part of section 6 of LAWS.bend with this module: trace_id_tape
 # (read_trace_tape), trace_id_ends (trace_run_ends with trace_start_within)
-# and generated_trace_id (trace_run_inv, through the view TraceRunView), the
-# same for span IDs, and root_composed, child_composed and restart_composed
-# (read_trace_same and read_span_same, with after_trace_same and
-# span_context_same). trace_id_failure, trace_id_exhaustion and their span ID
-# twins need no lemma: PROOF.bend proves them by computation, and
+# and generated_trace_id (trace_run_holds, through the view TraceRunView),
+# the same for span IDs, and root_composed, child_composed and
+# restart_composed (read_trace_same and read_span_same, with root_span_same
+# and span_context_same). trace_id_failure, trace_id_exhaustion and their
+# span ID twins need no lemma: PROOF.bend proves them by computation, and
 # trace_id_candidate and span_id_candidate by computation once their
 # hypothesis is rewritten. proofs/generation.bend builds the laws of root,
 # child and restart generation on the lemmas of this module.
 #
-# The strategy is that of proofs/generation.bend, piece by piece:
+# The inductions over the drive are those of proofs/drive.bend, proved once
+# for every machine; this module gives what is particular to each piece:
 #
-# - Termination. TraceWithin(step, n) says that a trace ID draw ends within
-#   n more words, whatever they are, and the *_within lemmas follow the draw
-#   word by word and candidate by candidate; TraceRetry carries the bound of
-#   the next candidate. trace_run_ends turns a bound equal to the fuel into
-#   TraceDraw.ended for every tape.
-# - Drawn identifiers. TraceInv is an invariant of a trace ID draw whose
-#   DrawnTraceId case is the conclusion of generated_trace_id. It holds of
-#   the first step, every word keeps it (trace_feed_inv), and so does a
-#   whole drive (trace_run_inv, by induction on the fuel).
-# - IO. read_trace_tape shows, by induction on the fuel, that TraceDraw.read
-#   over Source.tape computes TraceDraw.run, as read_tape_outcome of
-#   proofs/generation.bend does for Draw.read.
-# - Compositions. The checker compares two continuations only once the
-#   outcome that they receive is known, so read_trace_same and read_span_same
-#   carry an agreement on every outcome through the drivers.
+# - Termination. TraceWithin(view, n) is DriveProof.Within for a trace ID
+#   draw. The *_within lemmas follow the draw word by word and candidate by
+#   candidate, TraceRetry carrying the bound of the next candidate, and
+#   trace_run_ends turns a bound equal to the fuel into TraceDraw.ended for
+#   every tape (DriveProof.drive_ends), with trace_fails.
+# - Drawn identifiers. TraceFinal holds of a drawn trace ID the conclusions
+#   of generated_trace_id, and TracePending of a waiting draw that it keeps
+#   the trace ID to exclude. The first step keeps both (TraceHolds), every
+#   word result keeps them (trace_kept), and so does a whole drive
+#   (trace_run_holds, by DriveProof.drive_keeps).
+# - IO. read_trace_tape and read_trace_same are DriveProof.drive_read and
+#   drive_same for a trace ID draw from its first step. The checker compares
+#   two continuations only once the outcome that they receive is known, so
+#   root_span_same and span_context_same are agreements on every outcome.
 #
 # The statements use Tape, TapeTraceStep, TapeTraceId, TapeSpanStep,
-# TapeSpanId, TapeOutcome, Observe, TraceAvoids, SpanAvoids, root_of and
-# context_of of LAWS.bend.
+# TapeSpanId, TapeOutcome, TraceAvoids, SpanAvoids, root_of and context_of of
+# LAWS.bend.
 
 import Base
 import ../trace_context.bend as TC
 import ./strings.bend as StringsProof
-import ./bools.bend as BoolsProof
+import ./drive.bend as DriveProof
 import ../LAWS.bend as Laws
 
 # Trace ID draws: word bounds
 # ===========================
 
-# The claim "this trace ID draw ends within n more words, whatever they are",
-# as a type, as Within of proofs/generation.bend states it of a generation:
-# Unit for a draw that has ended, Empty for one that needs a word when n is
-# 0, and otherwise, for every word, the bound n - 1 of the draw that feeding
-# the word gives. A failed word ends the draw at once (law trace_id_failure),
-# so only successful words count.
-def TraceWithin(step: TC.TraceStep, n: Nat) -> Type:
-  match step:
-    case TC.DrawnTraceId{id}:
-      Unit
-    case TC.TraceFailed{error}:
-      Unit
-    case TC.NeedTraceWord{remaining, words, excluded}:
-      match n:
-        case 0n:
-          Empty
-        case 1n+p:
-          @word: U32 -> TraceWithin(TC.TraceDraw.feed(Done{word}, remaining, words, excluded), p)
+# The claim "a trace ID draw whose step has the view `view` ends within n
+# more words, whatever they are": DriveProof.Within for the trace ID draw.
+def TraceWithin(view: Maybe<&2, TC.TraceDraw>, n: Nat) -> Type:
+  DriveProof.Within(~TC.TraceStep, ~TC.TraceDraw, ~TC.TraceStep.waiting, ~TC.TraceDraw.next, view, n)
+
+# The same claim of a step: TraceWithin of its view.
+def TraceEnds(step: TC.TraceStep, n: Nat) -> Type:
+  TraceWithin(TC.TraceStep.waiting(step), n)
 
 # The words a trace ID draw may still read when it starts a candidate with
 # `remaining` further candidates allowed: four for each of the 1 + remaining
@@ -96,7 +86,7 @@ def TraceRetry(+remaining: Nat, excluded: Maybe<&2, TC.TraceId>) -> Type:
     case 0n:
       Unit
     case 1n+p:
-      TraceWithin(TC.NeedTraceWord{p, TC.NoTraceWord{}, excluded}, trace_budget(p))
+      TraceWithin(Some{TC.TraceDraw{p, TC.NoTraceWord{}, excluded}}, trace_budget(p))
 
 # Retrying a candidate leaves the draw within trace_after(remaining) words,
 # given `retry`: an exhausted draw has failed, and otherwise the retry is the
@@ -105,7 +95,7 @@ law trace_retry_within:
   for +remaining: Nat
   for +excluded: Maybe<&2, TC.TraceId>
   for retry: TraceRetry(remaining, excluded)
-  TraceWithin(TC.TraceDraw.retry(remaining, excluded), trace_after(remaining))
+  TraceEnds(TC.TraceDraw.retry(remaining, excluded), trace_after(remaining))
 
 def trace_retry_within(remaining, excluded, retry):
   match remaining:
@@ -123,7 +113,7 @@ law trace_reuse_within:
   for +old: TC.TraceId
   for +remaining: Nat
   for retry: TraceRetry(remaining, Some{old})
-  TraceWithin(TC.TraceDraw.reuse(reused, id, old, remaining), trace_after(remaining))
+  TraceEnds(TC.TraceDraw.reuse(reused, id, old, remaining), trace_after(remaining))
 
 def trace_reuse_within(reused, id, old, remaining, retry):
   match reused:
@@ -141,7 +131,7 @@ law trace_check_within:
   for +excluded: Maybe<&2, TC.TraceId>
   for +remaining: Nat
   for retry: TraceRetry(remaining, excluded)
-  TraceWithin(TC.TraceDraw.check(candidate, excluded, remaining), trace_after(remaining))
+  TraceEnds(TC.TraceDraw.check(candidate, excluded, remaining), trace_after(remaining))
 
 def trace_check_within(candidate, excluded, remaining, retry):
   match candidate:
@@ -164,7 +154,7 @@ law trace_fourth_within:
   for +first: U32
   for +second: U32
   for +third: U32
-  TraceWithin(TC.NeedTraceWord{remaining, TC.ThreeTraceWords{first, second, third}, excluded},
+  TraceWithin(Some{TC.TraceDraw{remaining, TC.ThreeTraceWords{first, second, third}, excluded}},
     1n+trace_after(remaining))
 
 def trace_fourth_within(remaining, excluded, retry, first, second, third):
@@ -179,7 +169,7 @@ law trace_third_within:
   for retry: TraceRetry(remaining, excluded)
   for +first: U32
   for +second: U32
-  TraceWithin(TC.NeedTraceWord{remaining, TC.TwoTraceWords{first, second}, excluded}, 2n+trace_after(remaining))
+  TraceWithin(Some{TC.TraceDraw{remaining, TC.TwoTraceWords{first, second}, excluded}}, 2n+trace_after(remaining))
 
 def trace_third_within(remaining, excluded, retry, first, second):
   +third => trace_fourth_within(remaining, excluded, retry, first, second, third)
@@ -191,7 +181,7 @@ law trace_second_within:
   for +excluded: Maybe<&2, TC.TraceId>
   for retry: TraceRetry(remaining, excluded)
   for +first: U32
-  TraceWithin(TC.NeedTraceWord{remaining, TC.OneTraceWord{first}, excluded}, 3n+trace_after(remaining))
+  TraceWithin(Some{TC.TraceDraw{remaining, TC.OneTraceWord{first}, excluded}}, 3n+trace_after(remaining))
 
 def trace_second_within(remaining, excluded, retry, first):
   +second => trace_third_within(remaining, excluded, retry, first, second)
@@ -204,7 +194,7 @@ def trace_second_within(remaining, excluded, retry, first):
 law trace_start_within:
   for +remaining: Nat
   for +excluded: Maybe<&2, TC.TraceId>
-  TraceWithin(TC.NeedTraceWord{remaining, TC.NoTraceWord{}, excluded}, trace_budget(remaining))
+  TraceWithin(Some{TC.TraceDraw{remaining, TC.NoTraceWord{}, excluded}}, trace_budget(remaining))
 
 def trace_start_within(remaining, excluded):
   match remaining:
@@ -213,95 +203,41 @@ def trace_start_within(remaining, excluded):
     case 1n+p:
       +first => trace_second_within(1n+p, excluded, trace_start_within(p, excluded), first)
 
-# When a trace ID draw has ended, driving it further keeps it ended, whatever
-# the fuel and the tape. trace_run_ends uses it after a source error.
-law trace_ended_stays:
-  for +fuel: Nat
-  for tape: Laws.Tape()
-  for +step: TC.TraceStep
-  for ended: {TC.TraceDraw.is_finished(step) == True{} : Bool}
-  {TC.TraceDraw.ended(TC.TraceDraw.run(fuel, (tape, step))) == True{} : Bool}
+# A source error ends a trace ID draw at once, whatever the draw (law
+# trace_id_failure): the `fails` that DriveProof.drive_ends takes.
+law trace_fails:
+  for draw: TC.TraceDraw
+  for code: U32
+  for message: String
+  {TC.TraceStep.waiting(TC.TraceDraw.next(Fail{(code, message)}, draw)) == None{} : Maybe<&2, TC.TraceDraw>}
 
-# Refutes the waiting draws, for which `ended` says False == True.
-def trace_ended_stays(fuel, tape, step, ended):
-  match fuel step:
-    case 0n TC.DrawnTraceId{id}:
+# Splits the draw so that TraceDraw.next computes.
+def trace_fails(draw, code, message):
+  match draw:
+    case TC.TraceDraw{remaining, words, excluded}:
       {==}
-    case 0n TC.TraceFailed{error}:
-      {==}
-    case 0n TC.NeedTraceWord{remaining, words, excluded}:
-      Empty.absurd({TC.TraceDraw.ended(TC.TraceDraw.run(0n, (tape, TC.NeedTraceWord{remaining, words, excluded}))) ==
-        True{} : Bool}, BoolsProof.true_ne_false(Equal.sym(Bool, False{}, True{}, ended)))
-    case 1n+p TC.DrawnTraceId{id}:
-      {==}
-    case 1n+p TC.TraceFailed{error}:
-      {==}
-    case 1n+p TC.NeedTraceWord{remaining, words, excluded}:
-      Empty.absurd({TC.TraceDraw.ended(TC.TraceDraw.run(1n+p, (tape, TC.NeedTraceWord{remaining, words, excluded}))) ==
-        True{} : Bool}, BoolsProof.true_ne_false(Equal.sym(Bool, False{}, True{}, ended)))
 
 # Driving a trace ID draw with enough fuel ends it, whatever the tape holds:
-# when the draw ends within `fuel` words (TraceWithin), TraceDraw.run with
-# that fuel returns an ended draw. As run_ends of proofs/generation.bend:
-# induction on the fuel along the tape, and an error, the end of the tape
-# included, fails at once and stays ended.
+# when the step ends within `fuel` words (TraceEnds), TraceDraw.run with that
+# fuel returns an ended draw. DriveProof.drive_ends, for the trace ID draw.
 law trace_run_ends:
   for +fuel: Nat
   for +step: TC.TraceStep
   for tape: Laws.Tape()
-  for bound: TraceWithin(step, fuel)
+  for bound: TraceEnds(step, fuel)
   {TC.TraceDraw.ended(TC.TraceDraw.run(fuel, (tape, step))) == True{} : Bool}
 
 def trace_run_ends(fuel, step, tape, bound):
-  match fuel:
-    case 0n:
-      match step:
-        case TC.DrawnTraceId{id}:
-          {==}
-        case TC.TraceFailed{error}:
-          {==}
-        case TC.NeedTraceWord{remaining, words, excluded}:
-          Empty.absurd({TC.TraceDraw.ended(TC.TraceDraw.run(0n,
-            (tape, TC.NeedTraceWord{remaining, words, excluded}))) == True{} : Bool}, bound)
-    case 1n+p:
-      match step:
-        case TC.DrawnTraceId{id}:
-          {==}
-        case TC.TraceFailed{error}:
-          {==}
-        case TC.NeedTraceWord{+remaining, +words, +excluded}:
-          match tape:
-            case Nil{}:
-              trace_ended_stays(p, Nil{}, TC.TraceFailed{TC.SourceFailure{1, "tape-exhausted"}}, {==})
-            case Con{Fail{(code, message)}, rest}:
-              trace_ended_stays(p, rest, TC.TraceFailed{TC.SourceFailure{code, message}}, {==})
-            case Con{Done{+word}, rest}:
-              trace_run_ends(p, TC.TraceDraw.feed(Done{word}, remaining, words, excluded), rest, bound(word))
-
-# Driving a failed trace ID draw changes nothing, whatever the fuel.
-# trace_run_inv uses it for the rest of a drive after a source error.
-law trace_run_failed:
-  for fuel: Nat
-  for tape: Laws.Tape()
-  for error: TC.GenerationError
-  {TC.TraceDraw.run(fuel, (tape, TC.TraceFailed{error})) == (tape, TC.TraceFailed{error}) : Laws.TapeTraceStep()}
-
-# Splits on the fuel only because TraceDraw.run does not compute on an unknown
-# one.
-def trace_run_failed(fuel, tape, error):
-  match fuel:
-    case 0n:
-      {==}
-    case 1n+p:
-      {==}
+  DriveProof.drive_ends(~TC.TraceStep, ~TC.TraceDraw, ~TC.TraceStep.waiting, ~TC.TraceDraw.next, ~trace_fails, fuel,
+    step, TC.TraceStep.waiting(step), {==}, bound, tape)
 
 # Trace ID draws: drawn trace IDs
 # ===============================
 
 # The view "this trace ID candidate asserts random-trace-id": Unit for None{}
 # (a zero candidate, which is retried) and, for Some{id}, the equation that
-# id is random. trace_check_inv takes it as a hypothesis about the candidate
-# it checks.
+# id is random. trace_check_holds takes it as a hypothesis about the
+# candidate it checks.
 def RandomCandidate(candidate: Maybe<&2, TC.TraceId>) -> Type:
   match candidate:
     case None{}:
@@ -311,7 +247,7 @@ def RandomCandidate(candidate: Maybe<&2, TC.TraceId>) -> Type:
 
 # Every trace ID candidate that generation checks asserts random-trace-id:
 # Draw.asserted, which TraceDraw.take applies to each complete candidate,
-# sets the assertion on every present one. trace_feed_inv uses it when the
+# sets the assertion on every present one. trace_kept uses it when the
 # fourth word completes a candidate.
 law asserted_random:
   for candidate: Maybe<&2, TC.TraceId>
@@ -327,207 +263,215 @@ def asserted_random(candidate):
         case TC.TraceId{value, random}:
           {==}
 
-# The invariant of a trace ID draw that must avoid `excluded`, a view of each
-# step: a draw that needs a word keeps `excluded` as the trace ID to avoid, a
-# drawn trace ID has the two conclusions of law generated_trace_id (it asserts
-# random-trace-id and avoids `excluded`), and a failure needs nothing (Unit).
-def TraceInv(+excluded: Maybe<&2, TC.TraceId>, step: TC.TraceStep) -> Type:
+# What law generated_trace_id concludes of a trace ID draw that must avoid
+# `avoided`, once it has ended: a drawn trace ID asserts random-trace-id and
+# avoids `avoided`, and a failure needs nothing (Unit), as a waiting draw.
+def TraceFinal(avoided: Maybe<&2, TC.TraceId>, step: TC.TraceStep) -> Type:
   match step:
-    case TC.NeedTraceWord{remaining, words, kept}:
-      {kept == excluded : Maybe<&2, TC.TraceId>}
+    case TC.NeedTraceWord{draw}:
+      Unit
     case TC.DrawnTraceId{id}:
-      {TC.TraceId.is_random(id) == True{} : Bool} & Laws.TraceAvoids(excluded, id)
+      {TC.TraceId.is_random(id) == True{} : Bool} & Laws.TraceAvoids(avoided, id)
     case TC.TraceFailed{error}:
       Unit
 
-# When a draw keeps `excluded` (`valid`), retrying its candidate keeps the
-# invariant: the fresh candidate keeps it too, and an exhausted draw has
-# failed.
-law trace_retry_inv:
-  for -excluded: Maybe<&2, TC.TraceId>
-  for remaining: Nat
-  for -kept: Maybe<&2, TC.TraceId>
-  for valid: {kept == excluded : Maybe<&2, TC.TraceId>}
-  TraceInv(excluded, TC.TraceDraw.retry(remaining, kept))
+# What a waiting trace ID draw that must avoid `avoided` keeps: `avoided` as
+# the trace ID that it excludes.
+def TracePending(avoided: Maybe<&2, TC.TraceId>, draw: TC.TraceDraw) -> Type:
+  match draw:
+    case TC.TraceDraw{remaining, words, excluded}:
+      {excluded == avoided : Maybe<&2, TC.TraceId>}
 
-def trace_retry_inv(excluded, remaining, kept, valid):
+# The invariant of a trace ID draw that must avoid `avoided`, a view of each
+# step: DriveProof.Holds with TraceFinal and TracePending.
+def TraceHolds(+avoided: Maybe<&2, TC.TraceId>, +step: TC.TraceStep) -> Type:
+  DriveProof.Holds(~TC.TraceStep, ~TC.TraceDraw, ~Maybe<&2, TC.TraceId>, ~TraceFinal, ~TracePending, avoided, step,
+    TC.TraceStep.waiting(step))
+
+# When a draw excludes `avoided` (`valid`), retrying its candidate keeps the
+# invariant: the fresh candidate excludes it too, and an exhausted draw has
+# failed.
+law trace_retry_holds:
+  for -avoided: Maybe<&2, TC.TraceId>
+  for remaining: Nat
+  for -excluded: Maybe<&2, TC.TraceId>
+  for valid: {excluded == avoided : Maybe<&2, TC.TraceId>}
+  TraceHolds(avoided, TC.TraceDraw.retry(remaining, excluded))
+
+def trace_retry_holds(avoided, remaining, excluded, valid):
   match remaining:
     case 0n:
       Unit{}
     case 1n+p:
-      valid
+      (Unit{}, valid)
 
-# When a draw keeps the excluded trace ID `old` (`valid`) and the candidate
-# `id` asserts random-trace-id (`random`), deciding the candidate keeps the
-# invariant. `reused` is the result of TraceId.is_eq(id, old), passed with the
-# equation `evidence` because `match` inspects only variables: a reused
-# candidate is retried, and a drawn one differs from `old` by
-# StringsProof.distinct.
-law trace_reuse_inv:
-  for -excluded: Maybe<&2, TC.TraceId>
+# When a draw excludes the trace ID `old`, which is `avoided` (`valid`), and
+# the candidate `id` asserts random-trace-id (`random`), deciding the
+# candidate keeps the invariant. `reused` is the result of
+# TraceId.is_eq(id, old), passed with the equation `evidence` because `match`
+# inspects only variables: a reused candidate is retried, and a drawn one
+# differs from `old` by StringsProof.distinct.
+law trace_reuse_holds:
+  for -avoided: Maybe<&2, TC.TraceId>
   for reused: Bool
   for +id: TC.TraceId
   for +old: TC.TraceId
   for remaining: Nat
   for evidence: {TC.TraceId.is_eq(id, old) == reused : Bool}
-  for valid: {Some{old} == excluded : Maybe<&2, TC.TraceId>}
+  for valid: {Some{old} == avoided : Maybe<&2, TC.TraceId>}
   for random: {TC.TraceId.is_random(id) == True{} : Bool}
-  TraceInv(excluded, TC.TraceDraw.reuse(reused, id, old, remaining))
+  TraceHolds(avoided, TC.TraceDraw.reuse(reused, id, old, remaining))
 
-def trace_reuse_inv(excluded, reused, id, old, remaining, evidence, valid, random):
+def trace_reuse_holds(avoided, reused, id, old, remaining, evidence, valid, random):
   match reused:
     case True{}:
-      trace_retry_inv(excluded, remaining, Some{old}, valid)
+      trace_retry_holds(avoided, remaining, Some{old}, valid)
     case False{}:
       %valid : {TC.TraceId.is_random(id) == True{} : Bool} & Laws.TraceAvoids(_, id)
       (random, StringsProof.distinct(TC.TraceId.to_string(id), TC.TraceId.to_string(old), evidence))
 
-# When a draw keeps `excluded` (`valid`) and its complete candidate asserts
+# When a draw excludes `avoided` (`valid`) and its complete candidate asserts
 # random-trace-id (`random`), checking the candidate keeps the invariant. A
 # draw with nothing to exclude draws any nonzero candidate, which avoids
-# nothing; otherwise trace_reuse_inv decides the candidate.
-law trace_check_inv:
-  for -excluded: Maybe<&2, TC.TraceId>
+# nothing; otherwise trace_reuse_holds decides the candidate.
+law trace_check_holds:
+  for -avoided: Maybe<&2, TC.TraceId>
   for candidate: Maybe<&2, TC.TraceId>
-  for +kept: Maybe<&2, TC.TraceId>
+  for +excluded: Maybe<&2, TC.TraceId>
   for remaining: Nat
-  for valid: {kept == excluded : Maybe<&2, TC.TraceId>}
+  for valid: {excluded == avoided : Maybe<&2, TC.TraceId>}
   for random: RandomCandidate(candidate)
-  TraceInv(excluded, TC.TraceDraw.check(candidate, kept, remaining))
+  TraceHolds(avoided, TC.TraceDraw.check(candidate, excluded, remaining))
 
-def trace_check_inv(excluded, candidate, kept, remaining, valid, random):
+def trace_check_holds(avoided, candidate, excluded, remaining, valid, random):
   match candidate:
     case None{}:
-      trace_retry_inv(excluded, remaining, kept, valid)
+      trace_retry_holds(avoided, remaining, excluded, valid)
     case Some{+id}:
-      match kept:
+      match excluded:
         case None{}:
           %valid : {TC.TraceId.is_random(id) == True{} : Bool} & Laws.TraceAvoids(_, id)
           (random, Unit{})
         case Some{+old}:
-          trace_reuse_inv(excluded, TC.TraceId.is_eq(id, old), id, old, remaining, {==}, valid, random)
+          trace_reuse_holds(avoided, TC.TraceId.is_eq(id, old), id, old, remaining, {==}, valid, random)
 
-# When a draw that needs a word keeps `excluded` (`valid`), the invariant
-# holds after feeding it any word: a word that only extends a candidate
-# changes nothing the invariant speaks of, and the fourth goes through
-# trace_check_inv, its candidate random by asserted_random.
-law trace_feed_inv:
-  for -excluded: Maybe<&2, TC.TraceId>
+# When a waiting draw excludes `avoided` (`valid`), the invariant holds after
+# it takes any word: a word that only extends a candidate changes nothing
+# the invariant speaks of, and the fourth goes through trace_check_holds, its
+# candidate random by asserted_random.
+law trace_take_holds:
+  for -avoided: Maybe<&2, TC.TraceId>
   for +word: U32
   for remaining: Nat
   for words: TC.TraceWords
-  for +kept: Maybe<&2, TC.TraceId>
-  for valid: {kept == excluded : Maybe<&2, TC.TraceId>}
-  TraceInv(excluded, TC.TraceDraw.feed(Done{word}, remaining, words, kept))
+  for +excluded: Maybe<&2, TC.TraceId>
+  for valid: {excluded == avoided : Maybe<&2, TC.TraceId>}
+  TraceHolds(avoided, TC.TraceDraw.take(word, remaining, words, excluded))
 
-def trace_feed_inv(excluded, word, remaining, words, kept, valid):
+def trace_take_holds(avoided, word, remaining, words, excluded, valid):
   match words:
     case TC.NoTraceWord{}:
-      valid
+      (Unit{}, valid)
     case TC.OneTraceWord{first}:
-      valid
+      (Unit{}, valid)
     case TC.TwoTraceWords{first, second}:
-      valid
+      (Unit{}, valid)
     case TC.ThreeTraceWords{+first, +second, +third}:
-      trace_check_inv(excluded, TC.Draw.asserted(TC.TraceId.from_words(first, second, third, word)), kept, remaining,
-        valid, asserted_random(TC.TraceId.from_words(first, second, third, word)))
+      trace_check_holds(avoided, TC.Draw.asserted(TC.TraceId.from_words(first, second, third, word)), excluded,
+        remaining, valid, asserted_random(TC.TraceId.from_words(first, second, third, word)))
 
-# The view of TraceDraw.run's result: TraceInv of its final step, the unread
-# tape ignored. Laws.generated_trace_id rewrites its hypothesis
-# {TraceDraw.run(...) == (rest, DrawnTraceId{id})} through TraceRunView, which
-# turns the law's conclusion into TraceRunView of the drive, proved by
-# trace_run_inv.
-def TraceRunView(+excluded: Maybe<&2, TC.TraceId>, result: Laws.TapeTraceStep()) -> Type:
-  match result:
-    case Tuple{tape, step}:
-      TraceInv(excluded, step)
+# When a waiting draw excludes `avoided` (`valid`), the invariant holds after
+# feeding it any word result: a source error fails the draw, which needs
+# nothing, and a word is taken (trace_take_holds). The `kept` that
+# DriveProof.drive_keeps takes.
+law trace_kept:
+  for +avoided: Maybe<&2, TC.TraceId>
+  for draw: TC.TraceDraw
+  for valid: TracePending(avoided, draw)
+  for word: Result<&1, &1, U32 & String, U32>
+  TraceHolds(avoided, TC.TraceDraw.next(word, draw))
 
-# When TraceInv holds of a step, it holds of the step that TraceDraw.run
-# returns from it, for every fuel and every tape. Laws.generated_trace_id
-# applies it to TraceDraw.start(excluded), whose invariant holds by
-# computation ({==}). Induction on the fuel; after an error,
-# trace_run_failed rewrites the rest of the drive.
-law trace_run_inv:
-  for -excluded: Maybe<&2, TC.TraceId>
+def trace_kept(avoided, draw, valid, word):
+  match draw:
+    case TC.TraceDraw{remaining, words, excluded}:
+      match word:
+        case Fail{(code, message)}:
+          Unit{}
+        case Done{next}:
+          trace_take_holds(avoided, next, remaining, words, excluded, valid)
+
+# The view of TraceDraw.run's result: TraceFinal of its final step, the
+# unread tape ignored (DriveProof.Ends). Laws.generated_trace_id rewrites its
+# hypothesis {TraceDraw.run(...) == (rest, DrawnTraceId{id})} through
+# TraceRunView, which turns the law's conclusion into TraceRunView of the
+# drive, proved by trace_run_holds.
+def TraceRunView(avoided: Maybe<&2, TC.TraceId>, result: Laws.TapeTraceStep()) -> Type:
+  DriveProof.Ends(~TC.TraceStep, ~Maybe<&2, TC.TraceId>, ~TraceFinal, avoided, result)
+
+# When a step keeps the invariant, the step that TraceDraw.run returns from
+# it has TraceFinal, for every fuel and every tape: DriveProof.drive_keeps
+# with trace_kept. Laws.generated_trace_id applies it to
+# TraceDraw.start(excluded), whose invariant holds by computation.
+law trace_run_holds:
+  for +avoided: Maybe<&2, TC.TraceId>
   for +fuel: Nat
   for +step: TC.TraceStep
   for tape: Laws.Tape()
-  for valid: TraceInv(excluded, step)
-  TraceRunView(excluded, TC.TraceDraw.run(fuel, (tape, step)))
+  for valid: TraceHolds(avoided, step)
+  TraceRunView(avoided, TC.TraceDraw.run(fuel, (tape, step)))
 
-def trace_run_inv(excluded, fuel, step, tape, valid):
-  match fuel:
-    case 0n:
-      match step:
-        case TC.NeedTraceWord{remaining, words, kept}:
-          valid
-        case TC.DrawnTraceId{id}:
-          valid
-        case TC.TraceFailed{error}:
-          valid
-    case 1n+p:
-      match step:
-        case TC.DrawnTraceId{id}:
-          valid
-        case TC.TraceFailed{error}:
-          valid
-        case TC.NeedTraceWord{remaining, words, +kept}:
-          match tape:
-            case Nil{}:
-              %Equal.sym(Laws.TapeTraceStep(), TC.TraceDraw.run(p, (Nil{}, TC.TraceFailed{TC.SourceFailure{1,
-                "tape-exhausted"}})), (Nil{}, TC.TraceFailed{TC.SourceFailure{1, "tape-exhausted"}}),
-                trace_run_failed(p, Nil{}, TC.SourceFailure{1, "tape-exhausted"})) : TraceRunView(excluded, _)
-              Unit{}
-            case Con{Fail{(code, message)}, rest}:
-              %Equal.sym(Laws.TapeTraceStep(), TC.TraceDraw.run(p, (rest, TC.TraceFailed{TC.SourceFailure{code,
-                message}})), (rest, TC.TraceFailed{TC.SourceFailure{code, message}}),
-                trace_run_failed(p, rest, TC.SourceFailure{code, message})) : TraceRunView(excluded, _)
-              Unit{}
-            case Con{Done{+word}, rest}:
-              trace_run_inv(excluded, p, TC.TraceDraw.feed(Done{word}, remaining, words, kept), rest,
-                trace_feed_inv(excluded, word, remaining, words, kept, valid))
+def trace_run_holds(avoided, fuel, step, tape, valid):
+  DriveProof.drive_keeps(~TC.TraceStep, ~TC.TraceDraw, ~TC.TraceStep.waiting, ~TC.TraceDraw.next,
+    ~Maybe<&2, TC.TraceId>, ~TraceFinal, ~TracePending, ~trace_kept, avoided, fuel, step, TC.TraceStep.waiting(step),
+    tape, valid)
 
 # Trace ID draws: the IO operation over a tape
 # ============================================
 
-# Over a tape, the IO driver of a trace ID draw computes what its pure driver
-# computes: running TraceDraw.read over Source.tape, followed by a
-# continuation that emits a function `f` of the outcome, gives what any `g`
-# that agrees with `f` on every outcome (`same`) emits for the outcome of
-# TraceDraw.run, the same words read in the same order. The proof is that of
-# read_tape_outcome in proofs/generation.bend, for the trace ID draw's steps.
+# Over a tape, the IO driver of a trace ID draw from `step`, as
+# TraceId.generate_with runs it, computes what its pure driver TraceDraw.run
+# computes: DriveProof.drive_read, with `f` and `g` read through the draw's
+# outcome.
 law read_trace_tape:
   for -A: Type
   for -f: Laws.TapeTraceId() -> A
   for -g: Laws.TapeTraceId() -> A
   for same: @outcome: Laws.TapeTraceId() -> {f(outcome) == g(outcome) : A}
   for +fuel: Nat
-  for current: Laws.TapeTraceStep()
-  {TC.TraceDraw.read(~Laws.Tape(), ~TC.Source.tape, fuel, current)(A,
-    step => Emit{f(TC.TraceDraw.outcome(Laws.Tape(), step))}) ==
-    Emit{g(TC.TraceDraw.outcome(Laws.Tape(), TC.TraceDraw.run(fuel, current)))} : IO.OP<A>}
+  for tape: Laws.Tape()
+  for +step: TC.TraceStep
+  {TC.Drive.read(~TC.TraceStep, ~TC.TraceDraw, ~TC.TraceStep.waiting, ~TC.TraceDraw.next, ~Laws.Tape(),
+    ~TC.Source.tape, fuel, (tape, (step, TC.TraceStep.waiting(step))))(A,
+      done => Emit{f(TC.TraceDraw.outcome(Laws.Tape(), done))}) ==
+    Emit{g(TC.TraceDraw.outcome(Laws.Tape(), TC.TraceDraw.run(fuel, (tape, step))))} : IO.OP<A>}
 
-# Splits on the fuel for every step: the drivers compute only once it is
-# known. An ended draw or an empty fuel emits at once, and a word is fed
-# otherwise.
-def read_trace_tape(A, f, g, same, fuel, current):
-  match fuel current:
-    case 0n Tuple{tape, TC.DrawnTraceId{id}}:
-      Equal.cong(A, IO.OP<A>, value => Emit{value}, f((tape, Done{id})), g((tape, Done{id})), same((tape, Done{id})))
-    case 0n Tuple{tape, TC.TraceFailed{error}}:
-      Equal.cong(A, IO.OP<A>, value => Emit{value}, f((tape, Fail{error})), g((tape, Fail{error})),
-        same((tape, Fail{error})))
-    case 0n Tuple{tape, TC.NeedTraceWord{remaining, words, excluded}}:
-      Equal.cong(A, IO.OP<A>, value => Emit{value}, f((tape, Fail{TC.ExhaustedTraceId{}})),
-        g((tape, Fail{TC.ExhaustedTraceId{}})), same((tape, Fail{TC.ExhaustedTraceId{}})))
-    case 1n+p Tuple{tape, TC.DrawnTraceId{id}}:
-      Equal.cong(A, IO.OP<A>, value => Emit{value}, f((tape, Done{id})), g((tape, Done{id})), same((tape, Done{id})))
-    case 1n+p Tuple{tape, TC.TraceFailed{error}}:
-      Equal.cong(A, IO.OP<A>, value => Emit{value}, f((tape, Fail{error})), g((tape, Fail{error})),
-        same((tape, Fail{error})))
-    case 1n+p Tuple{tape, TC.NeedTraceWord{remaining, words, excluded}}:
-      read_trace_tape(A, f, g, same, p, TC.TraceDraw.fed_by(Laws.Tape(), TC.Tape.next(tape), remaining, words,
-        excluded))
+def read_trace_tape(A, f, g, same, fuel, tape, step):
+  DriveProof.drive_read(~TC.TraceStep, ~TC.TraceDraw, ~TC.TraceStep.waiting, ~TC.TraceDraw.next, A,
+    done => f(TC.TraceDraw.outcome(Laws.Tape(), done)), done => g(TC.TraceDraw.outcome(Laws.Tape(), done)),
+    done => same(TC.TraceDraw.outcome(Laws.Tape(), done)), fuel, (tape, (step, TC.TraceStep.waiting(step))))
+
+# Two continuations `f` and `g` of a trace ID draw's outcome make its IO
+# driver over Source.tape, from `step`, give the same whenever they agree on
+# every outcome (`same`): DriveProof.drive_same, read through the outcome.
+law read_trace_same:
+  for -A: Type
+  for -f: Laws.TapeTraceId() -> IO.OP<A>
+  for -g: Laws.TapeTraceId() -> IO.OP<A>
+  for same: @outcome: Laws.TapeTraceId() -> {f(outcome) == g(outcome) : IO.OP<A>}
+  for +fuel: Nat
+  for tape: Laws.Tape()
+  for +step: TC.TraceStep
+  {TC.Drive.read(~TC.TraceStep, ~TC.TraceDraw, ~TC.TraceStep.waiting, ~TC.TraceDraw.next, ~Laws.Tape(),
+    ~TC.Source.tape, fuel, (tape, (step, TC.TraceStep.waiting(step))))(A,
+      done => f(TC.TraceDraw.outcome(Laws.Tape(), done))) ==
+    TC.Drive.read(~TC.TraceStep, ~TC.TraceDraw, ~TC.TraceStep.waiting, ~TC.TraceDraw.next, ~Laws.Tape(),
+      ~TC.Source.tape, fuel, (tape, (step, TC.TraceStep.waiting(step))))(A,
+        done => g(TC.TraceDraw.outcome(Laws.Tape(), done))) : IO.OP<A>}
+
+def read_trace_same(A, f, g, same, fuel, tape, step):
+  DriveProof.drive_same(~TC.TraceStep, ~TC.TraceDraw, ~TC.TraceStep.waiting, ~TC.TraceDraw.next, A,
+    done => f(TC.TraceDraw.outcome(Laws.Tape(), done)), done => g(TC.TraceDraw.outcome(Laws.Tape(), done)),
+    done => same(TC.TraceDraw.outcome(Laws.Tape(), done)), fuel, (tape, (step, TC.TraceStep.waiting(step))))
 
 # Span ID draws: word bounds
 # ==========================
@@ -535,20 +479,15 @@ def read_trace_tape(A, f, g, same, fuel, current):
 # The lemmas of the trace ID draws, for span ID draws: two words per
 # candidate.
 
-# The claim "this span ID draw ends within n more words, whatever they are",
-# as TraceWithin states it of a trace ID draw.
-def SpanWithin(step: TC.SpanStep, n: Nat) -> Type:
-  match step:
-    case TC.DrawnSpanId{id}:
-      Unit
-    case TC.SpanFailed{error}:
-      Unit
-    case TC.NeedSpanWord{remaining, words, excluded}:
-      match n:
-        case 0n:
-          Empty
-        case 1n+p:
-          @word: U32 -> SpanWithin(TC.SpanDraw.feed(Done{word}, remaining, words, excluded), p)
+# The claim "a span ID draw whose step has the view `view` ends within n
+# more words, whatever they are", as TraceWithin states it of a trace ID
+# draw.
+def SpanWithin(view: Maybe<&2, TC.SpanDraw>, n: Nat) -> Type:
+  DriveProof.Within(~TC.SpanStep, ~TC.SpanDraw, ~TC.SpanStep.waiting, ~TC.SpanDraw.next, view, n)
+
+# The same claim of a step: SpanWithin of its view.
+def SpanEnds(step: TC.SpanStep, n: Nat) -> Type:
+  SpanWithin(TC.SpanStep.waiting(step), n)
 
 # The words a span ID draw may still read when it starts a candidate with
 # `remaining` further candidates allowed: two for each of the 1 + remaining
@@ -575,14 +514,14 @@ def SpanRetry(+remaining: Nat, excluded: Maybe<&2, TC.SpanId>) -> Type:
     case 0n:
       Unit
     case 1n+p:
-      SpanWithin(TC.NeedSpanWord{p, TC.NoSpanWord{}, excluded}, span_budget(p))
+      SpanWithin(Some{TC.SpanDraw{p, TC.NoSpanWord{}, excluded}}, span_budget(p))
 
 # As trace_retry_within.
 law span_retry_within:
   for +remaining: Nat
   for +excluded: Maybe<&2, TC.SpanId>
   for retry: SpanRetry(remaining, excluded)
-  SpanWithin(TC.SpanDraw.retry(remaining, excluded), span_after(remaining))
+  SpanEnds(TC.SpanDraw.retry(remaining, excluded), span_after(remaining))
 
 def span_retry_within(remaining, excluded, retry):
   match remaining:
@@ -598,7 +537,7 @@ law span_reuse_within:
   for +old: TC.SpanId
   for +remaining: Nat
   for retry: SpanRetry(remaining, Some{old})
-  SpanWithin(TC.SpanDraw.reuse(reused, id, old, remaining), span_after(remaining))
+  SpanEnds(TC.SpanDraw.reuse(reused, id, old, remaining), span_after(remaining))
 
 def span_reuse_within(reused, id, old, remaining, retry):
   match reused:
@@ -613,7 +552,7 @@ law span_check_within:
   for +excluded: Maybe<&2, TC.SpanId>
   for +remaining: Nat
   for retry: SpanRetry(remaining, excluded)
-  SpanWithin(TC.SpanDraw.check(candidate, excluded, remaining), span_after(remaining))
+  SpanEnds(TC.SpanDraw.check(candidate, excluded, remaining), span_after(remaining))
 
 def span_check_within(candidate, excluded, remaining, retry):
   match candidate:
@@ -634,7 +573,7 @@ law span_second_within:
   for +excluded: Maybe<&2, TC.SpanId>
   for retry: SpanRetry(remaining, excluded)
   for +first: U32
-  SpanWithin(TC.NeedSpanWord{remaining, TC.OneSpanWord{first}, excluded}, 1n+span_after(remaining))
+  SpanWithin(Some{TC.SpanDraw{remaining, TC.OneSpanWord{first}, excluded}}, 1n+span_after(remaining))
 
 def span_second_within(remaining, excluded, retry, first):
   +second => span_check_within(TC.SpanId.from_words(first, second), excluded, remaining, retry)
@@ -646,7 +585,7 @@ def span_second_within(remaining, excluded, retry, first):
 law span_start_within:
   for +remaining: Nat
   for +excluded: Maybe<&2, TC.SpanId>
-  SpanWithin(TC.NeedSpanWord{remaining, TC.NoSpanWord{}, excluded}, span_budget(remaining))
+  SpanWithin(Some{TC.SpanDraw{remaining, TC.NoSpanWord{}, excluded}}, span_budget(remaining))
 
 def span_start_within(remaining, excluded):
   match remaining:
@@ -655,212 +594,163 @@ def span_start_within(remaining, excluded):
     case 1n+p:
       +first => span_second_within(1n+p, excluded, span_start_within(p, excluded), first)
 
-# As trace_ended_stays, for span ID draws.
-law span_ended_stays:
-  for +fuel: Nat
-  for tape: Laws.Tape()
-  for +step: TC.SpanStep
-  for ended: {TC.SpanDraw.is_finished(step) == True{} : Bool}
-  {TC.SpanDraw.ended(TC.SpanDraw.run(fuel, (tape, step))) == True{} : Bool}
+# As trace_fails, for span ID draws (law span_id_failure).
+law span_fails:
+  for draw: TC.SpanDraw
+  for code: U32
+  for message: String
+  {TC.SpanStep.waiting(TC.SpanDraw.next(Fail{(code, message)}, draw)) == None{} : Maybe<&2, TC.SpanDraw>}
 
-def span_ended_stays(fuel, tape, step, ended):
-  match fuel step:
-    case 0n TC.DrawnSpanId{id}:
+def span_fails(draw, code, message):
+  match draw:
+    case TC.SpanDraw{remaining, words, excluded}:
       {==}
-    case 0n TC.SpanFailed{error}:
-      {==}
-    case 0n TC.NeedSpanWord{remaining, words, excluded}:
-      Empty.absurd({TC.SpanDraw.ended(TC.SpanDraw.run(0n, (tape, TC.NeedSpanWord{remaining, words, excluded}))) ==
-        True{} : Bool}, BoolsProof.true_ne_false(Equal.sym(Bool, False{}, True{}, ended)))
-    case 1n+p TC.DrawnSpanId{id}:
-      {==}
-    case 1n+p TC.SpanFailed{error}:
-      {==}
-    case 1n+p TC.NeedSpanWord{remaining, words, excluded}:
-      Empty.absurd({TC.SpanDraw.ended(TC.SpanDraw.run(1n+p, (tape, TC.NeedSpanWord{remaining, words, excluded}))) ==
-        True{} : Bool}, BoolsProof.true_ne_false(Equal.sym(Bool, False{}, True{}, ended)))
 
 # As trace_run_ends, for span ID draws.
 law span_run_ends:
   for +fuel: Nat
   for +step: TC.SpanStep
   for tape: Laws.Tape()
-  for bound: SpanWithin(step, fuel)
+  for bound: SpanEnds(step, fuel)
   {TC.SpanDraw.ended(TC.SpanDraw.run(fuel, (tape, step))) == True{} : Bool}
 
 def span_run_ends(fuel, step, tape, bound):
-  match fuel:
-    case 0n:
-      match step:
-        case TC.DrawnSpanId{id}:
-          {==}
-        case TC.SpanFailed{error}:
-          {==}
-        case TC.NeedSpanWord{remaining, words, excluded}:
-          Empty.absurd({TC.SpanDraw.ended(TC.SpanDraw.run(0n, (tape, TC.NeedSpanWord{remaining, words, excluded}))) ==
-            True{} : Bool}, bound)
-    case 1n+p:
-      match step:
-        case TC.DrawnSpanId{id}:
-          {==}
-        case TC.SpanFailed{error}:
-          {==}
-        case TC.NeedSpanWord{+remaining, +words, +excluded}:
-          match tape:
-            case Nil{}:
-              span_ended_stays(p, Nil{}, TC.SpanFailed{TC.SourceFailure{1, "tape-exhausted"}}, {==})
-            case Con{Fail{(code, message)}, rest}:
-              span_ended_stays(p, rest, TC.SpanFailed{TC.SourceFailure{code, message}}, {==})
-            case Con{Done{+word}, rest}:
-              span_run_ends(p, TC.SpanDraw.feed(Done{word}, remaining, words, excluded), rest, bound(word))
-
-# As trace_run_failed, for span ID draws.
-law span_run_failed:
-  for fuel: Nat
-  for tape: Laws.Tape()
-  for error: TC.GenerationError
-  {TC.SpanDraw.run(fuel, (tape, TC.SpanFailed{error})) == (tape, TC.SpanFailed{error}) : Laws.TapeSpanStep()}
-
-def span_run_failed(fuel, tape, error):
-  match fuel:
-    case 0n:
-      {==}
-    case 1n+p:
-      {==}
+  DriveProof.drive_ends(~TC.SpanStep, ~TC.SpanDraw, ~TC.SpanStep.waiting, ~TC.SpanDraw.next, ~span_fails, fuel, step,
+    TC.SpanStep.waiting(step), {==}, bound, tape)
 
 # Span ID draws: drawn span IDs
 # =============================
 
-# The invariant of a span ID draw that must avoid `excluded`, as TraceInv
-# without the randomness assertion: a drawn span ID avoids `excluded`.
-def SpanInv(+excluded: Maybe<&2, TC.SpanId>, step: TC.SpanStep) -> Type:
+# What law generated_span_id concludes of a span ID draw that must avoid
+# `avoided`, once it has ended, as TraceFinal without the randomness
+# assertion: a drawn span ID avoids `avoided`.
+def SpanFinal(avoided: Maybe<&2, TC.SpanId>, step: TC.SpanStep) -> Type:
   match step:
-    case TC.NeedSpanWord{remaining, words, kept}:
-      {kept == excluded : Maybe<&2, TC.SpanId>}
+    case TC.NeedSpanWord{draw}:
+      Unit
     case TC.DrawnSpanId{id}:
-      Laws.SpanAvoids(excluded, id)
+      Laws.SpanAvoids(avoided, id)
     case TC.SpanFailed{error}:
       Unit
 
-# As trace_retry_inv.
-law span_retry_inv:
-  for -excluded: Maybe<&2, TC.SpanId>
-  for remaining: Nat
-  for -kept: Maybe<&2, TC.SpanId>
-  for valid: {kept == excluded : Maybe<&2, TC.SpanId>}
-  SpanInv(excluded, TC.SpanDraw.retry(remaining, kept))
+# What a waiting span ID draw that must avoid `avoided` keeps, as
+# TracePending.
+def SpanPending(avoided: Maybe<&2, TC.SpanId>, draw: TC.SpanDraw) -> Type:
+  match draw:
+    case TC.SpanDraw{remaining, words, excluded}:
+      {excluded == avoided : Maybe<&2, TC.SpanId>}
 
-def span_retry_inv(excluded, remaining, kept, valid):
+# The invariant of a span ID draw that must avoid `avoided`, as TraceHolds.
+def SpanHolds(+avoided: Maybe<&2, TC.SpanId>, +step: TC.SpanStep) -> Type:
+  DriveProof.Holds(~TC.SpanStep, ~TC.SpanDraw, ~Maybe<&2, TC.SpanId>, ~SpanFinal, ~SpanPending, avoided, step,
+    TC.SpanStep.waiting(step))
+
+# As trace_retry_holds.
+law span_retry_holds:
+  for -avoided: Maybe<&2, TC.SpanId>
+  for remaining: Nat
+  for -excluded: Maybe<&2, TC.SpanId>
+  for valid: {excluded == avoided : Maybe<&2, TC.SpanId>}
+  SpanHolds(avoided, TC.SpanDraw.retry(remaining, excluded))
+
+def span_retry_holds(avoided, remaining, excluded, valid):
   match remaining:
     case 0n:
       Unit{}
     case 1n+p:
-      valid
+      (Unit{}, valid)
 
-# As trace_reuse_inv: a drawn span ID differs from the excluded `old`.
-law span_reuse_inv:
-  for -excluded: Maybe<&2, TC.SpanId>
+# As trace_reuse_holds: a drawn span ID differs from the excluded `old`.
+law span_reuse_holds:
+  for -avoided: Maybe<&2, TC.SpanId>
   for reused: Bool
   for +id: TC.SpanId
   for +old: TC.SpanId
   for remaining: Nat
   for evidence: {TC.SpanId.is_eq(id, old) == reused : Bool}
-  for valid: {Some{old} == excluded : Maybe<&2, TC.SpanId>}
-  SpanInv(excluded, TC.SpanDraw.reuse(reused, id, old, remaining))
+  for valid: {Some{old} == avoided : Maybe<&2, TC.SpanId>}
+  SpanHolds(avoided, TC.SpanDraw.reuse(reused, id, old, remaining))
 
-def span_reuse_inv(excluded, reused, id, old, remaining, evidence, valid):
+def span_reuse_holds(avoided, reused, id, old, remaining, evidence, valid):
   match reused:
     case True{}:
-      span_retry_inv(excluded, remaining, Some{old}, valid)
+      span_retry_holds(avoided, remaining, Some{old}, valid)
     case False{}:
       %valid : Laws.SpanAvoids(_, id)
       StringsProof.distinct(TC.SpanId.to_string(id), TC.SpanId.to_string(old), evidence)
 
-# As trace_check_inv.
-law span_check_inv:
-  for -excluded: Maybe<&2, TC.SpanId>
+# As trace_check_holds.
+law span_check_holds:
+  for -avoided: Maybe<&2, TC.SpanId>
   for candidate: Maybe<&2, TC.SpanId>
-  for +kept: Maybe<&2, TC.SpanId>
+  for +excluded: Maybe<&2, TC.SpanId>
   for remaining: Nat
-  for valid: {kept == excluded : Maybe<&2, TC.SpanId>}
-  SpanInv(excluded, TC.SpanDraw.check(candidate, kept, remaining))
+  for valid: {excluded == avoided : Maybe<&2, TC.SpanId>}
+  SpanHolds(avoided, TC.SpanDraw.check(candidate, excluded, remaining))
 
-def span_check_inv(excluded, candidate, kept, remaining, valid):
+def span_check_holds(avoided, candidate, excluded, remaining, valid):
   match candidate:
     case None{}:
-      span_retry_inv(excluded, remaining, kept, valid)
+      span_retry_holds(avoided, remaining, excluded, valid)
     case Some{+id}:
-      match kept:
+      match excluded:
         case None{}:
           %valid : Laws.SpanAvoids(_, id)
           Unit{}
         case Some{+old}:
-          span_reuse_inv(excluded, TC.SpanId.is_eq(id, old), id, old, remaining, {==}, valid)
+          span_reuse_holds(avoided, TC.SpanId.is_eq(id, old), id, old, remaining, {==}, valid)
 
-# As trace_feed_inv: the second word of a candidate goes through
-# span_check_inv.
-law span_feed_inv:
-  for -excluded: Maybe<&2, TC.SpanId>
+# As trace_take_holds: the second word of a candidate goes through
+# span_check_holds.
+law span_take_holds:
+  for -avoided: Maybe<&2, TC.SpanId>
   for +word: U32
   for remaining: Nat
   for words: TC.SpanWords
-  for +kept: Maybe<&2, TC.SpanId>
-  for valid: {kept == excluded : Maybe<&2, TC.SpanId>}
-  SpanInv(excluded, TC.SpanDraw.feed(Done{word}, remaining, words, kept))
+  for +excluded: Maybe<&2, TC.SpanId>
+  for valid: {excluded == avoided : Maybe<&2, TC.SpanId>}
+  SpanHolds(avoided, TC.SpanDraw.take(word, remaining, words, excluded))
 
-def span_feed_inv(excluded, word, remaining, words, kept, valid):
+def span_take_holds(avoided, word, remaining, words, excluded, valid):
   match words:
     case TC.NoSpanWord{}:
-      valid
+      (Unit{}, valid)
     case TC.OneSpanWord{first}:
-      span_check_inv(excluded, TC.SpanId.from_words(first, word), kept, remaining, valid)
+      span_check_holds(avoided, TC.SpanId.from_words(first, word), excluded, remaining, valid)
+
+# As trace_kept, for span ID draws.
+law span_kept:
+  for +avoided: Maybe<&2, TC.SpanId>
+  for draw: TC.SpanDraw
+  for valid: SpanPending(avoided, draw)
+  for word: Result<&1, &1, U32 & String, U32>
+  SpanHolds(avoided, TC.SpanDraw.next(word, draw))
+
+def span_kept(avoided, draw, valid, word):
+  match draw:
+    case TC.SpanDraw{remaining, words, excluded}:
+      match word:
+        case Fail{(code, message)}:
+          Unit{}
+        case Done{next}:
+          span_take_holds(avoided, next, remaining, words, excluded, valid)
 
 # The view of SpanDraw.run's result, as TraceRunView.
-def SpanRunView(+excluded: Maybe<&2, TC.SpanId>, result: Laws.TapeSpanStep()) -> Type:
-  match result:
-    case Tuple{tape, step}:
-      SpanInv(excluded, step)
+def SpanRunView(avoided: Maybe<&2, TC.SpanId>, result: Laws.TapeSpanStep()) -> Type:
+  DriveProof.Ends(~TC.SpanStep, ~Maybe<&2, TC.SpanId>, ~SpanFinal, avoided, result)
 
-# As trace_run_inv, for span ID draws.
-law span_run_inv:
-  for -excluded: Maybe<&2, TC.SpanId>
+# As trace_run_holds, for span ID draws.
+law span_run_holds:
+  for +avoided: Maybe<&2, TC.SpanId>
   for +fuel: Nat
   for +step: TC.SpanStep
   for tape: Laws.Tape()
-  for valid: SpanInv(excluded, step)
-  SpanRunView(excluded, TC.SpanDraw.run(fuel, (tape, step)))
+  for valid: SpanHolds(avoided, step)
+  SpanRunView(avoided, TC.SpanDraw.run(fuel, (tape, step)))
 
-def span_run_inv(excluded, fuel, step, tape, valid):
-  match fuel:
-    case 0n:
-      match step:
-        case TC.NeedSpanWord{remaining, words, kept}:
-          valid
-        case TC.DrawnSpanId{id}:
-          valid
-        case TC.SpanFailed{error}:
-          valid
-    case 1n+p:
-      match step:
-        case TC.DrawnSpanId{id}:
-          valid
-        case TC.SpanFailed{error}:
-          valid
-        case TC.NeedSpanWord{remaining, words, +kept}:
-          match tape:
-            case Nil{}:
-              %Equal.sym(Laws.TapeSpanStep(), TC.SpanDraw.run(p, (Nil{}, TC.SpanFailed{TC.SourceFailure{1,
-                "tape-exhausted"}})), (Nil{}, TC.SpanFailed{TC.SourceFailure{1, "tape-exhausted"}}),
-                span_run_failed(p, Nil{}, TC.SourceFailure{1, "tape-exhausted"})) : SpanRunView(excluded, _)
-              Unit{}
-            case Con{Fail{(code, message)}, rest}:
-              %Equal.sym(Laws.TapeSpanStep(), TC.SpanDraw.run(p, (rest, TC.SpanFailed{TC.SourceFailure{code,
-                message}})), (rest, TC.SpanFailed{TC.SourceFailure{code, message}}),
-                span_run_failed(p, rest, TC.SourceFailure{code, message})) : SpanRunView(excluded, _)
-              Unit{}
-            case Con{Done{+word}, rest}:
-              span_run_inv(excluded, p, TC.SpanDraw.feed(Done{word}, remaining, words, kept), rest,
-                span_feed_inv(excluded, word, remaining, words, kept, valid))
+def span_run_holds(avoided, fuel, step, tape, valid):
+  DriveProof.drive_keeps(~TC.SpanStep, ~TC.SpanDraw, ~TC.SpanStep.waiting, ~TC.SpanDraw.next, ~Maybe<&2, TC.SpanId>,
+    ~SpanFinal, ~SpanPending, ~span_kept, avoided, fuel, step, TC.SpanStep.waiting(step), tape, valid)
 
 # Span ID draws: the IO operation over a tape
 # ===========================================
@@ -872,73 +762,16 @@ law read_span_tape:
   for -g: Laws.TapeSpanId() -> A
   for same: @outcome: Laws.TapeSpanId() -> {f(outcome) == g(outcome) : A}
   for +fuel: Nat
-  for current: Laws.TapeSpanStep()
-  {TC.SpanDraw.read(~Laws.Tape(), ~TC.Source.tape, fuel, current)(A,
-    step => Emit{f(TC.SpanDraw.outcome(Laws.Tape(), step))}) ==
-    Emit{g(TC.SpanDraw.outcome(Laws.Tape(), TC.SpanDraw.run(fuel, current)))} : IO.OP<A>}
+  for tape: Laws.Tape()
+  for +step: TC.SpanStep
+  {TC.Drive.read(~TC.SpanStep, ~TC.SpanDraw, ~TC.SpanStep.waiting, ~TC.SpanDraw.next, ~Laws.Tape(), ~TC.Source.tape,
+    fuel, (tape, (step, TC.SpanStep.waiting(step))))(A, done => Emit{f(TC.SpanDraw.outcome(Laws.Tape(), done))}) ==
+    Emit{g(TC.SpanDraw.outcome(Laws.Tape(), TC.SpanDraw.run(fuel, (tape, step))))} : IO.OP<A>}
 
-def read_span_tape(A, f, g, same, fuel, current):
-  match fuel current:
-    case 0n Tuple{tape, TC.DrawnSpanId{id}}:
-      Equal.cong(A, IO.OP<A>, value => Emit{value}, f((tape, Done{id})), g((tape, Done{id})), same((tape, Done{id})))
-    case 0n Tuple{tape, TC.SpanFailed{error}}:
-      Equal.cong(A, IO.OP<A>, value => Emit{value}, f((tape, Fail{error})), g((tape, Fail{error})),
-        same((tape, Fail{error})))
-    case 0n Tuple{tape, TC.NeedSpanWord{remaining, words, excluded}}:
-      Equal.cong(A, IO.OP<A>, value => Emit{value}, f((tape, Fail{TC.ExhaustedSpanId{}})),
-        g((tape, Fail{TC.ExhaustedSpanId{}})), same((tape, Fail{TC.ExhaustedSpanId{}})))
-    case 1n+p Tuple{tape, TC.DrawnSpanId{id}}:
-      Equal.cong(A, IO.OP<A>, value => Emit{value}, f((tape, Done{id})), g((tape, Done{id})), same((tape, Done{id})))
-    case 1n+p Tuple{tape, TC.SpanFailed{error}}:
-      Equal.cong(A, IO.OP<A>, value => Emit{value}, f((tape, Fail{error})), g((tape, Fail{error})),
-        same((tape, Fail{error})))
-    case 1n+p Tuple{tape, TC.NeedSpanWord{remaining, words, excluded}}:
-      read_span_tape(A, f, g, same, p, TC.SpanDraw.fed_by(Laws.Tape(), TC.Tape.next(tape), remaining, words,
-        excluded))
-
-# Compositions over a tape
-# ========================
-#
-# Laws root_composed, child_composed and restart_composed: over a tape, the
-# compositions that Context.root_with, child_with and restart_with run agree
-# with those that LAWS.bend states. The continuations of the package
-# (Draw.after_trace, Draw.span_context) and those of LAWS.bend (root_of,
-# context_of) are different definitions, which the checker compares only
-# once the outcome they receive is known. read_trace_same and read_span_same
-# carry an agreement on every outcome through the drivers, as read_tape_same
-# of proofs/generation.bend does for Draw.read, and after_trace_same and
-# span_context_same are those agreements.
-
-# Two continuations `f` and `g` of a trace ID draw's outcome make
-# TraceDraw.read over Source.tape give the same whenever they agree on every
-# outcome (`same`). Induction on the fuel, as read_trace_tape.
-law read_trace_same:
-  for -A: Type
-  for -f: Laws.TapeTraceId() -> IO.OP<A>
-  for -g: Laws.TapeTraceId() -> IO.OP<A>
-  for same: @outcome: Laws.TapeTraceId() -> {f(outcome) == g(outcome) : IO.OP<A>}
-  for +fuel: Nat
-  for current: Laws.TapeTraceStep()
-  {TC.TraceDraw.read(~Laws.Tape(), ~TC.Source.tape, fuel, current)(A,
-    step => f(TC.TraceDraw.outcome(Laws.Tape(), step))) ==
-    TC.TraceDraw.read(~Laws.Tape(), ~TC.Source.tape, fuel, current)(A,
-      step => g(TC.TraceDraw.outcome(Laws.Tape(), step))) : IO.OP<A>}
-
-def read_trace_same(A, f, g, same, fuel, current):
-  match fuel current:
-    case 0n Tuple{tape, TC.DrawnTraceId{id}}:
-      same((tape, Done{id}))
-    case 0n Tuple{tape, TC.TraceFailed{error}}:
-      same((tape, Fail{error}))
-    case 0n Tuple{tape, TC.NeedTraceWord{remaining, words, excluded}}:
-      same((tape, Fail{TC.ExhaustedTraceId{}}))
-    case 1n+p Tuple{tape, TC.DrawnTraceId{id}}:
-      same((tape, Done{id}))
-    case 1n+p Tuple{tape, TC.TraceFailed{error}}:
-      same((tape, Fail{error}))
-    case 1n+p Tuple{tape, TC.NeedTraceWord{remaining, words, excluded}}:
-      read_trace_same(A, f, g, same, p, TC.TraceDraw.fed_by(Laws.Tape(), TC.Tape.next(tape), remaining, words,
-        excluded))
+def read_span_tape(A, f, g, same, fuel, tape, step):
+  DriveProof.drive_read(~TC.SpanStep, ~TC.SpanDraw, ~TC.SpanStep.waiting, ~TC.SpanDraw.next, A,
+    done => f(TC.SpanDraw.outcome(Laws.Tape(), done)), done => g(TC.SpanDraw.outcome(Laws.Tape(), done)),
+    done => same(TC.SpanDraw.outcome(Laws.Tape(), done)), fuel, (tape, (step, TC.SpanStep.waiting(step))))
 
 # As read_trace_same, for a span ID draw's continuations.
 law read_span_same:
@@ -947,27 +780,30 @@ law read_span_same:
   for -g: Laws.TapeSpanId() -> IO.OP<A>
   for same: @outcome: Laws.TapeSpanId() -> {f(outcome) == g(outcome) : IO.OP<A>}
   for +fuel: Nat
-  for current: Laws.TapeSpanStep()
-  {TC.SpanDraw.read(~Laws.Tape(), ~TC.Source.tape, fuel, current)(A,
-    step => f(TC.SpanDraw.outcome(Laws.Tape(), step))) ==
-    TC.SpanDraw.read(~Laws.Tape(), ~TC.Source.tape, fuel, current)(A,
-      step => g(TC.SpanDraw.outcome(Laws.Tape(), step))) : IO.OP<A>}
+  for tape: Laws.Tape()
+  for +step: TC.SpanStep
+  {TC.Drive.read(~TC.SpanStep, ~TC.SpanDraw, ~TC.SpanStep.waiting, ~TC.SpanDraw.next, ~Laws.Tape(), ~TC.Source.tape,
+    fuel, (tape, (step, TC.SpanStep.waiting(step))))(A, done => f(TC.SpanDraw.outcome(Laws.Tape(), done))) ==
+    TC.Drive.read(~TC.SpanStep, ~TC.SpanDraw, ~TC.SpanStep.waiting, ~TC.SpanDraw.next, ~Laws.Tape(), ~TC.Source.tape,
+      fuel, (tape, (step, TC.SpanStep.waiting(step))))(A, done => g(TC.SpanDraw.outcome(Laws.Tape(), done))) :
+    IO.OP<A>}
 
-def read_span_same(A, f, g, same, fuel, current):
-  match fuel current:
-    case 0n Tuple{tape, TC.DrawnSpanId{id}}:
-      same((tape, Done{id}))
-    case 0n Tuple{tape, TC.SpanFailed{error}}:
-      same((tape, Fail{error}))
-    case 0n Tuple{tape, TC.NeedSpanWord{remaining, words, excluded}}:
-      same((tape, Fail{TC.ExhaustedSpanId{}}))
-    case 1n+p Tuple{tape, TC.DrawnSpanId{id}}:
-      same((tape, Done{id}))
-    case 1n+p Tuple{tape, TC.SpanFailed{error}}:
-      same((tape, Fail{error}))
-    case 1n+p Tuple{tape, TC.NeedSpanWord{remaining, words, excluded}}:
-      read_span_same(A, f, g, same, p, TC.SpanDraw.fed_by(Laws.Tape(), TC.Tape.next(tape), remaining, words,
-        excluded))
+def read_span_same(A, f, g, same, fuel, tape, step):
+  DriveProof.drive_same(~TC.SpanStep, ~TC.SpanDraw, ~TC.SpanStep.waiting, ~TC.SpanDraw.next, A,
+    done => f(TC.SpanDraw.outcome(Laws.Tape(), done)), done => g(TC.SpanDraw.outcome(Laws.Tape(), done)),
+    done => same(TC.SpanDraw.outcome(Laws.Tape(), done)), fuel, (tape, (step, TC.SpanStep.waiting(step))))
+
+# Compositions over a tape
+# ========================
+#
+# Laws root_composed, child_composed and restart_composed: over a tape, the
+# compositions that Context.root_with, child_with and restart_with run agree
+# with those that LAWS.bend states. The continuations of the package
+# (Draw.root_span_with, Draw.span_context) and those of LAWS.bend (root_of,
+# context_of) are different definitions, which the checker compares only
+# once the outcome they receive is known. read_trace_same and read_span_same
+# carry an agreement on every outcome through the drivers, and
+# root_span_same and span_context_same are those agreements.
 
 # The package's context of a span ID outcome, Draw.span_context, is
 # LAWS.bend's context_of, once the outcome is split.
@@ -986,19 +822,20 @@ def span_context_same(trace_id, sampled, outcome):
       {==}
 
 # What the package runs after a root's or a restart's trace ID,
-# Draw.after_trace, emits what LAWS.bend's root_of emits, for every outcome of
-# the trace ID: a failure at once, and otherwise the same span ID draw, whose
-# continuations agree by span_context_same.
-law after_trace_same:
+# Draw.root_span_with, emits what LAWS.bend's root_of emits, for every
+# outcome of the trace ID: a failure at once, and otherwise the same span ID
+# draw, that of the root's span plan, whose continuations agree by
+# span_context_same.
+law root_span_same:
   for outcome: Laws.TapeTraceId()
-  {TC.Draw.after_trace(~Laws.Tape(), ~TC.Source.tape, outcome)(Laws.TapeOutcome(), value => Emit{value}) ==
+  {TC.Draw.root_span_with(~Laws.Tape(), ~TC.Source.tape, outcome)(Laws.TapeOutcome(), value => Emit{value}) ==
     Laws.root_of(outcome)(Laws.TapeOutcome(), value => Emit{value}) : IO.OP<Laws.TapeOutcome()>}
 
-def after_trace_same(outcome):
+def root_span_same(outcome):
   match outcome:
     case Tuple{rest, Fail{error}}:
       {==}
     case Tuple{rest, Done{trace_id}}:
       read_span_same(Laws.TapeOutcome(), done => Emit{TC.Draw.span_context(Laws.Tape(), trace_id, False{}, done)},
         done => Emit{Laws.context_of(trace_id, False{}, done)}, done => span_context_same(trace_id, False{}, done),
-        16n, (rest, TC.SpanDraw.start(None{})))
+        16n, rest, TC.SpanDraw.start(None{}))

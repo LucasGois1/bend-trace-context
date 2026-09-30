@@ -4,195 +4,141 @@
 # What generation does when its words come from a tape: the list of word
 # results that a replayed source returns. The generation machine of
 # trace_context.bend (Draw.feed, which feeds each word to the trace ID draw
-# or the span ID draw that the generation runs, through Draw.traced and
-# Draw.spanned) is driven purely by Draw.run, which reads the tape with
-# Tape.next, and as an IO action by Draw.read over Source.tape, as
-# Generation.run_with and the operations of section 14 do. Context.root_with,
-# child_with and restart_with compose the separate generation instead (laws
-# root_composed, child_composed and restart_composed), and
-# proofs/separate.bend proves what each draw does alone. PROOF.bend proves
-# these laws of LAWS.bend with this module: root_tape, child_tape and
-# restart_tape (the lemmas of the same names, through trace_phase and
-# span_phase); root_ends, child_ends and restart_ends (run_ends with
-# root_within, child_within and restart_within); generated_root,
-# generated_child and generated_restart (root_run, child_run and
-# restart_run, through the views RootRun, ChildRun and RestartRun).
-# feed_failure, root_exhaustion and child_exhaustion need no lemma:
-# PROOF.bend proves them by computation.
+# or the span ID draw that the generation runs, through Step.of_trace and
+# Step.of_span) is driven purely by Draw.run and as an IO action by
+# Draw.read over Source.tape, both through Drive, as Generation.run_with and
+# the operations of section 14 do. Context.root_with, child_with and
+# restart_with compose the separate generation instead (laws root_composed,
+# child_composed and restart_composed), and proofs/separate.bend proves what
+# each draw does alone. PROOF.bend proves these laws of LAWS.bend with this
+# module: root_tape, child_tape and restart_tape (the lemmas of the same
+# names, through trace_phase and span_phase); root_ends, child_ends and
+# restart_ends (run_ends with root_within, child_within and restart_within);
+# generated_root and generated_restart (new_trace_run, through the view
+# NewTraceRun) and generated_child (child_run, through ChildRun). feed_failure,
+# root_exhaustion and child_exhaustion need no lemma: PROOF.bend proves them
+# by computation.
 #
-# The strategy, in reading order:
+# The inductions over the drive are those of proofs/drive.bend, proved once
+# for every machine; this module gives what is particular to generation:
 #
-# - Termination. Within(step, n) says that a step ends within n more words,
-#   whatever they are. A span ID draw that ends within n words
-#   (SeparateProof.SpanWithin) gives a generation that ends within n words
-#   (span_lift_within), and a trace ID draw that ends within n words
-#   (SeparateProof.TraceWithin) one that ends within 16 more, those of the
-#   span ID draw that follows it (trace_lift_within). These give the bounds
-#   of a root, a restart and a child, and run_ends turns a bound equal to the
-#   fuel into Draw.ended for every tape.
-# - Created contexts. RootInv, ChildInv and RestartInv are invariants of the
-#   machine's state, and the Created case of each is the conclusion of
-#   generated_root, generated_child or generated_restart. Each holds of the
-#   first step, and every word keeps it (root_feed, child_feed,
-#   restart_feed): the word keeps the invariant of the draw that the
-#   generation runs (SeparateProof.TraceInv or SpanInv), and a lifting lemma
-#   (root_traced, root_spanned, child_spanned, restart_traced,
-#   restart_spanned) gives the generation's. So does a whole drive (root_run,
-#   child_run, restart_run, by induction on the fuel).
-# - IO. read_tape_outcome shows, by induction on the fuel, that Draw.read
-#   over Source.tape computes Draw.run, whatever function of the outcome the
-#   continuation emits; proofs/continue.bend applies it to the continuations
-#   of the operations of section 14, and read_tape_same, which relates two
-#   continuations that agree on every outcome, serves proofs/http.bend.
+# - Termination. StepWithin(view, n) is DriveProof.Within for a generation.
+#   A span ID draw that ends within n words gives a generation that ends
+#   within n words (span_lift_within), and a trace ID draw that ends within
+#   n words one that ends within 16 more, those of the span ID draw that
+#   follows it (trace_lift_within). These give the bounds of a root, a
+#   restart and a child, and run_ends turns a bound equal to the fuel into
+#   Draw.ended for every tape (DriveProof.drive_ends), with step_fails.
+# - Created contexts. A root and a restart draw a new trace: a trace ID that
+#   avoids `avoided`, none for a root and the received trace ID for a
+#   restart, then the span ID of the root's span plan. NewTraceFinal holds of
+#   the contexts they create the conclusions of generated_root and
+#   generated_restart, and NewTracePending of each waiting draw what it keeps.
+#   A child draws the span ID of its span plan, and ChildFinal and
+#   ChildPending say the same of it with generated_child. A word keeps the
+#   invariant of the draw that the generation runs (SeparateProof.trace_kept
+#   or span_kept), and a lifting lemma gives the generation's
+#   (trace_lift_holds, span_lift_new, span_lift_child); so does a whole drive
+#   (new_trace_run, child_run, by DriveProof.drive_keeps).
+# - IO. read_tape_outcome shows that Draw.read over Source.tape computes
+#   Draw.run, whatever function of the outcome the continuation emits, and
+#   read_tape_same relates two continuations that agree on every outcome
+#   (DriveProof.drive_read and drive_same); proofs/continue.bend and
+#   proofs/http.bend use them. generation_drive and read_tape_host relate
+#   Draw.run and Draw.read to the loop of a host that feeds a Generation
+#   itself.
 # - Compositions. span_phase shows, by induction on the fuel, that a span ID
-#   draw that SpanDraw.read runs over a tape, followed by the context of its
-#   span ID, emits what Draw.run gives for the generation that Draw.spanned
-#   makes of the draw, even with fuel to spare; trace_phase shows the same for
-#   a trace ID draw followed by Draw.after_trace. root_tape, child_tape and
-#   restart_tape apply them to the first steps.
+#   draw that Drive.read runs over a tape, followed by the context of its
+#   span ID, emits what Draw.run gives for the generation that Step.of_span
+#   makes of the draw, even with fuel to spare; trace_phase shows the same
+#   for a trace ID draw followed by Draw.root_span_with. root_tape,
+#   child_tape and restart_tape apply them to the first steps.
 #
-# The statements use Tape, TapeStep, TapeOutcome and Observe of LAWS.bend,
-# so each statement here is the statement of the law it proves.
+# The statements use Tape, TapeStep, TapeOutcome, Observe and host of
+# LAWS.bend, so each statement here is the statement of the law it proves.
 
 import Base
 import ../trace_context.bend as TC
-import ./bools.bend as BoolsProof
+import ./drive.bend as DriveProof
 import ./separate.bend as SeparateProof
 import ../LAWS.bend as Laws
 
 # Word bounds
 # ===========
 #
-# Within(step, n) states that a generation ends within n more words. The
+# StepWithin(view, n) states that a generation ends within n more words. The
 # bounds of the draws, proved in proofs/separate.bend, give it for the first
 # step of every generation.
 
-# The claim "this step ends within n more words, whatever they are", as a
-# type. Unit for a step that has ended (Created or Failed); Empty for a step
-# that needs a word when n is 0; otherwise, for every word, the bound n - 1
-# of the step that feeding the word gives (`@word: U32 -> ...` is a function
-# type, so such a proof is a function of the word). Only successful words
-# count: a failed word ends the generation at once (law feed_failure), so
-# the bound holds for every source.
-def Within(step: TC.Step, n: Nat) -> Type:
-  match step:
-    case TC.Created{context}:
-      Unit
-    case TC.Failed{error}:
-      Unit
-    case TC.NeedWord{draw}:
-      match n:
-        case 0n:
-          Empty
-        case 1n+p:
-          @word: U32 -> Within(TC.Draw.feed(Done{word}, draw), p)
+# The claim "a generation whose step has the view `view` ends within n more
+# words, whatever they are": DriveProof.Within for the generation.
+def StepWithin(view: Maybe<&2, TC.Draw>, n: Nat) -> Type:
+  DriveProof.Within(~TC.Step, ~TC.Draw, ~TC.Step.waiting, ~TC.Draw.feed, view, n)
 
-# A bound can be loosened by any number of words: a step that ends within m
-# words ends within m + n. Induction on m. trace_lift_within uses it for a
-# trace ID drawn before its draw's bound was reached.
-law within_plus:
-  for +m: Nat
-  for n: Nat
-  for +step: TC.Step
-  for bound: Within(step, m)
-  Within(step, Nat.add(m, n))
+# The same claim of a step: StepWithin of its view.
+def StepEnds(step: TC.Step, n: Nat) -> Type:
+  StepWithin(TC.Step.waiting(step), n)
 
-def within_plus(m, n, step, bound):
-  match m:
-    case 0n:
-      match step:
-        case TC.Created{context}:
-          Unit{}
-        case TC.Failed{error}:
-          Unit{}
-        case TC.NeedWord{draw}:
-          Empty.absurd(Within(TC.NeedWord{draw}, n), bound)
-    case 1n+p:
-      match step:
-        case TC.Created{context}:
-          Unit{}
-        case TC.Failed{error}:
-          Unit{}
-        case TC.NeedWord{+draw}:
-          +word => within_plus(p, n, TC.Draw.feed(Done{word}, draw), bound(word))
-
-# A span ID draw's bound carries over to the generation that Draw.spanned
-# makes of it, for every trace ID and sampled indication: feeding a word to
-# the generation feeds it to the draw. Induction on n. child_within and
-# trace_lift_within use it.
+# A span ID draw's bound carries over to the generation that Step.of_span
+# makes of its step, for every trace ID and sampled indication: feeding a
+# word to the generation feeds it to the draw. Induction on n. child_within
+# and trace_lift_within use it.
 law span_lift_within:
   for +n: Nat
   for +step: TC.SpanStep
   for +trace_id: TC.TraceId
   for +sampled: Bool
-  for bound: SeparateProof.SpanWithin(step, n)
-  Within(TC.Draw.spanned(step, trace_id, sampled), n)
+  for bound: SeparateProof.SpanEnds(step, n)
+  StepEnds(TC.Step.of_span(step, trace_id, sampled), n)
 
 def span_lift_within(n, step, trace_id, sampled, bound):
-  match n:
-    case 0n:
-      match step:
-        case TC.DrawnSpanId{id}:
-          Unit{}
-        case TC.SpanFailed{error}:
-          Unit{}
-        case TC.NeedSpanWord{remaining, words, excluded}:
-          Empty.absurd(Within(TC.Draw.spanned(TC.NeedSpanWord{remaining, words, excluded}, trace_id, sampled), 0n),
-            bound)
-    case 1n+p:
-      match step:
-        case TC.DrawnSpanId{id}:
-          Unit{}
-        case TC.SpanFailed{error}:
-          Unit{}
-        case TC.NeedSpanWord{+remaining, +words, +excluded}:
-          +word => span_lift_within(p, TC.SpanDraw.feed(Done{word}, remaining, words, excluded), trace_id, sampled,
-            bound(word))
+  match n step:
+    case _ TC.DrawnSpanId{id}:
+      Unit{}
+    case _ TC.SpanFailed{error}:
+      Unit{}
+    case 0n TC.NeedSpanWord{draw}:
+      Empty.absurd(StepEnds(TC.Step.of_span(TC.NeedSpanWord{draw}, trace_id, sampled), 0n), bound)
+    case 1n+p TC.NeedSpanWord{+draw}:
+      +word => span_lift_within(p, TC.SpanDraw.next(Done{word}, draw), trace_id, sampled, bound(word))
 
-# A trace ID draw's bound carries over to the generation that Draw.traced
-# makes of it, with 16 more words for the span ID that follows: a drawn trace
-# ID starts the span ID draw that SeparateProof.span_start_within bounds by
-# 16 words, loosened by the words that the trace ID draw had left
-# (within_plus). Induction on n. root_within and restart_within use it.
+# A trace ID draw's bound carries over to the generation that Step.of_trace
+# makes of its step, with 16 more words for the span ID that follows: a
+# drawn trace ID starts the span ID draw of the root's span plan, which
+# SeparateProof.span_start_within bounds by 16 words, loosened by the words
+# that the trace ID draw had left (DriveProof.within_plus). Induction on n.
+# root_within and restart_within use it.
 law trace_lift_within:
   for +n: Nat
   for +step: TC.TraceStep
-  for bound: SeparateProof.TraceWithin(step, n)
-  Within(TC.Draw.traced(step), Nat.add(16n, n))
+  for bound: SeparateProof.TraceEnds(step, n)
+  StepEnds(TC.Step.of_trace(step), Nat.add(16n, n))
 
 def trace_lift_within(n, step, bound):
-  match n:
-    case 0n:
-      match step:
-        case TC.DrawnTraceId{+id}:
-          span_lift_within(16n, TC.SpanDraw.start(None{}), id, False{}, SeparateProof.span_start_within(7n, None{}))
-        case TC.TraceFailed{error}:
-          Unit{}
-        case TC.NeedTraceWord{remaining, words, excluded}:
-          Empty.absurd(Within(TC.Draw.traced(TC.NeedTraceWord{remaining, words, excluded}), 16n), bound)
-    case 1n+p:
-      match step:
-        case TC.DrawnTraceId{+id}:
-          within_plus(16n, 1n+p, TC.Draw.accept_trace(id),
-            span_lift_within(16n, TC.SpanDraw.start(None{}), id, False{}, SeparateProof.span_start_within(7n, None{})))
-        case TC.TraceFailed{error}:
-          Unit{}
-        case TC.NeedTraceWord{+remaining, +words, +excluded}:
-          +word => trace_lift_within(p, TC.TraceDraw.feed(Done{word}, remaining, words, excluded), bound(word))
+  match n step:
+    case _ TC.DrawnTraceId{+id}:
+      DriveProof.within_plus(~TC.Step, ~TC.Draw, ~TC.Step.waiting, ~TC.Draw.feed, 16n, n,
+        TC.Step.waiting(TC.SpanPlan.draw(TC.SpanPlan.root(id))),
+        span_lift_within(16n, TC.SpanDraw.start(None{}), id, False{}, SeparateProof.span_start_within(7n, None{})))
+    case _ TC.TraceFailed{error}:
+      Unit{}
+    case 0n TC.NeedTraceWord{draw}:
+      Empty.absurd(StepEnds(TC.Step.of_trace(TC.NeedTraceWord{draw}), 16n), bound)
+    case 1n+p TC.NeedTraceWord{+draw}:
+      +word => trace_lift_within(p, TC.TraceDraw.next(Done{word}, draw), bound(word))
 
 # Every generation ends
 # =====================
 #
 # The bounds of the first step of a root, a restart and a child, and
 # run_ends, which turns such a bound into the end of Draw.run (laws
-# root_ends, restart_ends and child_ends). ended_stays and run_failed show
-# that Draw.run keeps an ended step ended and a failed one unchanged.
+# root_ends, restart_ends and child_ends).
 
 # A root generation ends within 48 words, whatever they are: its trace ID
 # draw within 32 and its span ID draw within 16 more. The bound that
 # Laws.root_ends passes to run_ends.
 law root_within:
-  Within(TC.Draw.root(), 48n)
+  StepEnds(TC.Draw.root(), 48n)
 
 def root_within():
   trace_lift_within(32n, TC.TraceDraw.start(None{}), SeparateProof.trace_start_within(7n, None{}))
@@ -201,552 +147,350 @@ def root_within():
 # that Laws.restart_ends passes to run_ends.
 law restart_within:
   for +previous: TC.RemoteContext
-  Within(TC.Draw.restart(previous), 48n)
+  StepEnds(TC.Draw.restart(previous), 48n)
 
 def restart_within(previous):
-  trace_lift_within(32n, TC.TraceDraw.start(Some{TC.RemoteContext.trace_id(previous)}),
-    SeparateProof.trace_start_within(7n, Some{TC.RemoteContext.trace_id(previous)}))
+  trace_lift_within(32n, TC.TraceDraw.start(TC.Draw.restart_excluded(previous)),
+    SeparateProof.trace_start_within(7n, TC.Draw.restart_excluded(previous)))
 
-# A child generation ends within 16 words, whatever they are, those of its
-# span ID draw: the bound that Laws.child_ends passes to run_ends.
+# A child generation ends within 16 words, whatever they are, those of the
+# span ID draw of its span plan: the bound that Laws.child_ends passes to
+# run_ends.
 law child_within:
   for +parent: TC.Parent
   for sampling: TC.Sampling
-  Within(TC.Draw.child(parent, sampling), 16n)
+  StepEnds(TC.Draw.child(parent, sampling), 16n)
 
 def child_within(parent, sampling):
   span_lift_within(16n, TC.SpanDraw.start(Some{TC.Parent.span_id(parent)}), TC.Parent.trace_id(parent),
     TC.Sampling.resolve(sampling, TC.Parent.is_sampled(parent)),
     SeparateProof.span_start_within(7n, Some{TC.Parent.span_id(parent)}))
 
-# When a step has ended, driving it further keeps it ended: Draw.run returns
-# a Created or Failed step as it is, whatever the fuel and the tape. run_ends
-# uses it after a source error, the end of the tape included.
-law ended_stays:
-  for +fuel: Nat
-  for tape: Laws.Tape()
-  for +step: TC.Step
-  for ended: {TC.Step.is_finished(step) == True{} : Bool}
-  {TC.Draw.ended(TC.Draw.run(fuel, (tape, step))) == True{} : Bool}
+# A source error ends a generation at once, whatever it draws (law
+# feed_failure): the `fails` that DriveProof.drive_ends takes.
+law step_fails:
+  for draw: TC.Draw
+  for code: U32
+  for message: String
+  {TC.Step.waiting(TC.Draw.feed(Fail{(code, message)}, draw)) == None{} : Maybe<&2, TC.Draw>}
 
-# Refutes the waiting steps, for which `ended` says False == True.
-def ended_stays(fuel, tape, step, ended):
-  match fuel step:
-    case 0n TC.Created{context}:
-      {==}
-    case 0n TC.Failed{error}:
-      {==}
-    case 0n TC.NeedWord{draw}:
-      Empty.absurd({TC.Draw.ended(TC.Draw.run(0n, (tape, TC.NeedWord{draw}))) == True{} : Bool},
-        BoolsProof.true_ne_false(Equal.sym(Bool, False{}, True{}, ended)))
-    case 1n+p TC.Created{context}:
-      {==}
-    case 1n+p TC.Failed{error}:
-      {==}
-    case 1n+p TC.NeedWord{draw}:
-      Empty.absurd({TC.Draw.ended(TC.Draw.run(1n+p, (tape, TC.NeedWord{draw}))) == True{} : Bool},
-        BoolsProof.true_ne_false(Equal.sym(Bool, False{}, True{}, ended)))
+# Splits the draw that the generation runs, so that its feed computes.
+def step_fails(draw, code, message):
+  match draw:
+    case TC.DrawTrace{trace}:
+      match trace:
+        case TC.TraceDraw{remaining, words, excluded}:
+          {==}
+    case TC.DrawSpan{span, trace_id, sampled}:
+      match span:
+        case TC.SpanDraw{remaining, words, excluded}:
+          {==}
 
 # Driving a generation with enough fuel ends it, whatever the tape holds:
-# when the step ends within `fuel` words (Within), Draw.run with that fuel
-# returns an ended step. Laws.root_ends, child_ends and restart_ends apply it
-# with root_within, child_within and restart_within. Induction on the fuel
-# along the tape: a word uses the bound at that word, and an error, the end
-# of the tape included, fails at once and stays ended (ended_stays).
+# when the step ends within `fuel` words (StepEnds), Draw.run with that fuel
+# returns an ended step. Laws.root_ends, child_ends and restart_ends apply
+# it with root_within, child_within and restart_within.
+# DriveProof.drive_ends, for the generation.
 law run_ends:
   for +fuel: Nat
   for +step: TC.Step
   for tape: Laws.Tape()
-  for bound: Within(step, fuel)
+  for bound: StepEnds(step, fuel)
   {TC.Draw.ended(TC.Draw.run(fuel, (tape, step))) == True{} : Bool}
 
 def run_ends(fuel, step, tape, bound):
-  match fuel:
-    case 0n:
-      match step:
-        case TC.Created{context}:
-          {==}
-        case TC.Failed{error}:
-          {==}
-        case TC.NeedWord{draw}:
-          Empty.absurd({TC.Draw.ended(TC.Draw.run(0n, (tape, TC.NeedWord{draw}))) == True{} : Bool}, bound)
-    case 1n+p:
-      match step:
-        case TC.Created{context}:
-          {==}
-        case TC.Failed{error}:
-          {==}
-        case TC.NeedWord{+draw}:
-          match tape:
-            case Nil{}:
-              ended_stays(p, Nil{}, TC.Failed{TC.SourceFailure{1, "tape-exhausted"}}, {==})
-            case Con{Fail{(code, message)}, rest}:
-              ended_stays(p, rest, TC.Failed{TC.SourceFailure{code, message}}, {==})
-            case Con{Done{+word}, rest}:
-              run_ends(p, TC.Draw.feed(Done{word}, draw), rest, bound(word))
+  DriveProof.drive_ends(~TC.Step, ~TC.Draw, ~TC.Step.waiting, ~TC.Draw.feed, ~step_fails, fuel, step,
+    TC.Step.waiting(step), {==}, bound, tape)
 
-# Driving a failed generation changes nothing: Draw.run returns the tape and
-# the failure as they are, whatever the fuel. root_run, child_run and
-# restart_run use it for the rest of a drive after a source error.
-law run_failed:
-  for fuel: Nat
-  for tape: Laws.Tape()
-  for error: TC.GenerationError
-  {TC.Draw.run(fuel, (tape, TC.Failed{error})) == (tape, TC.Failed{error}) : Laws.TapeStep()}
-
-# Splits on the fuel only because Draw.run does not compute on an unknown one.
-def run_failed(fuel, tape, error):
-  match fuel:
-    case 0n:
-      {==}
-    case 1n+p:
-      {==}
-
-# Properties of created contexts
-# ==============================
+# Roots and restarts
+# ==================
 #
-# generated_root, generated_child and generated_restart hold because each
-# kind of generation keeps an invariant of its state (RootInv, ChildInv,
-# RestartInv below) whose Created case is the law's conclusion. A word keeps
-# the invariant of the draw that the generation runs (SeparateProof.TraceInv
-# and SpanInv), and a lifting lemma gives the generation's invariant from the
-# draw's.
+# A root and a restart draw a new trace: a trace ID that avoids `avoided`,
+# nothing for a root and the received trace ID for a restart, then the span
+# ID of the root's span plan, which excludes nothing and is not sampled.
 
-# Roots
-# =====
-#
-# A root's trace ID draw has no trace ID to exclude; its span ID draw keeps a
-# random trace ID, sampled False and no span ID to exclude.
+# What law generated_root, or generated_restart, concludes of a context of
+# the trace ID `trace_id` with the sampled indication `sampled`, created by
+# a new trace that avoids `avoided`: the trace ID asserts random-trace-id,
+# the context is not sampled, and, for a restart, the trace ID differs from
+# the received one.
+def NewTrace(avoided: Maybe<&2, TC.TraceId>, +trace_id: TC.TraceId, sampled: Bool) -> Type:
+  match avoided:
+    case None{}:
+      {TC.TraceId.is_random(trace_id) == True{} : Bool} & {sampled == False{} : Bool}
+    case Some{old}:
+      {TC.TraceId.to_string(trace_id) != TC.TraceId.to_string(old) : String} &
+      {TC.TraceId.is_random(trace_id) == True{} : Bool} & {sampled == False{} : Bool}
 
-# What a root's span ID draw keeps in its plan: a trace ID that asserts
-# random-trace-id, sampled False, and no span ID to exclude (parent None{}).
-def RootPlan(plan: TC.SpanPlan) -> Type:
-  match plan:
-    case TC.SpanPlan{trace_id, sampled, parent}:
-      {TC.TraceId.is_random(trace_id) == True{} : Bool} & {sampled == False{} : Bool} &
-      {parent == None{} : Maybe<&2, TC.SpanId>}
-
-# The invariant of a root's generation, a view of each step: a trace ID draw
-# has no received trace ID (previous None{}), a span ID draw keeps RootPlan,
-# a created context has the two conclusions of law generated_root (random
-# trace ID, not sampled), and a failure needs nothing (Unit).
-def RootInv(step: TC.Step) -> Type:
+# What the invariant of a new trace says of an ended step: NewTrace of a
+# created context, and nothing (Unit) of a failure, as of a waiting step.
+def NewTraceFinal(avoided: Maybe<&2, TC.TraceId>, step: TC.Step) -> Type:
   match step:
-    case TC.NeedWord{TC.DrawTrace{remaining, words, previous}}:
-      {previous == None{} : Maybe<&2, TC.TraceId>}
-    case TC.NeedWord{TC.DrawSpan{remaining, words, plan}}:
-      RootPlan(plan)
-    case TC.Created{context}:
-      {TC.TraceId.is_random(TC.LocalContext.trace_id(context)) == True{} : Bool} &
-      {TC.LocalContext.is_sampled(context) == False{} : Bool}
+    case TC.NeedWord{draw}:
+      Unit
+    case TC.Created{+context}:
+      NewTrace(avoided, TC.LocalContext.trace_id(context), TC.LocalContext.is_sampled(context))
     case TC.Failed{error}:
       Unit
 
-# The generation that a root's trace ID draw gives keeps the invariant when
-# the draw keeps SeparateProof.TraceInv with nothing to exclude: a draw that
-# needs a word excludes nothing, and a drawn trace ID, which is random,
-# starts the span ID draw with a RootPlan.
-law root_traced:
-  for step: TC.TraceStep
-  for valid: SeparateProof.TraceInv(None{}, step)
-  RootInv(TC.Draw.traced(step))
+# What a waiting draw of a new trace keeps: its trace ID draw excludes
+# `avoided` (SeparateProof.TracePending), and its span ID draw has a trace
+# ID and a sampled indication with NewTrace and excludes nothing.
+def NewTracePending(avoided: Maybe<&2, TC.TraceId>, draw: TC.Draw) -> Type:
+  match draw:
+    case TC.DrawTrace{trace}:
+      SeparateProof.TracePending(avoided, trace)
+    case TC.DrawSpan{span, trace_id, sampled}:
+      NewTrace(avoided, trace_id, sampled) & SeparateProof.SpanPending(None{}, span)
 
-def root_traced(step, valid):
+# The invariant of a new trace, a view of each step: DriveProof.Holds with
+# NewTraceFinal and NewTracePending.
+def NewTraceHolds(+avoided: Maybe<&2, TC.TraceId>, +step: TC.Step) -> Type:
+  DriveProof.Holds(~TC.Step, ~TC.Draw, ~Maybe<&2, TC.TraceId>, ~NewTraceFinal, ~NewTracePending, avoided, step,
+    TC.Step.waiting(step))
+
+# A drawn trace ID that asserts random-trace-id (`random`) and avoids
+# `avoided` (`avoids`, law generated_trace_id's conclusion) has NewTrace
+# with the root's sampled indication, False.
+law new_trace_drawn:
+  for avoided: Maybe<&2, TC.TraceId>
+  for -id: TC.TraceId
+  for random: {TC.TraceId.is_random(id) == True{} : Bool}
+  for avoids: Laws.TraceAvoids(avoided, id)
+  NewTrace(avoided, id, False{})
+
+def new_trace_drawn(avoided, id, random, avoids):
+  match avoided:
+    case None{}:
+      (random, {==})
+    case Some{old}:
+      (avoids, (random, {==}))
+
+# The generation that a new trace's trace ID draw gives, Step.of_trace, keeps
+# the invariant when the draw keeps SeparateProof.TraceHolds: a waiting draw
+# excludes `avoided`, and a drawn trace ID starts the span ID draw of the
+# root's span plan, whose trace ID has NewTrace by new_trace_drawn.
+law trace_lift_holds:
+  for avoided: Maybe<&2, TC.TraceId>
+  for step: TC.TraceStep
+  for valid: SeparateProof.TraceHolds(avoided, step)
+  NewTraceHolds(avoided, TC.Step.of_trace(step))
+
+def trace_lift_holds(avoided, step, valid):
   match step:
-    case TC.NeedTraceWord{remaining, words, kept}:
+    case TC.NeedTraceWord{draw}:
       valid
     case TC.DrawnTraceId{id}:
       (random, avoids) = valid
-      (random, ({==}, {==}))
+      (Unit{}, (new_trace_drawn(avoided, id, random, avoids), {==}))
     case TC.TraceFailed{error}:
       Unit{}
 
-# The generation that a root's span ID draw gives keeps the invariant when
-# its trace ID asserts random-trace-id (`random`), it is not sampled
-# (`unsampled`), and the draw keeps SeparateProof.SpanInv with nothing to
+# The generation that a new trace's span ID draw gives, Step.of_span, keeps
+# the invariant when its trace ID and sampled indication have NewTrace
+# (`plan`) and the draw keeps SeparateProof.SpanHolds with nothing to
 # exclude: a created context has that trace ID and sampled indication.
-law root_spanned:
+law span_lift_new:
+  for -avoided: Maybe<&2, TC.TraceId>
   for step: TC.SpanStep
   for -trace_id: TC.TraceId
   for -sampled: Bool
-  for random: {TC.TraceId.is_random(trace_id) == True{} : Bool}
-  for unsampled: {sampled == False{} : Bool}
-  for valid: SeparateProof.SpanInv(None{}, step)
-  RootInv(TC.Draw.spanned(step, trace_id, sampled))
+  for plan: NewTrace(avoided, trace_id, sampled)
+  for valid: SeparateProof.SpanHolds(None{}, step)
+  NewTraceHolds(avoided, TC.Step.of_span(step, trace_id, sampled))
 
-def root_spanned(step, trace_id, sampled, random, unsampled, valid):
+def span_lift_new(avoided, step, trace_id, sampled, plan, valid):
   match step:
-    case TC.NeedSpanWord{remaining, words, kept}:
-      (random, (unsampled, valid))
+    case TC.NeedSpanWord{draw}:
+      (final, pending) = valid
+      (Unit{}, (plan, pending))
     case TC.DrawnSpanId{id}:
-      (random, unsampled)
+      plan
     case TC.SpanFailed{error}:
       Unit{}
 
-# When RootInv holds of a step that needs a word, it holds after feeding any
-# word: the draw that the generation runs keeps its invariant
-# (SeparateProof.trace_feed_inv or span_feed_inv), which root_traced or
-# root_spanned lifts.
-law root_feed:
-  for +word: U32
+# When a waiting draw of a new trace keeps NewTracePending (`valid`), the
+# invariant holds after feeding it any word result: the draw that the
+# generation runs keeps its invariant (SeparateProof.trace_kept or
+# span_kept), which trace_lift_holds or span_lift_new lifts. The word is
+# split so that each side gets its own copy. The `kept` that
+# DriveProof.drive_keeps takes.
+law new_trace_kept:
+  for +avoided: Maybe<&2, TC.TraceId>
   for draw: TC.Draw
-  for valid: RootInv(TC.NeedWord{draw})
-  RootInv(TC.Draw.feed(Done{word}, draw))
+  for valid: NewTracePending(avoided, draw)
+  for word: Result<&1, &1, U32 & String, U32>
+  NewTraceHolds(avoided, TC.Draw.feed(word, draw))
 
-def root_feed(word, draw, valid):
+def new_trace_kept(avoided, draw, valid, word):
   match draw:
-    case TC.DrawTrace{+remaining, +words, +previous}:
-      root_traced(TC.TraceDraw.feed(Done{word}, remaining, words, previous),
-        SeparateProof.trace_feed_inv(None{}, word, remaining, words, previous, valid))
-    case TC.DrawSpan{+remaining, +words, TC.SpanPlan{+trace_id, +sampled, +parent}}:
-      (random, rest) = valid
-      (unsampled, none) = rest
-      root_spanned(TC.SpanDraw.feed(Done{word}, remaining, words, parent), trace_id, sampled, random, unsampled,
-        SeparateProof.span_feed_inv(None{}, word, remaining, words, parent, none))
+    case TC.DrawTrace{+trace}:
+      match word:
+        case Fail{(+code, +message)}:
+          trace_lift_holds(avoided, TC.TraceDraw.next(Fail{(code, message)}, trace),
+            SeparateProof.trace_kept(avoided, trace, valid, Fail{(code, message)}))
+        case Done{+next}:
+          trace_lift_holds(avoided, TC.TraceDraw.next(Done{next}, trace),
+            SeparateProof.trace_kept(avoided, trace, valid, Done{next}))
+    case TC.DrawSpan{+span, trace_id, sampled}:
+      (plan, pending) = valid
+      match word:
+        case Fail{(+code, +message)}:
+          span_lift_new(avoided, TC.SpanDraw.next(Fail{(code, message)}, span), trace_id, sampled, plan,
+            SeparateProof.span_kept(None{}, span, pending, Fail{(code, message)}))
+        case Done{+next}:
+          span_lift_new(avoided, TC.SpanDraw.next(Done{next}, span), trace_id, sampled, plan,
+            SeparateProof.span_kept(None{}, span, pending, Done{next}))
 
-# The view of Draw.run's result for a root: RootInv of its final step, the
-# unread tape ignored. Laws.generated_root rewrites its hypothesis
-# {Draw.run(...) == (rest, Created{created})} through RootRun(_), which turns
-# the law's conclusion into RootRun of the drive, proved by root_run.
-def RootRun(result: Laws.TapeStep()) -> Type:
-  match result:
-    case Tuple{tape, step}:
-      RootInv(step)
+# The view of Draw.run's result for a new trace: NewTraceFinal of its final
+# step, the unread tape ignored (DriveProof.Ends). Laws.generated_root and
+# generated_restart rewrite their hypothesis
+# {Draw.run(...) == (rest, Created{created})} through NewTraceRun, which
+# turns the law's conclusion into NewTraceRun of the drive, proved by
+# new_trace_run.
+def NewTraceRun(avoided: Maybe<&2, TC.TraceId>, result: Laws.TapeStep()) -> Type:
+  DriveProof.Ends(~TC.Step, ~Maybe<&2, TC.TraceId>, ~NewTraceFinal, avoided, result)
 
-# When RootInv holds of a step, it holds of the step that Draw.run returns
-# from it, for every fuel and every tape. Laws.generated_root applies it to
-# Draw.root(), whose invariant holds by computation ({==}).
-law root_run:
+# When a step keeps the invariant of a new trace, the step that Draw.run
+# returns from it has NewTraceFinal, for every fuel and every tape:
+# DriveProof.drive_keeps with new_trace_kept. Laws.generated_root applies it
+# to Draw.root(), and Laws.generated_restart to Draw.restart(previous), whose
+# invariants hold by computation.
+law new_trace_run:
+  for +avoided: Maybe<&2, TC.TraceId>
   for +fuel: Nat
   for +step: TC.Step
   for tape: Laws.Tape()
-  for valid: RootInv(step)
-  RootRun(TC.Draw.run(fuel, (tape, step)))
+  for valid: NewTraceHolds(avoided, step)
+  NewTraceRun(avoided, TC.Draw.run(fuel, (tape, step)))
 
-# Induction on the fuel; after an error, run_failed rewrites the drive's rest.
-def root_run(fuel, step, tape, valid):
-  match fuel:
-    case 0n:
-      match step:
-        case TC.NeedWord{draw}:
-          valid
-        case TC.Created{context}:
-          valid
-        case TC.Failed{error}:
-          valid
-    case 1n+p:
-      match step:
-        case TC.Created{context}:
-          valid
-        case TC.Failed{error}:
-          valid
-        case TC.NeedWord{+draw}:
-          match tape:
-            case Nil{}:
-              %Equal.sym(Laws.TapeStep(), TC.Draw.run(p, (Nil{}, TC.Failed{TC.SourceFailure{1, "tape-exhausted"}})),
-                (Nil{}, TC.Failed{TC.SourceFailure{1, "tape-exhausted"}}),
-                run_failed(p, Nil{}, TC.SourceFailure{1, "tape-exhausted"})) : RootRun(_)
-              Unit{}
-            case Con{Fail{(code, message)}, rest}:
-              %Equal.sym(Laws.TapeStep(), TC.Draw.run(p, (rest, TC.Failed{TC.SourceFailure{code, message}})),
-                (rest, TC.Failed{TC.SourceFailure{code, message}}),
-                run_failed(p, rest, TC.SourceFailure{code, message})) : RootRun(_)
-              Unit{}
-            case Con{Done{+word}, rest}:
-              root_run(p, TC.Draw.feed(Done{word}, draw), rest, root_feed(word, draw, valid))
+def new_trace_run(avoided, fuel, step, tape, valid):
+  DriveProof.drive_keeps(~TC.Step, ~TC.Draw, ~TC.Step.waiting, ~TC.Draw.feed, ~Maybe<&2, TC.TraceId>,
+    ~NewTraceFinal, ~NewTracePending, ~new_trace_kept, avoided, fuel, step, TC.Step.waiting(step), tape, valid)
 
 # Children
 # ========
 #
-# A child draws only its span ID. Every state keeps the parent's trace ID,
-# the resolved sampled indication and the parent's span ID as the one to
-# exclude.
+# A child draws only the span ID of its span plan (SpanPlan.child). Every
+# state keeps the plan's trace ID, its sampled indication and its span ID to
+# exclude, the parent's.
 
-# What a child's span ID draw keeps in its plan, as Draw.child builds it: the
-# parent's trace ID, the sampled indication Sampling.resolve gives, and the
-# parent's span ID as the one to exclude.
-def ChildPlan(+parent: TC.Parent, sampling: TC.Sampling, plan: TC.SpanPlan) -> Type:
+# What law generated_child concludes of a context created for the span plan
+# `plan`: the plan's trace ID and sampled indication, and a span ID that
+# avoids the one that the plan excludes. A failure needs nothing (Unit), as
+# a waiting step.
+def ChildFinal(plan: TC.SpanPlan, step: TC.Step) -> Type:
   match plan:
-    case TC.SpanPlan{trace_id, sampled, excluded}:
-      {trace_id == TC.Parent.trace_id(parent) : TC.TraceId} &
-      {sampled == TC.Sampling.resolve(sampling, TC.Parent.is_sampled(parent)) : Bool} &
-      {excluded == Some{TC.Parent.span_id(parent)} : Maybe<&2, TC.SpanId>}
+    case TC.SpanPlan{excluded, trace_id, sampled}:
+      match step:
+        case TC.NeedWord{draw}:
+          Unit
+        case TC.Created{+context}:
+          {TC.LocalContext.trace_id(context) == trace_id : TC.TraceId} &
+          {TC.LocalContext.is_sampled(context) == sampled : Bool} &
+          Laws.SpanAvoids(excluded, TC.LocalContext.span_id(context))
+        case TC.Failed{error}:
+          Unit
 
-# The invariant of a child's generation, a view of each step: a trace ID draw
-# is impossible (Empty), since a child draws only its span ID; a span ID draw
-# keeps ChildPlan; a created context has the three conclusions of law
-# generated_child; a failure needs nothing (Unit).
-def ChildInv(+parent: TC.Parent, sampling: TC.Sampling, step: TC.Step) -> Type:
-  match step:
-    case TC.NeedWord{TC.DrawTrace{remaining, words, previous}}:
-      Empty
-    case TC.NeedWord{TC.DrawSpan{remaining, words, plan}}:
-      ChildPlan(parent, sampling, plan)
-    case TC.Created{context}:
-      {TC.LocalContext.trace_id(context) == TC.Parent.trace_id(parent) : TC.TraceId} &
-      {TC.LocalContext.is_sampled(context) == TC.Sampling.resolve(sampling, TC.Parent.is_sampled(parent)) : Bool} &
-      {TC.SpanId.to_string(TC.LocalContext.span_id(context)) != TC.SpanId.to_string(TC.Parent.span_id(parent)) : String}
-    case TC.Failed{error}:
-      Unit
+# What a waiting draw of a child keeps: a trace ID draw is impossible
+# (Empty), since a child draws only its span ID, and its span ID draw keeps
+# the plan's trace ID and sampled indication and excludes the plan's span ID
+# (SeparateProof.SpanPending).
+def ChildPending(plan: TC.SpanPlan, draw: TC.Draw) -> Type:
+  match plan:
+    case TC.SpanPlan{excluded, trace_id, sampled}:
+      match draw:
+        case TC.DrawTrace{trace}:
+          Empty
+        case TC.DrawSpan{span, span_trace_id, span_sampled}:
+          {span_trace_id == trace_id : TC.TraceId} & {span_sampled == sampled : Bool} &
+          SeparateProof.SpanPending(excluded, span)
 
-# The generation that a child's span ID draw gives keeps the invariant when
-# its trace ID is the parent's (`same_trace`), its sampled indication the one
-# that Sampling.resolve gives (`same_sampled`), and the draw keeps
-# SeparateProof.SpanInv with the parent's span ID to exclude: the span ID of
-# a created context avoids the parent's.
-law child_spanned:
-  for +parent: TC.Parent
-  for -sampling: TC.Sampling
-  for step: TC.SpanStep
+# The invariant of a child of the span plan `plan`, a view of each step:
+# DriveProof.Holds with ChildFinal and ChildPending.
+def ChildHolds(+plan: TC.SpanPlan, +step: TC.Step) -> Type:
+  DriveProof.Holds(~TC.Step, ~TC.Draw, ~TC.SpanPlan, ~ChildFinal, ~ChildPending, plan, step, TC.Step.waiting(step))
+
+# The generation that a child's span ID draw gives, Step.of_span, keeps the
+# invariant when it keeps the plan's trace ID (`same_trace`) and sampled
+# indication (`same_sampled`) and the draw keeps SeparateProof.SpanHolds
+# with the plan's span ID to exclude: the span ID of a created context
+# avoids it.
+law span_lift_child:
+  for -excluded: Maybe<&2, TC.SpanId>
   for -trace_id: TC.TraceId
   for -sampled: Bool
-  for same_trace: {trace_id == TC.Parent.trace_id(parent) : TC.TraceId}
-  for same_sampled: {sampled == TC.Sampling.resolve(sampling, TC.Parent.is_sampled(parent)) : Bool}
-  for valid: SeparateProof.SpanInv(Some{TC.Parent.span_id(parent)}, step)
-  ChildInv(parent, sampling, TC.Draw.spanned(step, trace_id, sampled))
+  for step: TC.SpanStep
+  for -span_trace_id: TC.TraceId
+  for -span_sampled: Bool
+  for same_trace: {span_trace_id == trace_id : TC.TraceId}
+  for same_sampled: {span_sampled == sampled : Bool}
+  for valid: SeparateProof.SpanHolds(excluded, step)
+  ChildHolds(TC.SpanPlan{excluded, trace_id, sampled}, TC.Step.of_span(step, span_trace_id, span_sampled))
 
-def child_spanned(parent, sampling, step, trace_id, sampled, same_trace, same_sampled, valid):
+def span_lift_child(excluded, trace_id, sampled, step, span_trace_id, span_sampled, same_trace, same_sampled, valid):
   match step:
-    case TC.NeedSpanWord{remaining, words, kept}:
-      (same_trace, (same_sampled, valid))
+    case TC.NeedSpanWord{draw}:
+      (final, pending) = valid
+      (Unit{}, (same_trace, (same_sampled, pending)))
     case TC.DrawnSpanId{id}:
       (same_trace, (same_sampled, valid))
     case TC.SpanFailed{error}:
       Unit{}
 
-# When ChildInv holds of a step that needs a word, it holds after feeding
-# any word. A trace ID draw is ruled out, since its invariant is Empty; the
-# span ID draw keeps its invariant (SeparateProof.span_feed_inv), which
-# child_spanned lifts.
-law child_feed:
-  for +parent: TC.Parent
-  for -sampling: TC.Sampling
-  for +word: U32
+# When a waiting draw of a child keeps ChildPending (`valid`), the invariant
+# holds after feeding it any word result. A trace ID draw is ruled out,
+# since its invariant is Empty; the span ID draw keeps its invariant
+# (SeparateProof.span_kept), which span_lift_child lifts. The `kept` that
+# DriveProof.drive_keeps takes.
+law child_kept:
+  for +plan: TC.SpanPlan
   for draw: TC.Draw
-  for valid: ChildInv(parent, sampling, TC.NeedWord{draw})
-  ChildInv(parent, sampling, TC.Draw.feed(Done{word}, draw))
+  for valid: ChildPending(plan, draw)
+  for word: Result<&1, &1, U32 & String, U32>
+  ChildHolds(plan, TC.Draw.feed(word, draw))
 
-def child_feed(parent, sampling, word, draw, valid):
-  match draw:
-    case TC.DrawTrace{remaining, words, previous}:
-      Empty.absurd(ChildInv(parent, sampling, TC.Draw.feed(Done{word}, TC.DrawTrace{remaining, words, previous})),
-        valid)
-    case TC.DrawSpan{+remaining, +words, TC.SpanPlan{+trace_id, +sampled, +excluded}}:
-      (same_trace, rest) = valid
-      (same_sampled, parent_span) = rest
-      child_spanned(parent, sampling, TC.SpanDraw.feed(Done{word}, remaining, words, excluded), trace_id, sampled,
-        same_trace, same_sampled,
-        SeparateProof.span_feed_inv(Some{TC.Parent.span_id(parent)}, word, remaining, words, excluded, parent_span))
+def child_kept(plan, draw, valid, word):
+  match plan:
+    case TC.SpanPlan{+excluded, trace_id, sampled}:
+      match draw:
+        case TC.DrawTrace{trace}:
+          Empty.absurd(ChildHolds(TC.SpanPlan{excluded, trace_id, sampled}, TC.Draw.feed(word, TC.DrawTrace{trace})),
+            valid)
+        case TC.DrawSpan{+span, span_trace_id, span_sampled}:
+          (same_trace, rest) = valid
+          (same_sampled, pending) = rest
+          match word:
+            case Fail{(+code, +message)}:
+              span_lift_child(excluded, trace_id, sampled, TC.SpanDraw.next(Fail{(code, message)}, span),
+                span_trace_id, span_sampled, same_trace, same_sampled,
+                SeparateProof.span_kept(excluded, span, pending, Fail{(code, message)}))
+            case Done{+next}:
+              span_lift_child(excluded, trace_id, sampled, TC.SpanDraw.next(Done{next}, span), span_trace_id,
+                span_sampled, same_trace, same_sampled, SeparateProof.span_kept(excluded, span, pending, Done{next}))
 
-# The view of Draw.run's result for a child: ChildInv of its final step, the
-# unread tape ignored. Laws.generated_child rewrites its hypothesis through
-# ChildRun(parent, sampling, _), as for RootRun.
-def ChildRun(+parent: TC.Parent, sampling: TC.Sampling, result: Laws.TapeStep()) -> Type:
-  match result:
-    case Tuple{tape, step}:
-      ChildInv(parent, sampling, step)
+# The view of Draw.run's result for a child: ChildFinal of its final step,
+# the unread tape ignored. Laws.generated_child rewrites its hypothesis
+# through ChildRun(SpanPlan.child(parent, sampling), _), as for NewTraceRun.
+def ChildRun(plan: TC.SpanPlan, result: Laws.TapeStep()) -> Type:
+  DriveProof.Ends(~TC.Step, ~TC.SpanPlan, ~ChildFinal, plan, result)
 
-# When ChildInv holds of a step, it holds of the step that Draw.run returns
-# from it, for every fuel and every tape. Laws.generated_child applies it to
+# When a step keeps the invariant of a child, the step that Draw.run returns
+# from it has ChildFinal, for every fuel and every tape: DriveProof.drive_keeps
+# with child_kept. Laws.generated_child applies it to
 # Draw.child(parent, sampling), whose invariant is three equations that hold
 # by computation.
 law child_run:
-  for +parent: TC.Parent
-  for -sampling: TC.Sampling
+  for +plan: TC.SpanPlan
   for +fuel: Nat
   for +step: TC.Step
   for tape: Laws.Tape()
-  for valid: ChildInv(parent, sampling, step)
-  ChildRun(parent, sampling, TC.Draw.run(fuel, (tape, step)))
+  for valid: ChildHolds(plan, step)
+  ChildRun(plan, TC.Draw.run(fuel, (tape, step)))
 
-# As root_run: induction on the fuel, and run_failed after an error.
-def child_run(parent, sampling, fuel, step, tape, valid):
-  match fuel:
-    case 0n:
-      match step:
-        case TC.NeedWord{draw}:
-          valid
-        case TC.Created{context}:
-          valid
-        case TC.Failed{error}:
-          valid
-    case 1n+p:
-      match step:
-        case TC.Created{context}:
-          valid
-        case TC.Failed{error}:
-          valid
-        case TC.NeedWord{+draw}:
-          match tape:
-            case Nil{}:
-              %Equal.sym(Laws.TapeStep(), TC.Draw.run(p, (Nil{}, TC.Failed{TC.SourceFailure{1, "tape-exhausted"}})),
-                (Nil{}, TC.Failed{TC.SourceFailure{1, "tape-exhausted"}}),
-                run_failed(p, Nil{}, TC.SourceFailure{1, "tape-exhausted"})) : ChildRun(parent, sampling, _)
-              Unit{}
-            case Con{Fail{(code, message)}, rest}:
-              %Equal.sym(Laws.TapeStep(), TC.Draw.run(p, (rest, TC.Failed{TC.SourceFailure{code, message}})),
-                (rest, TC.Failed{TC.SourceFailure{code, message}}),
-                run_failed(p, rest, TC.SourceFailure{code, message})) : ChildRun(parent, sampling, _)
-              Unit{}
-            case Con{Done{+word}, rest}:
-              child_run(parent, sampling, p, TC.Draw.feed(Done{word}, draw), rest,
-                child_feed(parent, sampling, word, draw, valid))
-
-# Restarts
-# ========
-#
-# A restart's trace ID draw keeps the received trace ID to exclude. Its span
-# ID draw keeps a trace ID that differs from the received one and asserts
-# random-trace-id, with the root defaults: sampled False and no span ID to
-# exclude.
-
-# What a restart's span ID draw keeps in its plan: a trace ID whose digits
-# differ from those of the received trace ID and that asserts
-# random-trace-id, sampled False, and no span ID to exclude.
-def RestartPlan(+previous: TC.RemoteContext, plan: TC.SpanPlan) -> Type:
-  match plan:
-    case TC.SpanPlan{trace_id, sampled, excluded}:
-      {TC.TraceId.to_string(trace_id) != TC.TraceId.to_string(TC.RemoteContext.trace_id(previous)) : String} &
-      {TC.TraceId.is_random(trace_id) == True{} : Bool} & {sampled == False{} : Bool} &
-      {excluded == None{} : Maybe<&2, TC.SpanId>}
-
-# The invariant of a restart, a view of each step: a trace ID draw keeps the
-# trace ID of `previous` as the received one to exclude, a span ID draw keeps
-# RestartPlan, a created context has the three conclusions of law
-# generated_restart, and a failure needs nothing (Unit).
-def RestartInv(+previous: TC.RemoteContext, step: TC.Step) -> Type:
-  match step:
-    case TC.NeedWord{TC.DrawTrace{remaining, words, received}}:
-      {received == Some{TC.RemoteContext.trace_id(previous)} : Maybe<&2, TC.TraceId>}
-    case TC.NeedWord{TC.DrawSpan{remaining, words, plan}}:
-      RestartPlan(previous, plan)
-    case TC.Created{context}:
-      {TC.TraceId.to_string(TC.LocalContext.trace_id(context)) !=
-        TC.TraceId.to_string(TC.RemoteContext.trace_id(previous)) : String} &
-      {TC.TraceId.is_random(TC.LocalContext.trace_id(context)) == True{} : Bool} &
-      {TC.LocalContext.is_sampled(context) == False{} : Bool}
-    case TC.Failed{error}:
-      Unit
-
-# The generation that a restart's trace ID draw gives keeps the invariant
-# when the draw keeps SeparateProof.TraceInv with the received trace ID to
-# exclude: a drawn trace ID is random and differs from the received one, and
-# starts the span ID draw with a RestartPlan.
-law restart_traced:
-  for +previous: TC.RemoteContext
-  for step: TC.TraceStep
-  for valid: SeparateProof.TraceInv(Some{TC.RemoteContext.trace_id(previous)}, step)
-  RestartInv(previous, TC.Draw.traced(step))
-
-def restart_traced(previous, step, valid):
-  match step:
-    case TC.NeedTraceWord{remaining, words, kept}:
-      valid
-    case TC.DrawnTraceId{id}:
-      (random, distinct) = valid
-      (distinct, (random, ({==}, {==})))
-    case TC.TraceFailed{error}:
-      Unit{}
-
-# The generation that a restart's span ID draw gives keeps the invariant
-# when its trace ID differs from the received one (`distinct`) and asserts
-# random-trace-id (`random`), it is not sampled (`unsampled`), and the draw
-# keeps SeparateProof.SpanInv with nothing to exclude.
-law restart_spanned:
-  for +previous: TC.RemoteContext
-  for step: TC.SpanStep
-  for -trace_id: TC.TraceId
-  for -sampled: Bool
-  for distinct: {TC.TraceId.to_string(trace_id) != TC.TraceId.to_string(TC.RemoteContext.trace_id(previous)) :
-    String}
-  for random: {TC.TraceId.is_random(trace_id) == True{} : Bool}
-  for unsampled: {sampled == False{} : Bool}
-  for valid: SeparateProof.SpanInv(None{}, step)
-  RestartInv(previous, TC.Draw.spanned(step, trace_id, sampled))
-
-def restart_spanned(previous, step, trace_id, sampled, distinct, random, unsampled, valid):
-  match step:
-    case TC.NeedSpanWord{remaining, words, kept}:
-      (distinct, (random, (unsampled, valid)))
-    case TC.DrawnSpanId{id}:
-      (distinct, (random, unsampled))
-    case TC.SpanFailed{error}:
-      Unit{}
-
-# When RestartInv holds of a step that needs a word, it holds after feeding
-# any word, with the same cases as root_feed: restart_traced lifts the trace
-# ID draw's invariant and restart_spanned the span ID draw's.
-law restart_feed:
-  for +previous: TC.RemoteContext
-  for +word: U32
-  for draw: TC.Draw
-  for valid: RestartInv(previous, TC.NeedWord{draw})
-  RestartInv(previous, TC.Draw.feed(Done{word}, draw))
-
-def restart_feed(previous, word, draw, valid):
-  match draw:
-    case TC.DrawTrace{+remaining, +words, +received}:
-      restart_traced(previous, TC.TraceDraw.feed(Done{word}, remaining, words, received),
-        SeparateProof.trace_feed_inv(Some{TC.RemoteContext.trace_id(previous)}, word, remaining, words, received,
-          valid))
-    case TC.DrawSpan{+remaining, +words, TC.SpanPlan{+trace_id, +sampled, +excluded}}:
-      (distinct, rest) = valid
-      (random, more) = rest
-      (unsampled, none) = more
-      restart_spanned(previous, TC.SpanDraw.feed(Done{word}, remaining, words, excluded), trace_id, sampled,
-        distinct, random, unsampled, SeparateProof.span_feed_inv(None{}, word, remaining, words, excluded, none))
-
-# The view of Draw.run's result for a restart: RestartInv of its final step,
-# the unread tape ignored. Laws.generated_restart rewrites its hypothesis
-# through RestartRun(previous, _), as for RootRun.
-def RestartRun(+previous: TC.RemoteContext, result: Laws.TapeStep()) -> Type:
-  match result:
-    case Tuple{tape, step}:
-      RestartInv(previous, step)
-
-# When RestartInv holds of a step, it holds of the step that Draw.run returns
-# from it, for every fuel and every tape. Laws.generated_restart applies it
-# to Draw.restart(previous), whose invariant holds by computation ({==}).
-law restart_run:
-  for +previous: TC.RemoteContext
-  for +fuel: Nat
-  for +step: TC.Step
-  for tape: Laws.Tape()
-  for valid: RestartInv(previous, step)
-  RestartRun(previous, TC.Draw.run(fuel, (tape, step)))
-
-# As root_run: induction on the fuel, and run_failed after an error.
-def restart_run(previous, fuel, step, tape, valid):
-  match fuel:
-    case 0n:
-      match step:
-        case TC.NeedWord{draw}:
-          valid
-        case TC.Created{context}:
-          valid
-        case TC.Failed{error}:
-          valid
-    case 1n+p:
-      match step:
-        case TC.Created{context}:
-          valid
-        case TC.Failed{error}:
-          valid
-        case TC.NeedWord{+draw}:
-          match tape:
-            case Nil{}:
-              %Equal.sym(Laws.TapeStep(), TC.Draw.run(p, (Nil{}, TC.Failed{TC.SourceFailure{1, "tape-exhausted"}})),
-                (Nil{}, TC.Failed{TC.SourceFailure{1, "tape-exhausted"}}),
-                run_failed(p, Nil{}, TC.SourceFailure{1, "tape-exhausted"})) : RestartRun(previous, _)
-              Unit{}
-            case Con{Fail{(code, message)}, rest}:
-              %Equal.sym(Laws.TapeStep(), TC.Draw.run(p, (rest, TC.Failed{TC.SourceFailure{code, message}})),
-                (rest, TC.Failed{TC.SourceFailure{code, message}}),
-                run_failed(p, rest, TC.SourceFailure{code, message})) : RestartRun(previous, _)
-              Unit{}
-            case Con{Done{+word}, rest}:
-              restart_run(previous, p, TC.Draw.feed(Done{word}, draw), rest,
-                restart_feed(previous, word, draw, valid))
+def child_run(plan, fuel, step, tape, valid):
+  DriveProof.drive_keeps(~TC.Step, ~TC.Draw, ~TC.Step.waiting, ~TC.Draw.feed, ~TC.SpanPlan, ~ChildFinal,
+    ~ChildPending, ~child_kept, plan, fuel, step, TC.Step.waiting(step), tape, valid)
 
 # The IO operations over a tape
 # =============================
@@ -755,11 +499,8 @@ def restart_run(previous, fuel, step, tape, valid):
 # Draw.read over Source.tape, followed by a continuation that emits a
 # function `f` of the driver's outcome, gives what any `g` that agrees with
 # `f` on every outcome (`same`) emits for the outcome of Draw.run, the same
-# words read in the same order. Since an IO action is a function of a result
-# type and a continuation (IO in Base), this says how Draw.read behaves
-# inside a larger action, such as the one Draw.finished builds. The
-# induction applies `same` once, to the outcome the tape leads to, so the
-# tape, which is linear, is read once. proofs/continue.bend rests on it.
+# words read in the same order: DriveProof.drive_read, with `f` and `g` read
+# through the generation's outcome. proofs/continue.bend rests on it.
 law read_tape_outcome:
   for -A: Type
   for -f: Laws.TapeOutcome() -> A
@@ -770,38 +511,19 @@ law read_tape_outcome:
   {TC.Draw.read(~Laws.Tape(), ~TC.Source.tape, fuel, current)(A, step => Emit{f(TC.Draw.outcome(Laws.Tape(), step))}) ==
     Emit{g(TC.Draw.outcome(Laws.Tape(), TC.Draw.run(fuel, current)))} : IO.OP<A>}
 
-# Splits on the fuel for every step: the drivers compute only once it is
-# known. An ended step or an empty fuel emits at once, and a word is fed
-# otherwise.
+# Splits the tape and the step, which Draw.read and Draw.run hand to Drive
+# with the step's view.
 def read_tape_outcome(A, f, g, same, fuel, current):
-  match fuel current:
-    case 0n Tuple{tape, TC.Created{context}}:
-      Equal.cong(A, IO.OP<A>, value => Emit{value}, f((tape, Done{context})), g((tape, Done{context})),
-        same((tape, Done{context})))
-    case 0n Tuple{tape, TC.Failed{error}}:
-      Equal.cong(A, IO.OP<A>, value => Emit{value}, f((tape, Fail{error})), g((tape, Fail{error})),
-        same((tape, Fail{error})))
-    case 0n Tuple{tape, TC.NeedWord{draw}}:
-      Equal.cong(A, IO.OP<A>, value => Emit{value},
-        f(TC.Draw.outcome(Laws.Tape(), (tape, TC.NeedWord{draw}))),
-        g(TC.Draw.outcome(Laws.Tape(), (tape, TC.NeedWord{draw}))),
-        same(TC.Draw.outcome(Laws.Tape(), (tape, TC.NeedWord{draw}))))
-    case 1n+p Tuple{tape, TC.Created{context}}:
-      Equal.cong(A, IO.OP<A>, value => Emit{value}, f((tape, Done{context})), g((tape, Done{context})),
-        same((tape, Done{context})))
-    case 1n+p Tuple{tape, TC.Failed{error}}:
-      Equal.cong(A, IO.OP<A>, value => Emit{value}, f((tape, Fail{error})), g((tape, Fail{error})),
-        same((tape, Fail{error})))
-    case 1n+p Tuple{tape, TC.NeedWord{draw}}:
-      read_tape_outcome(A, f, g, same, p, TC.Draw.fed_by(Laws.Tape(), TC.Tape.next(tape), draw))
+  match current:
+    case Tuple{tape, +step}:
+      DriveProof.drive_read(~TC.Step, ~TC.Draw, ~TC.Step.waiting, ~TC.Draw.feed, A,
+        done => f(TC.Draw.outcome(Laws.Tape(), done)), done => g(TC.Draw.outcome(Laws.Tape(), done)),
+        done => same(TC.Draw.outcome(Laws.Tape(), done)), fuel, (tape, (step, TC.Step.waiting(step))))
 
 # Two continuations that emit functions `f` and `g` of the driver's outcome
 # make Draw.read over Source.tape emit the same whenever `f` and `g` agree on
-# every outcome (`same`). Induction on the fuel, as read_tape_outcome, whose
-# body it repeats: the tape is linear, so this cannot be two uses of
-# read_tape_outcome on the same step joined by Equal.trans. proofs/http.bend
-# uses it for an adapter that follows the package's operation with its own
-# translation.
+# every outcome (`same`): DriveProof.drive_same. proofs/http.bend uses it for
+# an adapter that follows the package's operation with its own translation.
 law read_tape_same:
   for -A: Type
   for -f: Laws.TapeOutcome() -> A
@@ -814,26 +536,13 @@ law read_tape_same:
     IO.OP<A>}
 
 def read_tape_same(A, f, g, same, fuel, current):
-  match fuel current:
-    case 0n Tuple{tape, TC.Created{context}}:
-      Equal.cong(A, IO.OP<A>, value => Emit{value}, f((tape, Done{context})), g((tape, Done{context})),
-        same((tape, Done{context})))
-    case 0n Tuple{tape, TC.Failed{error}}:
-      Equal.cong(A, IO.OP<A>, value => Emit{value}, f((tape, Fail{error})), g((tape, Fail{error})),
-        same((tape, Fail{error})))
-    case 0n Tuple{tape, TC.NeedWord{draw}}:
-      Equal.cong(A, IO.OP<A>, value => Emit{value},
-        f(TC.Draw.outcome(Laws.Tape(), (tape, TC.NeedWord{draw}))),
-        g(TC.Draw.outcome(Laws.Tape(), (tape, TC.NeedWord{draw}))),
-        same(TC.Draw.outcome(Laws.Tape(), (tape, TC.NeedWord{draw}))))
-    case 1n+p Tuple{tape, TC.Created{context}}:
-      Equal.cong(A, IO.OP<A>, value => Emit{value}, f((tape, Done{context})), g((tape, Done{context})),
-        same((tape, Done{context})))
-    case 1n+p Tuple{tape, TC.Failed{error}}:
-      Equal.cong(A, IO.OP<A>, value => Emit{value}, f((tape, Fail{error})), g((tape, Fail{error})),
-        same((tape, Fail{error})))
-    case 1n+p Tuple{tape, TC.NeedWord{draw}}:
-      read_tape_same(A, f, g, same, p, TC.Draw.fed_by(Laws.Tape(), TC.Tape.next(tape), draw))
+  match current:
+    case Tuple{tape, +step}:
+      DriveProof.drive_same(~TC.Step, ~TC.Draw, ~TC.Step.waiting, ~TC.Draw.feed, A,
+        done => Emit{f(TC.Draw.outcome(Laws.Tape(), done))}, done => Emit{g(TC.Draw.outcome(Laws.Tape(), done))},
+        done => Equal.cong(A, IO.OP<A>, value => Emit{value}, f(TC.Draw.outcome(Laws.Tape(), done)),
+          g(TC.Draw.outcome(Laws.Tape(), done)), same(TC.Draw.outcome(Laws.Tape(), done))), fuel,
+        (tape, (step, TC.Step.waiting(step))))
 
 # Law generation_drive: induction on the budget, for every tape and step.
 # Neither loop reads a word once the step has ended or the budget is spent;
@@ -873,7 +582,7 @@ def generation_drive(fuel, tape, step, extra):
 # The IO driver over Source.tape emits, through any continuation that emits
 # a function `f` of the outcome, what `g` gives of the host's loop bounded
 # by the budget, whenever `f` and `g` agree on every outcome (`same`).
-# Induction on the budget, as read_tape_outcome; the tape is linear, so
+# Induction on the budget, as DriveProof.drive_read; the tape is linear, so
 # this cannot join read_tape_outcome and generation_drive. Used by
 # run_hosted.
 law read_tape_host:
@@ -938,19 +647,19 @@ def run_hosted(A, f, g, same, tape, generation):
 # Laws root_tape, child_tape and restart_tape: Context.root_with, child_with
 # and restart_with, which compose the separate generation, produce over
 # Source.tape the outcome of the pure driver Draw.run with the generation's
-# budget. Each composition reads its words with TraceDraw.read and
-# SpanDraw.read, while Draw.run feeds the same words to the same draws
-# through Draw.feed, so one induction on a draw's fuel follows both at once.
-# The tape is linear, so the draw's IO driver and the generation's pure one
-# cannot be related through two lemmas joined by Equal.trans.
+# budget. Each composition reads its words through the draws' IO drivers,
+# while Draw.run feeds the same words to the same draws through Draw.feed, so
+# one induction on a draw's fuel follows both at once. The tape is linear,
+# so the draw's IO driver and the generation's pure one cannot be related
+# through two lemmas joined by Equal.trans.
 
-# Over a tape, a span ID draw that SpanDraw.read runs, followed by a
-# continuation that emits a function `k` of the context of its span ID for
+# Over a tape, a span ID draw that Drive.read runs from `step`, followed by
+# a continuation that emits a function `k` of the context of its span ID for
 # an operation of `trace_id` with `sampled` (Draw.span_context), emits `k` of
-# the outcome of Draw.run for the generation that Draw.spanned makes of the
+# the outcome of Draw.run for the generation that Step.of_span makes of the
 # draw, with `extra` words of fuel to spare, when the draw ends within
-# `fuel` words (`bound`). Induction on the fuel, splitting the tape: both
-# drivers read the same word and feed it to the same draw.
+# `fuel` words (`bound`). Induction on the fuel, splitting the tape and the
+# draw: both drivers read the same word and feed it to the same draw.
 law span_phase:
   for -A: Type
   for -k: Laws.TapeOutcome() -> A
@@ -960,11 +669,12 @@ law span_phase:
   for +step: TC.SpanStep
   for tape: Laws.Tape()
   for extra: Nat
-  for bound: SeparateProof.SpanWithin(step, fuel)
-  {TC.SpanDraw.read(~Laws.Tape(), ~TC.Source.tape, fuel, (tape, step))(A,
-    done => Emit{k(TC.Draw.span_context(Laws.Tape(), trace_id, sampled, TC.SpanDraw.outcome(Laws.Tape(), done)))}) ==
+  for bound: SeparateProof.SpanEnds(step, fuel)
+  {TC.Drive.read(~TC.SpanStep, ~TC.SpanDraw, ~TC.SpanStep.waiting, ~TC.SpanDraw.next, ~Laws.Tape(), ~TC.Source.tape,
+    fuel, (tape, (step, TC.SpanStep.waiting(step))))(A, done => Emit{k(TC.Draw.span_context(Laws.Tape(), trace_id,
+      sampled, TC.SpanDraw.outcome(Laws.Tape(), done)))}) ==
     Emit{k(TC.Draw.outcome(Laws.Tape(), TC.Draw.run(Nat.add(fuel, extra),
-      (tape, TC.Draw.spanned(step, trace_id, sampled)))))} : IO.OP<A>}
+      (tape, TC.Step.of_span(step, trace_id, sampled)))))} : IO.OP<A>}
 
 def span_phase(A, k, trace_id, sampled, fuel, step, tape, extra, bound):
   match fuel:
@@ -982,20 +692,20 @@ def span_phase(A, k, trace_id, sampled, fuel, step, tape, extra, bound):
               {==}
             case 1n+q:
               {==}
-        case TC.NeedSpanWord{remaining, words, excluded}:
-          Empty.absurd({TC.SpanDraw.read(~Laws.Tape(), ~TC.Source.tape, 0n,
-            (tape, TC.NeedSpanWord{remaining, words, excluded}))(A, done => Emit{k(TC.Draw.span_context(Laws.Tape(),
-              trace_id, sampled, TC.SpanDraw.outcome(Laws.Tape(), done)))}) ==
+        case TC.NeedSpanWord{draw}:
+          Empty.absurd({TC.Drive.read(~TC.SpanStep, ~TC.SpanDraw, ~TC.SpanStep.waiting, ~TC.SpanDraw.next,
+            ~Laws.Tape(), ~TC.Source.tape, 0n, (tape, (TC.NeedSpanWord{draw}, Some{draw})))(A,
+              done => Emit{k(TC.Draw.span_context(Laws.Tape(), trace_id, sampled,
+                TC.SpanDraw.outcome(Laws.Tape(), done)))}) ==
             Emit{k(TC.Draw.outcome(Laws.Tape(), TC.Draw.run(Nat.add(0n, extra),
-              (tape, TC.Draw.spanned(TC.NeedSpanWord{remaining, words, excluded}, trace_id, sampled)))))} :
-            IO.OP<A>}, bound)
+              (tape, TC.Step.of_span(TC.NeedSpanWord{draw}, trace_id, sampled)))))} : IO.OP<A>}, bound)
     case 1n+p:
       match step:
         case TC.DrawnSpanId{id}:
           {==}
         case TC.SpanFailed{error}:
           {==}
-        case TC.NeedSpanWord{+remaining, +words, +excluded}:
+        case TC.NeedSpanWord{TC.SpanDraw{remaining, words, excluded}}:
           match tape:
             case Nil{}:
               span_phase(A, k, trace_id, sampled, p, TC.SpanFailed{TC.SourceFailure{1, "tape-exhausted"}}, Nil{},
@@ -1007,25 +717,26 @@ def span_phase(A, k, trace_id, sampled, fuel, step, tape, extra, bound):
               span_phase(A, k, trace_id, sampled, p, TC.SpanDraw.feed(Done{word}, remaining, words, excluded), rest,
                 extra, bound(word))
 
-# Over a tape, a trace ID draw that TraceDraw.read runs, followed by
-# Draw.after_trace and a continuation that emits a function `k` of the
+# Over a tape, a trace ID draw that Drive.read runs from `step`, followed by
+# Draw.root_span_with and a continuation that emits a function `k` of the
 # outcome, emits `k` of the outcome of Draw.run for the generation that
-# Draw.traced makes of the draw, with 16 more words of fuel for the span ID,
-# when the draw ends within `fuel` words (`bound`). Induction on the fuel,
-# as span_phase; a drawn trace ID hands over to span_phase for the span ID
-# draw that both then run, with the words that the trace ID draw left to
-# spare.
+# Step.of_trace makes of the draw, with 16 more words of fuel for the span
+# ID, when the draw ends within `fuel` words (`bound`). Induction on the
+# fuel, as span_phase; a drawn trace ID hands over to span_phase for the
+# span ID draw of the root's span plan, which both then run, with the words
+# that the trace ID draw left to spare.
 law trace_phase:
   for -A: Type
   for -k: Laws.TapeOutcome() -> A
   for +fuel: Nat
   for +step: TC.TraceStep
   for tape: Laws.Tape()
-  for bound: SeparateProof.TraceWithin(step, fuel)
-  {TC.TraceDraw.read(~Laws.Tape(), ~TC.Source.tape, fuel, (tape, step))(A,
-    done => TC.Draw.after_trace(~Laws.Tape(), ~TC.Source.tape, TC.TraceDraw.outcome(Laws.Tape(), done))(A,
-      outcome => Emit{k(outcome)})) ==
-    Emit{k(TC.Draw.outcome(Laws.Tape(), TC.Draw.run(Nat.add(16n, fuel), (tape, TC.Draw.traced(step)))))} :
+  for bound: SeparateProof.TraceEnds(step, fuel)
+  {TC.Drive.read(~TC.TraceStep, ~TC.TraceDraw, ~TC.TraceStep.waiting, ~TC.TraceDraw.next, ~Laws.Tape(),
+    ~TC.Source.tape, fuel, (tape, (step, TC.TraceStep.waiting(step))))(A,
+      done => TC.Draw.root_span_with(~Laws.Tape(), ~TC.Source.tape, TC.TraceDraw.outcome(Laws.Tape(), done))(A,
+        outcome => Emit{k(outcome)})) ==
+    Emit{k(TC.Draw.outcome(Laws.Tape(), TC.Draw.run(Nat.add(16n, fuel), (tape, TC.Step.of_trace(step)))))} :
     IO.OP<A>}
 
 def trace_phase(A, k, fuel, step, tape, bound):
@@ -1037,12 +748,13 @@ def trace_phase(A, k, fuel, step, tape, bound):
             SeparateProof.span_start_within(7n, None{}))
         case TC.TraceFailed{error}:
           {==}
-        case TC.NeedTraceWord{remaining, words, excluded}:
-          Empty.absurd({TC.TraceDraw.read(~Laws.Tape(), ~TC.Source.tape, 0n,
-            (tape, TC.NeedTraceWord{remaining, words, excluded}))(A, done => TC.Draw.after_trace(~Laws.Tape(),
-              ~TC.Source.tape, TC.TraceDraw.outcome(Laws.Tape(), done))(A, outcome => Emit{k(outcome)})) ==
-            Emit{k(TC.Draw.outcome(Laws.Tape(), TC.Draw.run(16n,
-              (tape, TC.Draw.traced(TC.NeedTraceWord{remaining, words, excluded})))))} : IO.OP<A>}, bound)
+        case TC.NeedTraceWord{draw}:
+          Empty.absurd({TC.Drive.read(~TC.TraceStep, ~TC.TraceDraw, ~TC.TraceStep.waiting, ~TC.TraceDraw.next,
+            ~Laws.Tape(), ~TC.Source.tape, 0n, (tape, (TC.NeedTraceWord{draw}, Some{draw})))(A,
+              done => TC.Draw.root_span_with(~Laws.Tape(), ~TC.Source.tape, TC.TraceDraw.outcome(Laws.Tape(), done))(A,
+                outcome => Emit{k(outcome)})) ==
+            Emit{k(TC.Draw.outcome(Laws.Tape(), TC.Draw.run(16n, (tape, TC.Step.of_trace(TC.NeedTraceWord{draw})))))} :
+            IO.OP<A>}, bound)
     case 1n+p:
       match step:
         case TC.DrawnTraceId{id}:
@@ -1050,7 +762,7 @@ def trace_phase(A, k, fuel, step, tape, bound):
             SeparateProof.span_start_within(7n, None{}))
         case TC.TraceFailed{error}:
           {==}
-        case TC.NeedTraceWord{+remaining, +words, +excluded}:
+        case TC.NeedTraceWord{TC.TraceDraw{remaining, words, excluded}}:
           match tape:
             case Nil{}:
               trace_phase(A, k, p, TC.TraceFailed{TC.SourceFailure{1, "tape-exhausted"}}, Nil{}, Unit{})
@@ -1074,8 +786,9 @@ def root_tape(tape):
     SeparateProof.trace_start_within(7n, None{}))
 
 # Law child_tape: as root_tape, for a child with a budget of 16 words:
-# span_phase from the first span ID candidate, which excludes the parent's
-# span ID, with no word to spare. Laws.child_tape returns this proof.
+# span_phase from the first span ID candidate of the child's span plan,
+# which excludes the parent's span ID, with no word to spare.
+# Laws.child_tape returns this proof.
 law child_tape:
   for tape: Laws.Tape()
   for +parent: TC.Parent
@@ -1099,6 +812,5 @@ law restart_tape:
     Emit{TC.Draw.outcome(Laws.Tape(), TC.Draw.run(48n, (tape, TC.Draw.restart(previous))))} : IO.OP<Laws.TapeOutcome()>}
 
 def restart_tape(tape, previous):
-  trace_phase(Laws.TapeOutcome(), outcome => outcome, 32n,
-    TC.TraceDraw.start(Some{TC.RemoteContext.trace_id(previous)}), tape,
-    SeparateProof.trace_start_within(7n, Some{TC.RemoteContext.trace_id(previous)}))
+  trace_phase(Laws.TapeOutcome(), outcome => outcome, 32n, TC.TraceDraw.start(TC.Draw.restart_excluded(previous)),
+    tape, SeparateProof.trace_start_within(7n, TC.Draw.restart_excluded(previous)))

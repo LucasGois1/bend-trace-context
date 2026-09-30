@@ -245,9 +245,10 @@ TC.U32.to_hex(word: U32) -> String
 and `from_words` returns `None{}` for an all-zero candidate. Like parsing,
 `TraceId.from_words` makes no randomness assertion; add one with
 `TraceId.assert_random` only when the words are random. The machine that the
-operations share, its `TraceDraw` and `SpanDraw` pieces and the `Draw` and
-`Step` generation that composes them, is stated in the laws but is internal,
-like the parsing helpers: it is not a compatibility contract. A host that
+operations share is stated in the laws but is internal, like the parsing
+helpers: its trace ID and span ID draws (`TraceDraw` and `SpanDraw`), the
+generation that composes them (`Draw`, `Step` and `SpanPlan`) and the driver
+that runs all three (`Drive`) are not a compatibility contract. A host that
 feeds words itself drives it through `Generation`, described in
 [Host-driven generation](#host-driven-generation).
 
@@ -267,21 +268,12 @@ TC.SpanId.generate_with(~S, ~read, source: S, excluded: Maybe<&2, TC.SpanId>) ->
   IO(S & Result<&2, &2, TC.GenerationError, TC.SpanId>)
 ```
 
-They follow the rules above for each identifier:
-
-- A trace ID candidate takes four words and a span ID candidate two, most
-  significant first, for at most eight candidates: a trace ID reads at most
-  32 words and a span ID 16, one at a time, and never more than it needs.
-- An all-zero candidate is rejected, and so is a candidate equal to
-  `excluded` when it is `Some{id}`. After the eighth rejection the operation
-  fails with `ExhaustedTraceId{}` or `ExhaustedSpanId{}`. An SDK passes a
-  parent's span ID when it generates a child's, so that the child never
-  reuses it. Only that span ID is compared, as for `Context.child`: siblings
-  get different span IDs as long as the source's words differ.
-- The first source error fails with `SourceFailure{code, message}`.
-- A generated trace ID asserts random-trace-id, as a generated root's does.
-  A trace ID converted from words, like a parsed one, asserts nothing unless
-  `TraceId.assert_random` says so.
+They follow the rules above, one identifier at a time: a trace ID reads at
+most 32 words and a span ID 16. A candidate equal to `excluded`, when it is
+`Some{id}`, is rejected as a child's candidate equal to its parent's span ID
+is, and only that identifier is compared: an SDK passes a parent's span ID
+when it generates a child's, and siblings get different span IDs as long as
+the source's words differ.
 
 The `_with` forms take a source as the operations above do and return its
 final state, so a test replays a tape with `Source.tape`. A context of the

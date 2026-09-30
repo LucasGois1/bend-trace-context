@@ -613,11 +613,12 @@ law words_unasserted:
 # =======================================
 #
 # Context.root_with, child_with and restart_with read words from a caller's
-# source one at a time and feed them to the generation machine (Draw and Step
-# in trace_context.bend), whose two pieces, a trace ID draw and a span ID
-# draw, also run alone (see "Separate generation" below). Context.root,
-# child and restart in generation.bend do the same with the host's
-# cryptographic source. The laws quantify over
+# source one at a time: they compose the generation of a trace ID and of a
+# span ID alone (see "Separate generation" below). The laws describe them
+# through the generation machine (Draw and Step in trace_context.bend),
+# which feeds each word to the same two pieces, a trace ID draw and a span
+# ID draw. Context.root, child and restart in generation.bend do the same
+# with the host's cryptographic source. The laws quantify over
 # every "tape": a list of word results, errors included, that a deterministic
 # source replays. The rules come from spec #1, "Generation and failure
 # contracts": the trace ID before the span ID, at most eight candidates per
@@ -632,7 +633,7 @@ law words_unasserted:
 #     immediately" and "no time/counter fallback is permitted".
 #   Why: continuing after a failed read, or filling in a predictable word,
 #     would produce IDs that are not random while claiming they are.
-#   Proof: Laws.feed_failure, by computation.
+#   Proof: Laws.feed_failure, by computation once the draw is split.
 law feed_failure:
   for code: U32
   for message: String
@@ -879,17 +880,16 @@ law generation_drive:
 # Separate generation
 # -------------------
 #
-# An OpenTelemetry SDK starts a span in three steps: it generates a trace ID,
-# asks its sampler about it, and only then generates the span ID.
 # TraceId.generate_with and SpanId.generate_with generate one identifier
 # alone from a caller's source, and TraceId.generate and SpanId.generate in
-# generation.bend on the host's. Each runs one piece of the generation
-# machine: a trace ID draw (TraceDraw and TraceStep in trace_context.bend) or
-# a span ID draw (SpanDraw and SpanStep), with the candidate rules above and
-# an optional identifier to exclude. The rules come from spec #41,
-# "Separate generation". As above, the laws quantify over every tape, state
-# the pieces on their pure drivers, TraceDraw.run and SpanDraw.run, and tie
-# those drivers to the IO operations.
+# generation.bend on the host's, as an OpenTelemetry SDK needs to start a
+# span (GUIDE.md, "Building blocks for an OpenTelemetry SDK"). Each runs one
+# piece of the generation machine: a trace ID draw (TraceDraw and TraceStep
+# in trace_context.bend) or a span ID draw (SpanDraw and SpanStep), with the
+# candidate rules above and an optional identifier to exclude. The rules
+# come from spec #41, "Separate generation". As above, the laws quantify
+# over every tape, state the pieces on their pure drivers, TraceDraw.run and
+# SpanDraw.run, and tie those drivers to the IO operations.
 
 # A tape's unread rest, with a trace ID draw's state after reading.
 def TapeTraceStep() -> Type:

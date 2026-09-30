@@ -881,12 +881,11 @@ It records no spans. To record them:
 
 ## Building blocks for an OpenTelemetry SDK
 
-An **OpenTelemetry SDK** records spans, makes their sampling decisions and
-exports them. An SDK for Bend builds span identity, identifier generation
-and propagation on this package, which stays the W3C Trace Context layer:
-what OpenTelemetry itself defines, such as its span context, its samplers
-and its propagator interface, belongs to the SDK. These sections show the
-pieces that it composes.
+An OpenTelemetry SDK for Bend, as the [glossary](../../CONTEXT.md) defines
+one, builds on this package, which stays the W3C Trace Context layer: what
+OpenTelemetry itself defines, such as its span context, its samplers and its
+propagator interface, belongs to the SDK. Each section below shows one of
+the pieces that such an SDK builds on.
 
 ### A span's identifiers
 
@@ -898,7 +897,7 @@ and child generation: at most eight candidates, all-zero candidates
 rejected, and no fallback. Each takes an identifier to exclude, `None{}` or
 `Some{id}`, so that a child span's ID is never its parent's. A generated
 trace ID asserts random-trace-id, and `TC.Context.from_ids` gives the span's
-context with the sampled indication that the sampler decided.
+local context with the sampled indication that the sampler decided.
 
 <!-- test:guide-sdk:start -->
 ```bend
@@ -925,12 +924,12 @@ def flags(context: TC.LocalContext) -> String:
 
 def main() -> IO(Unit):
   do IO<Unit>:
-    # A root span: its trace ID, the sampler's decision on it, then its span ID.
-    traced : Result<&2, &2, TC.GenerationError, TC.TraceId> <- Generate.TraceId.generate(None{})
-    +trace_id : TC.TraceId <- generated(TC.TraceId, traced)
+    # A root span.
+    trace_result : Result<&2, &2, TC.GenerationError, TC.TraceId> <- Generate.TraceId.generate(None{})
+    +trace_id : TC.TraceId <- generated(TC.TraceId, trace_result)
     +sampled : Bool = sample(trace_id)
-    spanned : Result<&2, &2, TC.GenerationError, TC.SpanId> <- Generate.SpanId.generate(None{})
-    +span_id : TC.SpanId <- generated(TC.SpanId, spanned)
+    span_result : Result<&2, &2, TC.GenerationError, TC.SpanId> <- Generate.SpanId.generate(None{})
+    +span_id : TC.SpanId <- generated(TC.SpanId, span_result)
     Unit <- IO.print("root span flags: " ++ flags(TC.Context.from_ids(trace_id, span_id, sampled)))
     # A child span: the root's trace ID and sampled flag, and a span ID that
     # is never its parent's.

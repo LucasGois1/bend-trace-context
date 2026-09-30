@@ -570,9 +570,9 @@ def continuation() -> IO(Unit):
       TC.Context.extract(limits, received_request(), Some{base}), TC.Restart{})
     strict_service([Fail{(3, "no entropy")}], TC.Context.extract(limits, received_request(), None{}))
 
-# An OpenTelemetry SDK starts a span in three steps on the package: it
-# generates a trace ID alone, asks its sampler about it, and only then
-# generates the span ID. Replayed words give exact IDs.
+# The steps of an OpenTelemetry SDK that starts spans on the package, as the
+# guide's "Building blocks for an OpenTelemetry SDK" describes them.
+# Replayed words give exact IDs.
 def sdk_generation.id(-A: Data, what: String, done: Words() & Result<&2, &2, TC.GenerationError, A>) -> IO(A):
   match done:
     case Tuple{rest, Fail{error}}:
@@ -589,26 +589,35 @@ def sdk_generation() -> IO(Unit):
   do IO<Unit>:
     # 1274621749, 2008239526, 2748224157 and 235816758 are 4bf92f35,
     # 77b34da6, a3ce929d and 0e0e4736 in hexadecimal.
-    traced : Words() & Result<&2, &2, TC.GenerationError, TC.TraceId> <- TC.TraceId.generate_with(~Words(),
+    trace_outcome : Words() & Result<&2, &2, TC.GenerationError, TC.TraceId> <- TC.TraceId.generate_with(~Words(),
       ~TC.Source.tape, [Done{1274621749}, Done{2008239526}, Done{2748224157}, Done{235816758}], None{})
-    +trace_id : TC.TraceId <- sdk_generation.id(TC.TraceId, "trace ID", traced)
+    +trace_id : TC.TraceId <- sdk_generation.id(TC.TraceId, "trace ID", trace_outcome)
     Unit <- IO.print("sdk generation: trace ID " ++ TC.TraceId.to_string(trace_id) ++ ", random " ++
       Bool.show(TC.TraceId.is_random(trace_id)))
     +sampled : Bool = sdk_generation.sampled(trace_id)
     Unit <- IO.print("sdk generation: sampled " ++ Bool.show(sampled))
     # 15755178 and 195625655 are 00f067aa and 0ba902b7.
-    spanned : Words() & Result<&2, &2, TC.GenerationError, TC.SpanId> <- TC.SpanId.generate_with(~Words(),
+    span_outcome : Words() & Result<&2, &2, TC.GenerationError, TC.SpanId> <- TC.SpanId.generate_with(~Words(),
       ~TC.Source.tape, [Done{15755178}, Done{195625655}], None{})
-    +span_id : TC.SpanId <- sdk_generation.id(TC.SpanId, "span ID", spanned)
+    +span_id : TC.SpanId <- sdk_generation.id(TC.SpanId, "span ID", span_outcome)
     Unit <- IO.print("sdk generation: span ID " ++ TC.SpanId.to_string(span_id))
     Unit <- emit("sdk generation: local context", TC.Context.from_ids(trace_id, span_id, sampled))
     # A child's span ID excludes its parent's: the first candidate repeats it
     # and is replaced by the next, 53995c3f and 42cd8ad8.
-    child : Words() & Result<&2, &2, TC.GenerationError, TC.SpanId> <- TC.SpanId.generate_with(~Words(),
+    child_outcome : Words() & Result<&2, &2, TC.GenerationError, TC.SpanId> <- TC.SpanId.generate_with(~Words(),
       ~TC.Source.tape, [Done{15755178}, Done{195625655}, Done{1402559551}, Done{1120766680}], Some{span_id})
-    child_span : TC.SpanId <- sdk_generation.id(TC.SpanId, "child span ID", child)
-    IO.print("sdk generation: child span ID " ++ TC.SpanId.to_string(child_span) ++ ", not the parent's " ++
+    child_span : TC.SpanId <- sdk_generation.id(TC.SpanId, "child span ID", child_outcome)
+    Unit <- IO.print("sdk generation: child span ID " ++ TC.SpanId.to_string(child_span) ++ ", not the parent's " ++
       TC.SpanId.to_string(span_id))
+    # A new trace that replaces this one, as a restart at a trust boundary
+    # does, excludes its trace ID: the first candidate repeats it and is
+    # replaced by the next, 0af76519, 16cd43dd, 8448eb21 and 1c80319c.
+    new_outcome : Words() & Result<&2, &2, TC.GenerationError, TC.TraceId> <- TC.TraceId.generate_with(~Words(),
+      ~TC.Source.tape, [Done{1274621749}, Done{2008239526}, Done{2748224157}, Done{235816758}, Done{183985433},
+        Done{382551005}, Done{2219371297}, Done{478163356}], Some{trace_id})
+    new_trace : TC.TraceId <- sdk_generation.id(TC.TraceId, "new trace ID", new_outcome)
+    IO.print("sdk generation: new trace ID " ++ TC.TraceId.to_string(new_trace) ++ ", not the replaced " ++
+      TC.TraceId.to_string(trace_id))
 
 def main() -> IO(Unit):
   do IO<Unit>:
