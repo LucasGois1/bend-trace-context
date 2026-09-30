@@ -76,7 +76,8 @@
 #    3. Local contexts and flags       from_ids ... received_flags
 #    4. Children and restarts          sampling ... restart_accepts
 #    5. Identifiers from source words  trace_words ... words_unasserted
-#    6. Generation from a source       feed_failure ... generation_drive
+#    6. Generation from a source       feed_failure ... generation_drive,
+#                                      trace_id_failure ... restart_composed
 #    7. Limits                         limits_bounds ... default_limits
 #    8. Tracestate keys and values     key_parse ... value_separators
 #    9. Tracestate states and lookups  state_valid, get_entry, get_absent
@@ -613,8 +614,10 @@ law words_unasserted:
 #
 # Context.root_with, child_with and restart_with read words from a caller's
 # source one at a time and feed them to the generation machine (Draw and Step
-# in trace_context.bend). Context.root, child and restart in generation.bend
-# do the same with the host's cryptographic source. The laws quantify over
+# in trace_context.bend), whose two pieces, a trace ID draw and a span ID
+# draw, also run alone (see "Separate generation" below). Context.root,
+# child and restart in generation.bend do the same with the host's
+# cryptographic source. The laws quantify over
 # every "tape": a list of word results, errors included, that a deterministic
 # source replays. The rules come from spec #1, "Generation and failure
 # contracts": the trace ID before the span ID, at most eight candidates per
@@ -872,6 +875,360 @@ law generation_drive:
   for extra: Nat
   {host(Nat.add(fuel, extra), tape, Trace.Generation{fuel, step}) ==
     Trace.Draw.outcome(Tape(), Trace.Draw.run(fuel, (tape, step))) : TapeOutcome()}
+
+# Separate generation
+# -------------------
+#
+# An OpenTelemetry SDK starts a span in three steps: it generates a trace ID,
+# asks its sampler about it, and only then generates the span ID.
+# TraceId.generate_with and SpanId.generate_with generate one identifier
+# alone from a caller's source, and TraceId.generate and SpanId.generate in
+# generation.bend on the host's. Each runs one piece of the generation
+# machine: a trace ID draw (TraceDraw and TraceStep in trace_context.bend) or
+# a span ID draw (SpanDraw and SpanStep), with the candidate rules above and
+# an optional identifier to exclude. The rules come from spec #41,
+# "Separate generation". As above, the laws quantify over every tape, state
+# the pieces on their pure drivers, TraceDraw.run and SpanDraw.run, and tie
+# those drivers to the IO operations.
+
+# A tape's unread rest, with a trace ID draw's state after reading.
+def TapeTraceStep() -> Type:
+  Tape() & Trace.TraceStep
+
+# A tape's unread rest, with the trace ID generated or why it failed.
+def TapeTraceId() -> Type:
+  Tape() & Result<&2, &2, Trace.GenerationError, Trace.TraceId>
+
+# The claim that a generated trace ID avoids the one to exclude: nothing to
+# prove without one (Unit), and otherwise that their texts differ.
+def TraceAvoids(excluded: Maybe<&2, Trace.TraceId>, id: Trace.TraceId) -> Type:
+  match excluded:
+    case None{}:
+      Unit
+    case Some{old}:
+      {Trace.TraceId.to_string(id) != Trace.TraceId.to_string(old) : String}
+
+# LAW trace_id_failure
+#   Claim: a source error ends a trace ID draw at once with SourceFailure,
+#     carrying the source's own code and message, whatever the draw was doing.
+#   Requirement: spec #41, "Separate generation": trace ID generation "fails
+#     with SourceFailure or ExhaustedTraceId"; spec #1, "A source error at any
+#     word ends generation immediately".
+#   Why: as for feed_failure, a draw that went on after a failed read, or
+#     filled in a word, would give a trace ID that is not random while
+#     asserting that it is.
+#   Proof: Laws.trace_id_failure, by computation.
+law trace_id_failure:
+  for code: U32
+  for message: String
+  for remaining: Nat
+  for words: Trace.TraceWords
+  for excluded: Maybe<&2, Trace.TraceId>
+  {Trace.TraceDraw.feed(Fail{(code, message)}, remaining, words, excluded) ==
+    Trace.TraceFailed{Trace.SourceFailure{code, message}} : Trace.TraceStep}
+
+# LAW trace_id_tape
+#   Claim: generating a trace ID alone from a tape source does exactly what the
+#     pure driver TraceDraw.run does with a budget of 32 words, for every
+#     trace ID to exclude: the same words are read, in order, and the unread
+#     ones are handed back.
+#   Requirement: spec #41, "Separate generation": both forms exist "with a
+#     caller's identifier source"; user story 33 of #41, a replayed tape
+#     drives the separate generation.
+#   Why: it carries the laws below, stated on the pure driver, over to the
+#     operation that an SDK and its tests call.
+#   Proof: Laws.trace_id_tape, via proofs/separate.bend.
+law trace_id_tape:
+  for tape: Tape()
+  for excluded: Maybe<&2, Trace.TraceId>
+  {Observe(TapeTraceId(), Trace.TraceId.generate_with(~Tape(), ~Trace.Source.tape, tape, excluded)) ==
+    Emit{Trace.TraceDraw.outcome(Tape(), Trace.TraceDraw.run(32n, (tape, Trace.TraceDraw.start(excluded))))} :
+    IO.OP<TapeTraceId()>}
+
+# LAW trace_id_candidate
+#   Claim: when the first four words of a tape make a trace ID, generating a
+#     trace ID with none to exclude reads exactly those four words and gives
+#     that trace ID, which asserts random-trace-id.
+#   Requirement: spec #41, "Separate generation": trace ID generation "reads
+#     four source words per candidate, most significant first" and "asserts
+#     random-trace-id on the result".
+#   Why: with trace_words, it fixes which trace ID a sequence of words gives
+#     and that no word beyond the candidate is read, so that another
+#     implementation or a test with a replayed source can predict it.
+#   Reading: `made` says the four words make a nonzero candidate, `id`, as
+#     TraceId.from_words converts them.
+#   Scope: stated with nothing to exclude; generated_trace_id covers the
+#     excluded trace ID, and the consumer's SDK flow shows an excluded
+#     candidate replaced by the next one.
+#   Proof: Laws.trace_id_candidate, by computation once `made` is rewritten.
+law trace_id_candidate:
+  for first: U32
+  for second: U32
+  for third: U32
+  for fourth: U32
+  for id: Trace.TraceId
+  for made: {Trace.TraceId.from_words(first, second, third, fourth) == Some{id} : Maybe<&2, Trace.TraceId>}
+  for rest: Tape()
+  {Trace.TraceDraw.run(32n, (Con{Done{first}, Con{Done{second}, Con{Done{third}, Con{Done{fourth}, rest}}}},
+    Trace.TraceDraw.start(None{}))) == (rest, Trace.DrawnTraceId{Trace.TraceId.assert_random(id)}) :
+    TapeTraceStep()}
+
+# LAW trace_id_ends
+#   Claim: for every tape and every trace ID to exclude, a trace ID draw has
+#     finished, with a trace ID or a failure, within 32 words.
+#   Requirement: spec #41, "Separate generation": trace ID generation reads
+#     four words per candidate "for at most eight candidates".
+#   Why: generation always ends with an answer, and the budget of
+#     TraceId.generate_with is exactly this worst case, so it never gives up
+#     early.
+#   Reading: TraceDraw.ended says the driver's step is DrawnTraceId or
+#     TraceFailed.
+#   Proof: Laws.trace_id_ends, via proofs/separate.bend.
+law trace_id_ends:
+  for tape: Tape()
+  for +excluded: Maybe<&2, Trace.TraceId>
+  {Trace.TraceDraw.ended(Trace.TraceDraw.run(32n, (tape, Trace.TraceDraw.start(excluded)))) == True{} : Bool}
+
+# LAW trace_id_exhaustion
+#   Claim: eight all-zero trace ID candidates (32 zero words) make a trace ID
+#     draw fail with ExhaustedTraceId, whatever it must exclude, and the words
+#     after them are not read.
+#   Requirement: spec #41, "Separate generation": trace ID generation "rejects
+#     all-zero candidates" for "at most eight candidates" and "fails with ...
+#     ExhaustedTraceId".
+#   Why: as for root_exhaustion, a source stuck on zeros gets a structured
+#     error instead of an invalid ID or an endless loop.
+#   Scope: proved for all-zero candidates; a candidate equal to the excluded
+#     trace ID is refused by generated_trace_id.
+#   Proof: Laws.trace_id_exhaustion, by computation.
+law trace_id_exhaustion:
+  for excluded: Maybe<&2, Trace.TraceId>
+  for rest: Tape()
+  {Trace.TraceDraw.run(32n, (List.append(&1, Result<&1, &1, U32 & String, U32>, zeros(32n), rest),
+    Trace.TraceDraw.start(excluded))) == (rest, Trace.TraceFailed{Trace.ExhaustedTraceId{}}) : TapeTraceStep()}
+
+# LAW generated_trace_id
+#   Claim: a trace ID generated alone from any tape asserts random-trace-id,
+#     and its text differs from that of the trace ID to exclude, if there is
+#     one.
+#   Requirement: spec #41, "Separate generation": trace ID generation "rejects
+#     ... an optional trace ID to exclude" and "asserts random-trace-id on the
+#     result"; "generation trusts its source, so every generated trace ID
+#     asserts random-trace-id, as root generation does".
+#   Why: the spans that an SDK starts on a generated trace ID emit the
+#     random-trace-id flag as generated roots do, and a restart's new trace
+#     never reuses the one it replaces.
+#   Reading: TraceAvoids, above, is Unit without a trace ID to exclude.
+#   Scope: the source is trusted to be random; no law speaks about the quality
+#     of a real source.
+#   Proof: Laws.generated_trace_id, via proofs/separate.bend.
+law generated_trace_id:
+  for tape: Tape()
+  for +excluded: Maybe<&2, Trace.TraceId>
+  for rest: Tape()
+  for id: Trace.TraceId
+  for generated: {Trace.TraceDraw.run(32n, (tape, Trace.TraceDraw.start(excluded))) ==
+    (rest, Trace.DrawnTraceId{id}) : TapeTraceStep()}
+  {Trace.TraceId.is_random(id) == True{} : Bool} & TraceAvoids(excluded, id)
+
+# A tape's unread rest, with a span ID draw's state after reading.
+def TapeSpanStep() -> Type:
+  Tape() & Trace.SpanStep
+
+# A tape's unread rest, with the span ID generated or why it failed.
+def TapeSpanId() -> Type:
+  Tape() & Result<&2, &2, Trace.GenerationError, Trace.SpanId>
+
+# The claim that a generated span ID avoids the one to exclude, as
+# TraceAvoids states it of trace IDs.
+def SpanAvoids(excluded: Maybe<&2, Trace.SpanId>, id: Trace.SpanId) -> Type:
+  match excluded:
+    case None{}:
+      Unit
+    case Some{old}:
+      {Trace.SpanId.to_string(id) != Trace.SpanId.to_string(old) : String}
+
+# LAW span_id_failure
+#   Claim: a source error ends a span ID draw at once with SourceFailure,
+#     carrying the source's own code and message, whatever the draw was doing.
+#   Requirement: spec #41, "Separate generation": span ID generation "fails
+#     with SourceFailure or ExhaustedSpanId"; spec #1, "A source error at any
+#     word ends generation immediately".
+#   Why: as for trace_id_failure.
+#   Proof: Laws.span_id_failure, by computation.
+law span_id_failure:
+  for code: U32
+  for message: String
+  for remaining: Nat
+  for words: Trace.SpanWords
+  for excluded: Maybe<&2, Trace.SpanId>
+  {Trace.SpanDraw.feed(Fail{(code, message)}, remaining, words, excluded) ==
+    Trace.SpanFailed{Trace.SourceFailure{code, message}} : Trace.SpanStep}
+
+# LAW span_id_tape
+#   Claim: as trace_id_tape, for a span ID generated alone with a budget of 16
+#     words.
+#   Proof: Laws.span_id_tape, via proofs/separate.bend.
+law span_id_tape:
+  for tape: Tape()
+  for excluded: Maybe<&2, Trace.SpanId>
+  {Observe(TapeSpanId(), Trace.SpanId.generate_with(~Tape(), ~Trace.Source.tape, tape, excluded)) ==
+    Emit{Trace.SpanDraw.outcome(Tape(), Trace.SpanDraw.run(16n, (tape, Trace.SpanDraw.start(excluded))))} :
+    IO.OP<TapeSpanId()>}
+
+# LAW span_id_candidate
+#   Claim: when the first two words of a tape make a span ID, generating a
+#     span ID with none to exclude reads exactly those two words and gives
+#     that span ID.
+#   Requirement: spec #41, "Separate generation": span ID generation "reads
+#     two words per candidate", most significant first as for trace IDs.
+#   Why and Scope: as for trace_id_candidate, with span_words.
+#   Proof: Laws.span_id_candidate, by computation once `made` is rewritten.
+law span_id_candidate:
+  for first: U32
+  for second: U32
+  for id: Trace.SpanId
+  for made: {Trace.SpanId.from_words(first, second) == Some{id} : Maybe<&2, Trace.SpanId>}
+  for rest: Tape()
+  {Trace.SpanDraw.run(16n, (Con{Done{first}, Con{Done{second}, rest}}, Trace.SpanDraw.start(None{}))) ==
+    (rest, Trace.DrawnSpanId{id}) : TapeSpanStep()}
+
+# LAW span_id_ends
+#   Claim: for every tape and every span ID to exclude, a span ID draw has
+#     finished within 16 words: eight candidates of two words.
+#   Requirement: spec #41, "Separate generation": span ID generation reads two
+#     words per candidate "for at most eight candidates".
+#   Why: as for trace_id_ends, for SpanId.generate_with.
+#   Proof: Laws.span_id_ends, via proofs/separate.bend.
+law span_id_ends:
+  for tape: Tape()
+  for +excluded: Maybe<&2, Trace.SpanId>
+  {Trace.SpanDraw.ended(Trace.SpanDraw.run(16n, (tape, Trace.SpanDraw.start(excluded)))) == True{} : Bool}
+
+# LAW span_id_exhaustion
+#   Claim: eight all-zero span ID candidates (16 zero words) make a span ID
+#     draw fail with ExhaustedSpanId, whatever it must exclude, and the words
+#     after them are not read.
+#   Requirement: spec #41, "Separate generation": span ID generation "rejects
+#     all-zero candidates" for "at most eight candidates" and "fails with ...
+#     ExhaustedSpanId".
+#   Why and Scope: as for trace_id_exhaustion.
+#   Proof: Laws.span_id_exhaustion, by computation.
+law span_id_exhaustion:
+  for excluded: Maybe<&2, Trace.SpanId>
+  for rest: Tape()
+  {Trace.SpanDraw.run(16n, (List.append(&1, Result<&1, &1, U32 & String, U32>, zeros(16n), rest),
+    Trace.SpanDraw.start(excluded))) == (rest, Trace.SpanFailed{Trace.ExhaustedSpanId{}}) : TapeSpanStep()}
+
+# LAW generated_span_id
+#   Claim: the text of a span ID generated alone from any tape differs from
+#     that of the span ID to exclude, if there is one.
+#   Requirement: spec #41, "Separate generation": span ID generation "rejects
+#     ... an optional span ID to exclude"; user story 3 of #41, "a child span
+#     never reuses its parent's span ID".
+#   Why: an SDK that excludes a parent's span ID gets a child span that
+#     identifies an operation of its own.
+#   Reading: SpanAvoids, above, is Unit without a span ID to exclude.
+#   Scope: the exclusion compares with one span ID only, as for children:
+#     siblings may get the same span ID if the source repeats its words.
+#   Proof: Laws.generated_span_id, via proofs/separate.bend.
+law generated_span_id:
+  for tape: Tape()
+  for +excluded: Maybe<&2, Trace.SpanId>
+  for rest: Tape()
+  for id: Trace.SpanId
+  for generated: {Trace.SpanDraw.run(16n, (tape, Trace.SpanDraw.start(excluded))) ==
+    (rest, Trace.DrawnSpanId{id}) : TapeSpanStep()}
+  SpanAvoids(excluded, id)
+
+# Root, child and restart generation as compositions
+# --------------------------------------------------
+#
+# The laws below state that, for every tape, root, child and restart
+# generation are the compositions of the separate generation that spec #41
+# describes. With root_tape, child_tape and restart_tape, they also say that
+# the separate generation follows the machine that the laws above describe,
+# word for word.
+
+# The context of a span ID generated from a tape for an operation of
+# `trace_id` with the sampled indication `sampled`: its failure is the
+# context's, and otherwise it is Context.from_ids of the three, with the
+# words left.
+def context_of(+trace_id: Trace.TraceId, +sampled: Bool, done: TapeSpanId()) -> TapeOutcome():
+  match done:
+    case Tuple{rest, Fail{error}}:
+      (rest, Fail{error})
+    case Tuple{rest, Done{span_id}}:
+      (rest, Done{Trace.Context.from_ids(trace_id, span_id, sampled)})
+
+# What follows a root's or a restart's trace ID: its failure is the
+# generation's, and otherwise a span ID, with none to exclude, from the words
+# left, and the root of both, which is not sampled.
+def root_of(done: TapeTraceId()) -> IO(TapeOutcome()):
+  match done:
+    case Tuple{rest, Fail{error}}:
+      IO.pure(TapeOutcome(), (rest, Fail{error}))
+    case Tuple{rest, Done{trace_id}}:
+      IO.bind(TapeSpanId(), TapeOutcome(), Trace.SpanId.generate_with(~Tape(), ~Trace.Source.tape, rest, None{}),
+        spanned => IO.pure(TapeOutcome(), context_of(trace_id, False{}, spanned)))
+
+# LAW root_composed
+#   Claim: for every tape, generating a root is generating a trace ID with
+#     none to exclude, then a span ID from the words left with none to
+#     exclude, and making the root of both; either failure is the root's.
+#   Requirement: spec #41, "Separate generation": "A root is a trace ID then
+#     a span ID", keeping "their word order, word budgets and results".
+#   Why: an SDK that composes the separate generation gets the roots that
+#     the package generates, so both follow one implementation of the
+#     identifier rules, and root_tape and the laws after it describe both.
+#   Reading: root_of and context_of are defined above; Observe runs each IO
+#     action, as in root_tape.
+#   Scope: stated for tapes, as the other generation laws are; the host
+#     source runs through the same operations.
+#   Proof: Laws.root_composed, via proofs/separate.bend.
+law root_composed:
+  for tape: Tape()
+  {Observe(TapeOutcome(), Trace.Context.root_with(~Tape(), ~Trace.Source.tape, tape)) ==
+    Observe(TapeOutcome(), IO.bind(TapeTraceId(), TapeOutcome(),
+      Trace.TraceId.generate_with(~Tape(), ~Trace.Source.tape, tape, None{}), traced => root_of(traced))) :
+    IO.OP<TapeOutcome()>}
+
+# LAW child_composed
+#   Claim: for every tape, generating a child of `parent` is generating a
+#     span ID that excludes the parent's, and making the context of the
+#     parent's trace ID, that span ID and the sampled indication that
+#     Sampling.resolve gives; a failure is the child's.
+#   Requirement: spec #41, "Separate generation": "a child is a span ID
+#     excluding the parent's", with unchanged results.
+#   Why: as for root_composed; an SDK starts a child span by generating its
+#     span ID alone, excluding its parent's.
+#   Scope: as for root_composed.
+#   Proof: Laws.child_composed, via proofs/separate.bend.
+law child_composed:
+  for tape: Tape()
+  for +parent: Trace.Parent
+  for sampling: Trace.Sampling
+  {Observe(TapeOutcome(), Trace.Context.child_with(~Tape(), ~Trace.Source.tape, tape, parent, sampling)) ==
+    Observe(TapeOutcome(), IO.bind(TapeSpanId(), TapeOutcome(),
+      Trace.SpanId.generate_with(~Tape(), ~Trace.Source.tape, tape, Some{Trace.Parent.span_id(parent)}),
+      spanned => IO.pure(TapeOutcome(), context_of(Trace.Parent.trace_id(parent),
+        Trace.Sampling.resolve(sampling, Trace.Parent.is_sampled(parent)), spanned)))) : IO.OP<TapeOutcome()>}
+
+# LAW restart_composed
+#   Claim: for every tape, generating a restart of `previous` is generating
+#     a trace ID that excludes the received one, then what follows a root's
+#     trace ID (root_of).
+#   Requirement: spec #41, "Separate generation": "a restart is a trace ID
+#     excluding the received one, then a span ID", with unchanged results.
+#   Why and Scope: as for root_composed.
+#   Proof: Laws.restart_composed, via proofs/separate.bend.
+law restart_composed:
+  for tape: Tape()
+  for previous: Trace.RemoteContext
+  {Observe(TapeOutcome(), Trace.Context.restart_with(~Tape(), ~Trace.Source.tape, tape, previous)) ==
+    Observe(TapeOutcome(), IO.bind(TapeTraceId(), TapeOutcome(),
+      Trace.TraceId.generate_with(~Tape(), ~Trace.Source.tape, tape, Some{Trace.RemoteContext.trace_id(previous)}),
+      traced => root_of(traced))) : IO.OP<TapeOutcome()>}
 
 # Tracestate
 # ----------

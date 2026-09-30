@@ -18,6 +18,7 @@ need to use it, and how to do common tasks in Bend. The
 - [Questions](#questions)
 - [Troubleshooting](#troubleshooting)
 - [OpenTelemetry](#opentelemetry)
+- [Building blocks for an OpenTelemetry SDK](#building-blocks-for-an-opentelemetry-sdk)
 
 ## What the package does
 
@@ -128,7 +129,7 @@ and for hosts with their own generator.
 | Module | Import it for | Host effects |
 | --- | --- | --- |
 | [trace_context.bend](trace_context.bend) | Everything that decides a Trace Context rule: the codec, IDs and contexts, `tracestate`, limits, extraction, injection, forwarding, and generation on a source that you supply | None |
-| [generation.bend](generation.bend) | The same operations on the host's cryptographic source: `Context.root`, `child`, `restart`, `continue_or_start` and `send`, and the native HTTP shortcuts `NativeHttp.continue_or_start` and `NativeHttp.send` | Reads the host's entropy |
+| [generation.bend](generation.bend) | The same operations on the host's cryptographic source: `Context.root`, `child`, `restart`, `continue_or_start` and `send`, the native HTTP shortcuts `NativeHttp.continue_or_start` and `NativeHttp.send`, and `TraceId.generate` and `SpanId.generate`, one identifier alone | Reads the host's entropy |
 | [native_http.bend](native_http.bend) | The header maps of bend-kit's HTTP package: `carrier`, `headers`, `Outbound`, and the shortcuts on a source that you supply | None |
 | `bend-trace-context`, `/node`, `/fetch` | JavaScript applications and pages, as the [JavaScript guide](JAVASCRIPT.md) describes | WebCrypto |
 
@@ -877,3 +878,83 @@ It records no spans. To record them:
 - in Bend, log the trace and span IDs of the service's operation with your
   log lines, so that a log backend can correlate them, as
   [Log correlation](#log-correlation) shows.
+
+## Building blocks for an OpenTelemetry SDK
+
+An **OpenTelemetry SDK** records spans, makes their sampling decisions and
+exports them. An SDK for Bend builds span identity, identifier generation
+and propagation on this package, which stays the W3C Trace Context layer:
+what OpenTelemetry itself defines, such as its span context, its samplers
+and its propagator interface, belongs to the SDK. These sections show the
+pieces that it composes.
+
+### A span's identifiers
+
+An SDK starts a span in three steps: it generates a trace ID, asks its
+sampler about it, and only then generates the span ID.
+`Generate.TraceId.generate` and `Generate.SpanId.generate` generate one
+identifier alone on the host's cryptographic source, under the rules of root
+and child generation: at most eight candidates, all-zero candidates
+rejected, and no fallback. Each takes an identifier to exclude, `None{}` or
+`Some{id}`, so that a child span's ID is never its parent's. A generated
+trace ID asserts random-trace-id, and `TC.Context.from_ids` gives the span's
+context with the sampled indication that the sampler decided.
+
+<!-- test:guide-sdk:start -->
+```bend
+import Base
+import ./deps/bend-trace-context/packages/trace-context/trace_context.bend as TC
+import ./deps/bend-trace-context/packages/trace-context/generation.bend as Generate
+
+# The SDK's sampler decides on the trace ID alone, before the span ID exists.
+# This one samples every trace, as OpenTelemetry's AlwaysOn sampler does.
+def sample(trace_id: TC.TraceId) -> Bool:
+  True{}
+
+# An identifier, or the program stops with the reason that none was generated.
+def generated(-A: Data, result: Result<&2, &2, TC.GenerationError, A>) -> IO(A):
+  match result:
+    case Fail{error}:
+      IO.die(A, 1, "no identifier: " ++ TC.GenerationError.show(error))
+    case Done{id}:
+      IO.pure(A, id)
+
+# The flags of the traceparent that a span's context emits.
+def flags(context: TC.LocalContext) -> String:
+  String.drop(TC.TraceParentV00.format(TC.LocalContext.to_traceparent(context)), 53n)
+
+def main() -> IO(Unit):
+  do IO<Unit>:
+    # A root span: its trace ID, the sampler's decision on it, then its span ID.
+    traced : Result<&2, &2, TC.GenerationError, TC.TraceId> <- Generate.TraceId.generate(None{})
+    +trace_id : TC.TraceId <- generated(TC.TraceId, traced)
+    +sampled : Bool = sample(trace_id)
+    spanned : Result<&2, &2, TC.GenerationError, TC.SpanId> <- Generate.SpanId.generate(None{})
+    +span_id : TC.SpanId <- generated(TC.SpanId, spanned)
+    Unit <- IO.print("root span flags: " ++ flags(TC.Context.from_ids(trace_id, span_id, sampled)))
+    # A child span: the root's trace ID and sampled flag, and a span ID that
+    # is never its parent's.
+    child : Result<&2, &2, TC.GenerationError, TC.SpanId> <- Generate.SpanId.generate(Some{span_id})
+    +child_span : TC.SpanId <- generated(TC.SpanId, child)
+    IO.print("child span: its own span ID " ++ Bool.show(Bool.not(TC.SpanId.is_eq(child_span, span_id))) ++
+      ", flags " ++ flags(TC.Context.from_ids(trace_id, child_span, sampled)))
+```
+<!-- test:guide-sdk:end -->
+
+<!-- test:guide-sdk-output:start -->
+```text
+root span flags: 03
+child span: its own span ID True, flags 03
+```
+<!-- test:guide-sdk-output:end -->
+
+Flags `03` are sampled and random-trace-id. A generation that fails gives a
+`TC.GenerationError`, as the other generating operations do, and the SDK
+decides what a span that cannot start does. In the SDK's tests,
+`TC.TraceId.generate_with` and `TC.SpanId.generate_with` take a replayed tape
+instead of the host's source, as [Deterministic tests](#deterministic-tests)
+shows for services, and return the words that the tape has left. Root, child
+and restart generation are compositions of the same two operations, so an
+SDK that composes them follows the rules of `Generate.Context.root` and of
+the operations that most services use; the
+[reference](README.md#a-trace-id-or-a-span-id-alone) lists them.

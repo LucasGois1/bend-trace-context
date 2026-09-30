@@ -1,2 +1,3 @@
 OK: real-source root, child and restart are well formed
+OK: real-source trace IDs and span IDs generated alone are well formed
 OK: real-source continue-or-start and send are well formed

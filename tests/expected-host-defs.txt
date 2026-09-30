@@ -1,7 +1,9 @@
 SOME PROOFS FAIL
-Error: 9 defs rely on unsafe or foreign code:
+Error: 11 defs rely on unsafe or foreign code:
 - entropy.read_u32
 - Source.host
+- TraceId.generate
+- SpanId.generate
 - Context.root
 - Context.child
 - Context.restart

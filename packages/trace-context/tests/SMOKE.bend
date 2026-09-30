@@ -50,6 +50,21 @@ def Smoke.restart(+incoming: TC.RemoteContext, +restarted: TC.LocalContext) -> I
       Bool.not(TC.TraceId.is_eq(TC.LocalContext.trace_id(restarted), TC.RemoteContext.trace_id(incoming))))
     Smoke.assert("a generated restart is emitted with flags 02", String.eq(Smoke.flags(Smoke.text(restarted)), "02"))
 
+# A trace ID and a span ID generated alone on the real source, as an
+# OpenTelemetry SDK generates them: each avoids the identifier it excludes,
+# and the trace ID asserts random-trace-id.
+def Smoke.alone(+root: TC.LocalContext, +trace_id: TC.TraceId, +span_id: TC.SpanId) -> IO(Unit):
+  do IO<Unit>:
+    Unit <- Smoke.assert("a trace ID generated alone has 32 digits",
+      Nat.is_eq(String.length(TC.TraceId.to_string(trace_id)), 32n))
+    Unit <- Smoke.assert("a trace ID generated alone asserts random-trace-id", TC.TraceId.is_random(trace_id))
+    Unit <- Smoke.assert("a trace ID generated alone avoids the one it excludes",
+      Bool.not(TC.TraceId.is_eq(trace_id, TC.LocalContext.trace_id(root))))
+    Unit <- Smoke.assert("a span ID generated alone has 16 digits",
+      Nat.is_eq(String.length(TC.SpanId.to_string(span_id)), 16n))
+    Smoke.assert("a span ID generated alone avoids the one it excludes",
+      Bool.not(TC.SpanId.is_eq(span_id, TC.LocalContext.span_id(root))))
+
 def Smoke.operation(+name: String, context: Maybe<&2, TC.LocalContext>) -> IO(TC.LocalContext):
   match context:
     case None{}:
@@ -102,5 +117,13 @@ def main() -> IO(Unit):
     restarted : TC.LocalContext <- Smoke.valid(TC.LocalContext, "restart", restart_result)
     Unit <- Smoke.restart(incoming, restarted)
     Unit <- IO.print("OK: real-source root, child and restart are well formed")
+    trace_result : Result<&2, &2, TC.GenerationError, TC.TraceId> <-
+      Generate.TraceId.generate(Some{TC.LocalContext.trace_id(root)})
+    trace_id : TC.TraceId <- Smoke.valid(TC.TraceId, "trace ID", trace_result)
+    span_result : Result<&2, &2, TC.GenerationError, TC.SpanId> <-
+      Generate.SpanId.generate(Some{TC.LocalContext.span_id(root)})
+    span_id : TC.SpanId <- Smoke.valid(TC.SpanId, "span ID", span_result)
+    Unit <- Smoke.alone(root, trace_id, span_id)
+    Unit <- IO.print("OK: real-source trace IDs and span IDs generated alone are well formed")
     Unit <- Smoke.flow(incoming)
     IO.print("OK: real-source continue-or-start and send are well formed")

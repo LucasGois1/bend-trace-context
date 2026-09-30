@@ -90,7 +90,8 @@ LocalContext.to_traceparent(context: LocalContext) -> TraceParentV00
 
 The `_from_ids` operations take identifiers the caller already has. The
 operations that generate identifiers are `Context.root`, `Context.child` and
-`Context.restart` in [generation.bend](#generated-contexts).
+`Context.restart` in [generation.bend](#generated-contexts), and, one
+identifier alone, `TraceId.generate` and `SpanId.generate`.
 
 The types that carry these values are:
 
@@ -243,11 +244,59 @@ TC.U32.to_hex(word: U32) -> String
 `U32.to_hex` gives a word's eight lowercase digits, most significant first,
 and `from_words` returns `None{}` for an all-zero candidate. Like parsing,
 `TraceId.from_words` makes no randomness assertion; add one with
-`TraceId.assert_random` only when the words are random. The `Draw`/`Step`
-machine that the operations share is stated in the laws but is internal, like
-the parsing helpers: it is not a compatibility contract. A host that feeds
-words itself drives it through `Generation`, described in
+`TraceId.assert_random` only when the words are random. The machine that the
+operations share, its `TraceDraw` and `SpanDraw` pieces and the `Draw` and
+`Step` generation that composes them, is stated in the laws but is internal,
+like the parsing helpers: it is not a compatibility contract. A host that
+feeds words itself drives it through `Generation`, described in
 [Host-driven generation](#host-driven-generation).
+
+### A trace ID or a span ID alone
+
+An OpenTelemetry SDK starts a span in three steps: it generates a trace ID,
+asks its sampler about it, and only then generates the span ID. These
+operations generate one identifier alone, on the host's cryptographic source
+or on a caller's:
+
+```bend
+Generate.TraceId.generate(excluded: Maybe<&2, TC.TraceId>) -> IO(Result<&2, &2, TC.GenerationError, TC.TraceId>)
+Generate.SpanId.generate(excluded: Maybe<&2, TC.SpanId>) -> IO(Result<&2, &2, TC.GenerationError, TC.SpanId>)
+TC.TraceId.generate_with(~S, ~read, source: S, excluded: Maybe<&2, TC.TraceId>) ->
+  IO(S & Result<&2, &2, TC.GenerationError, TC.TraceId>)
+TC.SpanId.generate_with(~S, ~read, source: S, excluded: Maybe<&2, TC.SpanId>) ->
+  IO(S & Result<&2, &2, TC.GenerationError, TC.SpanId>)
+```
+
+They follow the rules above for each identifier:
+
+- A trace ID candidate takes four words and a span ID candidate two, most
+  significant first, for at most eight candidates: a trace ID reads at most
+  32 words and a span ID 16, one at a time, and never more than it needs.
+- An all-zero candidate is rejected, and so is a candidate equal to
+  `excluded` when it is `Some{id}`. After the eighth rejection the operation
+  fails with `ExhaustedTraceId{}` or `ExhaustedSpanId{}`. An SDK passes a
+  parent's span ID when it generates a child's, so that the child never
+  reuses it. Only that span ID is compared, as for `Context.child`: siblings
+  get different span IDs as long as the source's words differ.
+- The first source error fails with `SourceFailure{code, message}`.
+- A generated trace ID asserts random-trace-id, as a generated root's does.
+  A trace ID converted from words, like a parsed one, asserts nothing unless
+  `TraceId.assert_random` says so.
+
+The `_with` forms take a source as the operations above do and return its
+final state, so a test replays a tape with `Source.tape`. A context of the
+generated IDs is `Context.from_ids(trace_id, span_id, sampled)`, with the
+sampled indication that the caller's sampler decided; the
+[guide](GUIDE.md#building-blocks-for-an-opentelemetry-sdk) shows an SDK's
+steps.
+
+Root, child and restart generation are compositions of these operations: a
+root is a trace ID, then a span ID from the source's next state; a child is
+a span ID that excludes the parent's; a restart is a trace ID that excludes
+the received one, then a span ID. `Context.root_with`, `child_with` and
+`restart_with` are these compositions, and `Generate.Context.root` and its
+siblings run them on the host's source, with the word order, budgets and
+results described above.
 
 ## Tracestate
 
@@ -873,10 +922,12 @@ TC.SendPlan.sent(plan: TC.SendPlan, result: Result<&2, &2, TC.GenerationError, T
   `GenerationError` that caused it.
 
 `Context.continue_or_start_with` and `Context.send_with` run on these plans
-themselves, and `Context.root_with` and its siblings on
-`Generation.run_with`. Law `generation_drive` shows that a host's loop reads
-the same words, in order, and gets the same result as the pure driver that
-the other generation laws describe. Laws `hosted_service` and `hosted_send`
+themselves. `Context.root_with` and its siblings compose the
+[separate generation](#a-trace-id-or-a-span-id-alone) instead, and laws
+`root_tape`, `child_tape` and `restart_tape` show that they give what the
+machine of `Generation.root` and its siblings gives. Law `generation_drive`
+shows that a host's loop reads the same words, in order, and gets the same
+result as the pure driver that the other generation laws describe. Laws `hosted_service` and `hosted_send`
 show that a host that drives the plans gets what the IO operations give, for
 every sequence of words.
 
@@ -1147,6 +1198,15 @@ section describes, and the kernel needs Lean 4.34.
   trace ID and randomness assertion, resolves sampled and never reuses the
   parent's span ID; a generated restart's trace ID differs from the received
   one, asserts randomness and is unsampled.
+- **Separate generation:** a source error ends a trace ID or span ID draw at
+  once, and over a tape the IO operations compute the pure drivers word for
+  word. When the first four words, or two, make an identifier, generation
+  without one to exclude reads exactly those words and gives it, a trace ID
+  with its randomness asserted. For every tape a trace ID ends within 32
+  words and a span ID within 16, eight zero candidates exhaust either without
+  a ninth read, a generated trace ID asserts randomness, and neither is ever
+  the identifier that it excludes. For every tape, root, child and restart
+  generation are the compositions of the two operations.
 - **Limits:** a validated configuration has a traceparent input budget of at
   least 55, an output budget of at least 512 and an input budget no smaller
   than its output budget; `Limits.new` accepts exactly those configurations,

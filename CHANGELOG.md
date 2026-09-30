@@ -2,7 +2,22 @@
 
 ## 0.1.3-dev — unreleased
 
-No change since 0.1.2 yet.
+- Generate a trace ID or a span ID on its own
+  ([#42](https://github.com/LucasGois1/bend-trace-context/issues/42)), as an
+  OpenTelemetry SDK starts a span: a trace ID, its sampler's decision on it,
+  then the span ID. `Generate.TraceId.generate` and
+  `Generate.SpanId.generate` run on the host's cryptographic source, and
+  `TC.TraceId.generate_with` and `TC.SpanId.generate_with` on a caller's,
+  such as a replayed tape. Each takes an optional identifier to exclude,
+  reads four or two words per candidate, most significant first, for at most
+  eight candidates, and fails with `SourceFailure`, `ExhaustedTraceId` or
+  `ExhaustedSpanId`; a generated trace ID asserts random-trace-id. Root,
+  child and restart generation are now compositions of the two, with the
+  same words, budgets and results, and the machine behind the ready path and
+  the JavaScript facade draws each identifier with the same pieces. Fifteen
+  new laws state the pieces and the compositions. No existing law, public
+  signature or corpus output changes; `tests/expected-host-defs.txt` lists
+  the two new host operations.
 
 ## 0.1.2 — 2026-09-29
 

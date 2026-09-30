@@ -46,6 +46,9 @@
 #   proofs/lifecycle.bend           children and restarts from supplied IDs
 #   proofs/words.bend,              source words to hexadecimal digits
 #     conversion.bend
+#   proofs/separate.bend            a trace ID or a span ID generated alone,
+#                                   and the compositions of root, child and
+#                                   restart generation
 #   proofs/generation.bend          the generation machine over tapes
 #   proofs/bools.bend, lists.bend,  general lemmas on Bool, List and Nat
 #     nats.bend
@@ -76,6 +79,7 @@ import ./proofs/lifecycle.bend as LifecycleProof
 import ./proofs/words.bend as WordsProof
 import ./proofs/conversion.bend as ConversionProof
 import ./proofs/generation.bend as GenerationProof
+import ./proofs/separate.bend as SeparateProof
 import ./proofs/limits.bend as LimitsProof
 import ./proofs/tracestate.bend as StateProof
 import ./proofs/distinct.bend as DistinctProof
@@ -293,6 +297,99 @@ def Laws.generated_restart(tape, previous, rest, created, generated):
 # The host's loop feeds the words the pure driver reads (proofs/generation.bend).
 def Laws.generation_drive(fuel, tape, step, extra):
   GenerationProof.generation_drive(fuel, tape, step, extra)
+
+# By computation: an error result ends a trace ID draw whatever its state.
+def Laws.trace_id_failure(code, message, remaining, words, excluded):
+  {==}
+
+# The IO driver of a trace ID draw over a tape source computes its pure
+# driver step by step (proofs/separate.bend).
+def Laws.trace_id_tape(tape, excluded):
+  SeparateProof.read_trace_tape(Laws.TapeTraceId(), outcome => outcome, outcome => outcome, outcome => {==}, 32n,
+    (tape, Trace.TraceDraw.start(excluded)))
+
+# The draw computes through the four words, up to the candidate that they
+# make; rewriting it into Some{id}, the candidate is drawn and the drive
+# stops.
+def Laws.trace_id_candidate(first, second, third, fourth, id, made, rest):
+  %Equal.sym(Maybe<&2, Trace.TraceId>, Trace.TraceId.from_words(first, second, third, fourth), Some{id}, made) :
+    {Trace.TraceDraw.run(28n, (rest, Trace.TraceDraw.check(Trace.Draw.asserted(_), None{}, 7n))) ==
+      (rest, Trace.DrawnTraceId{Trace.TraceId.assert_random(id)}) : Laws.TapeTraceStep()}
+  {==}
+
+# Every step reads a word, and each candidate takes four.
+def Laws.trace_id_ends(tape, excluded):
+  SeparateProof.trace_run_ends(32n, Trace.TraceDraw.start(excluded), tape,
+    SeparateProof.trace_start_within(7n, excluded))
+
+# By computation on the concrete tape of 32 zero words.
+def Laws.trace_id_exhaustion(excluded, rest):
+  {==}
+
+# Rewrite the hypothesis into the view of the driver's final step.
+def Laws.generated_trace_id(tape, excluded, rest, id, generated):
+  %generated : SeparateProof.TraceRunView(excluded, _)
+  SeparateProof.trace_run_inv(excluded, 32n, Trace.TraceDraw.start(excluded), tape, {==})
+
+# By computation: an error result ends a span ID draw whatever its state.
+def Laws.span_id_failure(code, message, remaining, words, excluded):
+  {==}
+
+# As trace_id_tape (proofs/separate.bend).
+def Laws.span_id_tape(tape, excluded):
+  SeparateProof.read_span_tape(Laws.TapeSpanId(), outcome => outcome, outcome => outcome, outcome => {==}, 16n,
+    (tape, Trace.SpanDraw.start(excluded)))
+
+# As trace_id_candidate, with the two words of a span ID.
+def Laws.span_id_candidate(first, second, id, made, rest):
+  %Equal.sym(Maybe<&2, Trace.SpanId>, Trace.SpanId.from_words(first, second), Some{id}, made) :
+    {Trace.SpanDraw.run(14n, (rest, Trace.SpanDraw.check(_, None{}, 7n))) == (rest, Trace.DrawnSpanId{id}) :
+      Laws.TapeSpanStep()}
+  {==}
+
+# Every step reads a word, and each candidate takes two.
+def Laws.span_id_ends(tape, excluded):
+  SeparateProof.span_run_ends(16n, Trace.SpanDraw.start(excluded), tape,
+    SeparateProof.span_start_within(7n, excluded))
+
+# By computation on the concrete tape of 16 zero words.
+def Laws.span_id_exhaustion(excluded, rest):
+  {==}
+
+# Rewrite the hypothesis into the view of the driver's final step.
+def Laws.generated_span_id(tape, excluded, rest, id, generated):
+  %generated : SeparateProof.SpanRunView(excluded, _)
+  SeparateProof.span_run_inv(excluded, 16n, Trace.SpanDraw.start(excluded), tape, {==})
+
+# Context.root_with runs that composition; its continuation agrees with
+# root_of on every outcome of the trace ID (proofs/separate.bend).
+def Laws.root_composed(tape):
+  SeparateProof.read_trace_same(Laws.TapeOutcome(),
+    outcome => Trace.Draw.after_trace(~Laws.Tape(), ~Trace.Source.tape, outcome)(Laws.TapeOutcome(),
+      value => Emit{value}),
+    outcome => Laws.root_of(outcome)(Laws.TapeOutcome(), value => Emit{value}),
+    outcome => SeparateProof.after_trace_same(outcome), 32n, (tape, Trace.TraceDraw.start(None{})))
+
+# Context.child_with runs that composition; its continuation agrees with
+# context_of on every outcome of the span ID (proofs/separate.bend).
+def Laws.child_composed(tape, parent, sampling):
+  SeparateProof.read_span_same(Laws.TapeOutcome(),
+    outcome => Emit{Trace.Draw.span_context(Laws.Tape(), Trace.Parent.trace_id(parent),
+      Trace.Sampling.resolve(sampling, Trace.Parent.is_sampled(parent)), outcome)},
+    outcome => Emit{Laws.context_of(Trace.Parent.trace_id(parent),
+      Trace.Sampling.resolve(sampling, Trace.Parent.is_sampled(parent)), outcome)},
+    outcome => SeparateProof.span_context_same(Trace.Parent.trace_id(parent),
+      Trace.Sampling.resolve(sampling, Trace.Parent.is_sampled(parent)), outcome),
+    16n, (tape, Trace.SpanDraw.start(Some{Trace.Parent.span_id(parent)})))
+
+# As root_composed, from the trace ID draw that excludes the received one.
+def Laws.restart_composed(tape, previous):
+  SeparateProof.read_trace_same(Laws.TapeOutcome(),
+    outcome => Trace.Draw.after_trace(~Laws.Tape(), ~Trace.Source.tape, outcome)(Laws.TapeOutcome(),
+      value => Emit{value}),
+    outcome => Laws.root_of(outcome)(Laws.TapeOutcome(), value => Emit{value}),
+    outcome => SeparateProof.after_trace_same(outcome), 32n,
+    (tape, Trace.TraceDraw.start(Some{Trace.RemoteContext.trace_id(previous)})))
 
 # 7. Limits
 # =========
