@@ -55,10 +55,10 @@
 #   Sending                          Context.send_with, Sent, SendPlan
 #
 # The public names are documented in packages/trace-context/README.md. Names in
-# the Parse, Draw, Step, Tape, Scan, Member, Value, Budget, Utf8, Entries,
-# StateChar, Carrier, Text, Read, Extract, Forward, Policy, Serve and Send
-# namespaces are internal: Bend lets any module import them, but they are not
-# a compatibility contract.
+# the Parse, Parsed, ParsedBytes, Draw, Step, Tape, Scan, Member, Value,
+# Budget, Utf8, Entries, StateChar, Carrier, Text, Read, Extract, Forward,
+# Policy, Serve and Send namespaces are internal: Bend lets any module import
+# them, but they are not a compatibility contract.
 #
 # Notes for readers new to Bend
 # -----------------------------
@@ -710,15 +710,10 @@ def SpanId.from_words(first: U32, second: U32) -> Maybe<&2, SpanId>:
 # Identifiers as bytes
 # ====================
 #
-# A trace ID is 16 bytes and a span ID 8, most significant first: the first
-# byte holds the first two hexadecimal digits. This is the form of OTLP's
-# protobuf encoding, and the text of TraceId.to_string and SpanId.to_string
-# that of its JSON encoding (spec #41, "Identifier forms"). A byte follows
-# Base's convention, the one of TCP.send_bytes and TCP.recv_bytes: one U32
-# cell from 0 to 255. The bytes of an ID are read as Parse.id reads its text:
-# cell by cell, reporting the first problem with its offset, then the end of
-# the list and the nonzero check. An ID read from bytes makes no randomness
-# assertion.
+# The bytes of an ID are the form of OTLP's protobuf encoding, as the text of
+# TraceId.to_string and SpanId.to_string is that of its JSON encoding (spec
+# #41, "Identifier forms"). TraceId.to_bytes and TraceId.from_bytes state the
+# contract; the helpers below read bytes as Parse.id reads text.
 
 # Put the two digits of one more byte in front of the bytes already read: n
 # bytes become 1 + n.
@@ -758,8 +753,8 @@ def Parse.bytes(n: Nat, bytes: List<&2, U32>, offset: Nat) -> Result<&2, &2, Err
             parsed : ParsedBytes<p> <- Parse.bytes(p, tail, 1n+at)
             return ParsedBytes.prepend(p, digits, parsed)
 
-# The list must end after the ID's bytes. Only the first cell after them is
-# inspected, so an arbitrarily long rest is refused without being read.
+# The list must end after the ID's bytes: a cell after them fails with
+# TrailingInput, whatever it holds.
 def Parse.bytes_end(bytes: List<&2, U32>) -> Result<&2, &2, Error, Unit>:
   match bytes:
     case Nil{}:
@@ -783,10 +778,11 @@ def Parse.id_bytes(+n: Nat, bytes: List<&2, U32>, field: Field) ->
     parsed : ParsedBytes<n> <- Parse.bytes(n, bytes, 0n)
     Parse.id_bytes.finish(n, parsed, field)
 
-# The 16 bytes of the trace ID, most significant first: the first byte holds
-# its first two digits, the first of them high. The randomness assertion is
-# not part of them (laws trace_bytes, trace_bytes_roundtrip and
-# trace_bytes_injective).
+# The 16 bytes of the trace ID, most significant first, in Base's byte
+# convention, that of TCP.send_bytes and TCP.recv_bytes: one U32 cell from 0
+# to 255 per byte. The first byte holds the ID's first two digits, the first
+# of them high. The randomness assertion is not part of the bytes (laws
+# trace_bytes, trace_bytes_roundtrip and trace_bytes_injective).
 def TraceId.to_bytes(id: TraceId) -> List<&2, U32>:
   match id:
     case TraceId{value, random}:
@@ -796,8 +792,9 @@ def TraceId.to_bytes(id: TraceId) -> List<&2, U32>:
 # are read in order: a missing cell fails with UnexpectedEnd and a cell above
 # 255 with InvalidByte, at its offset counted in cells; a 17th cell fails with
 # TrailingInput whatever it holds, and 16 zero bytes with ZeroId. Like a
-# parsed ID, the result makes no randomness assertion; add one with
-# TraceId.assert_random when the bytes are random. Laws: trace_bytes_inverse,
+# parsed ID, the result makes no randomness assertion, since bytes do not say
+# how the ID was made; only a caller whose own generator, known to be random,
+# made it adds one with TraceId.assert_random. Laws: trace_bytes_inverse,
 # bytes_unasserted, trace_bytes_short, trace_bytes_long, trace_bytes_above,
 # zero_bytes and trace_bytes_accepts.
 def TraceId.from_bytes(bytes: List<&2, U32>) -> Result<&2, &2, Error, TraceId>:

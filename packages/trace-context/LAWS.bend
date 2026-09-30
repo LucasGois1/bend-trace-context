@@ -3174,12 +3174,9 @@ law http_send:
 # JSON encoding. Issue #41 ("spec #41"), the building blocks that an
 # OpenTelemetry SDK composes, specifies both forms ("Identifier forms"), and
 # ticket #43 the bytes. The text is TraceId.to_string and SpanId.to_string,
-# whose laws are in section 2. Bytes follow Base's convention, the one of
-# TCP.send_bytes and TCP.recv_bytes: a List of U32 cells, one per byte, each
-# from 0 to 255, most significant first. TraceId.from_bytes and
-# SpanId.from_bytes read them back, with the rules of the text readers: the
-# first problem in reading order is reported, with the cell's offset, and an
-# ID read from bytes makes no randomness assertion.
+# whose laws are in section 2; the bytes are a List of U32 cells, one per
+# byte, which TraceId.from_bytes and SpanId.from_bytes read back as the text
+# readers read text.
 
 # The values that Base gives the cells of a list, in order.
 def cell_values(cells: List<&2, U32>) -> List<&2, Nat>:
@@ -3208,8 +3205,7 @@ def hex_pairs(text: String) -> List<&2, Nat>:
 #     the first byte made of the first two digits, the first digit high.
 #   Requirement: spec #41, user story 11: "I want a trace ID as its 16 bytes
 #     and a span ID as its 8 bytes, most significant first, so that I can
-#     write OTLP protobuf fields"; the byte convention of Base's
-#     TCP.send_bytes, one cell from 0 to 255 per byte.
+#     write OTLP protobuf fields"; Base's byte convention.
 #   Why: a collector that reads the bytes must find the ID that traceparent
 #     and OTLP's JSON text carry. A converter that swapped two bytes, or the
 #     two digits of a byte, would pass the round trips below but fail this
@@ -3337,9 +3333,8 @@ law bytes_unasserted:
   for read: {Trace.TraceId.from_bytes(bytes) == Done{id} : Result<&2, &2, Trace.Error, Trace.TraceId>}
   {Trace.TraceId.is_random(id) == False{} : Bool}
 
-# The laws below state which error a list gets, in reading order: a missing
-# byte or a cell above 255 at its offset, then a cell after the last byte,
-# then all zeros; and that every other list is accepted.
+# The laws below state the error of each refusal, in reading order, and that
+# every other list is accepted.
 
 # Whether every cell is a byte: at most 255, as Base's TCP.send_bytes
 # requires.
@@ -3386,9 +3381,7 @@ law span_bytes_short:
 #   Requirement: spec #41, user story 13, as for trace_bytes_short;
 #     TraceId.parse refuses characters after 32 digits the same way.
 #   Why: a longer list is not an ID, and taking its first 16 bytes would
-#     accept a value that another system meant otherwise. The reader stops
-#     at the first cell after the bytes, so an arbitrarily long list is
-#     refused without being read further.
+#     accept a value that another system meant otherwise.
 #   Reading: `extra` is the first cell after the 16 bytes and `more` the
 #     cells after it.
 #   Proof: Laws.trace_bytes_long, via proofs/bytes.bend.
@@ -3486,8 +3479,9 @@ law span_bytes_accepts:
   {Result.is_done(&2, &2, Trace.Error, Trace.SpanId, Trace.SpanId.from_bytes(bytes)) == True{} : Bool}
 
 # LAW zero_bytes
-#   Claim: 16 zero bytes are refused as a trace ID with ZeroTraceId, and 8
-#     zero bytes as a span ID with ZeroSpanId.
+#   Claim: 16 zero bytes are refused as a trace ID with
+#     ZeroId{TraceIdField{}}, and 8 zero bytes as a span ID with
+#     ZeroId{SpanIdField{}}.
 #   Requirement: spec #41, user story 13; W3C Level 2, sections 3.2.2.3 and
 #     3.2.2.4: an all-zero trace ID or parent ID is invalid.
 #   Why: an all-zero ID is not an ID, whatever form it arrives in.

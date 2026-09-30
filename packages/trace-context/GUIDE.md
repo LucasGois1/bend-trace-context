@@ -884,23 +884,26 @@ It records no spans. To record them:
 ## Building blocks for an OpenTelemetry SDK
 
 An OpenTelemetry SDK records spans and exports them. One written in Bend
-can leave its W3C part to this package, which gives it the pieces that
+can build its W3C part on this package: this section shows pieces of the
+package that such an SDK composes, which
 [spec #41](https://github.com/LucasGois1/bend-trace-context/issues/41)
-lists; the recipes above follow the same rules.
+specifies.
 
 ### Identifiers as bytes and as hex
 
 OTLP, the protocol that exporters speak, writes a trace ID and a span ID as
 bytes in its protobuf encoding and as lowercase hexadecimal text in its JSON
-encoding. `TC.TraceId.to_bytes` gives a trace ID's 16 bytes and
-`TC.SpanId.to_bytes` a span ID's 8, most significant first, as a
-`List<&2, U32>` of cells from 0 to 255, the form of Base's
-`TCP.send_bytes`; `to_string` gives the text. `TC.TraceId.from_bytes` and
-`TC.SpanId.from_bytes` read bytes with the checks of `parse`, for IDs that
-come as bytes from another system or from an ID generator of your own. A
-trace ID read from bytes makes no randomness assertion: when your generator
-is random, say so with `TC.TraceId.assert_random`, and the operation is
-sent with the random-trace-id flag.
+encoding. `TC.TraceId.to_bytes` and `TC.SpanId.to_bytes` give the bytes,
+and `to_string` the text. `TC.TraceId.from_bytes` and `TC.SpanId.from_bytes`
+read bytes with the checks of `parse`, for IDs that come as bytes from
+elsewhere, such as the span of another tracer or a stored link; the
+[reference](README.md#identifiers-as-bytes) describes both forms and every
+refusal.
+
+Bytes do not say how an ID was made, so a trace ID read from them makes no
+randomness assertion, and an operation with it is sent without the
+random-trace-id flag. Only a generator of your own that you know to be
+random justifies the assertion, which `TC.TraceId.assert_random` adds.
 
 <!-- test:guide-bytes:start -->
 ```bend
@@ -925,13 +928,13 @@ def exported(+operation: TC.LocalContext) -> String:
     "\nJSON traceId: " ++ TC.TraceId.to_string(TC.LocalContext.trace_id(operation)) ++
     ", spanId: " ++ TC.SpanId.to_string(TC.LocalContext.span_id(operation))
 
-# An operation whose IDs the application's own generator made as bytes,
-# checked as parsed IDs are. Bytes make no randomness assertion; this
-# generator is random, so the trace ID asserts it.
-def generated(trace: Result<&2, &2, TC.Error, TC.TraceId>, span: Result<&2, &2, TC.Error, TC.SpanId>) -> String:
+# The operation that another tracer created, from the IDs that it hands over
+# as bytes, checked as parsed IDs are. The bytes do not say how the IDs were
+# made, so the trace ID makes no randomness assertion.
+def imported(trace: Result<&2, &2, TC.Error, TC.TraceId>, span: Result<&2, &2, TC.Error, TC.SpanId>) -> String:
   match trace span:
     case Done{trace_id} Done{span_id}:
-      +operation = TC.Context.from_ids(TC.TraceId.assert_random(trace_id), span_id, True{})
+      +operation = TC.Context.from_ids(trace_id, span_id, True{})
       "traceparent: " ++ TC.TraceParentV00.format(TC.LocalContext.to_traceparent(operation)) ++ "\n" ++
         exported(operation)
     case Fail{error} _:
@@ -941,18 +944,18 @@ def generated(trace: Result<&2, &2, TC.Error, TC.TraceId>, span: Result<&2, &2, 
 
 def main() -> IO(Unit):
   do IO<Unit>:
-    Unit <- IO.print(generated(
+    Unit <- IO.print(imported(
       TC.TraceId.from_bytes([75, 249, 47, 53, 119, 179, 77, 166, 163, 206, 146, 157, 14, 14, 71, 54]),
       TC.SpanId.from_bytes([0, 240, 103, 170, 11, 169, 2, 183])))
     # One byte short.
-    IO.print(generated(TC.TraceId.from_bytes([75, 249, 47, 53, 119, 179, 77, 166, 163, 206, 146, 157, 14, 14, 71]),
+    IO.print(imported(TC.TraceId.from_bytes([75, 249, 47, 53, 119, 179, 77, 166, 163, 206, 146, 157, 14, 14, 71]),
       TC.SpanId.from_bytes([0, 240, 103, 170, 11, 169, 2, 183])))
 ```
 <!-- test:guide-bytes:end -->
 
 <!-- test:guide-bytes-output:start -->
 ```text
-traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-03
+traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01
 protobuf trace_id: 75 249 47 53 119 179 77 166 163 206 146 157 14 14 71 54
 protobuf span_id: 0 240 103 170 11 169 2 183
 JSON traceId: 4bf92f3577b34da6a3ce929d0e0e4736, spanId: 00f067aa0ba902b7
@@ -960,8 +963,5 @@ invalid trace ID: UnexpectedEnd at 15
 ```
 <!-- test:guide-bytes-output:end -->
 
-A list of the wrong length, a cell above 255 and all-zero bytes are refused
-with the errors that [Errors and diagnostics](ERRORS.md#traceparent-and-identifiers)
-lists, the first problem in the order of the cells, and every other list of
-16 or 8 bytes is accepted. The [reference](README.md#identifiers-as-bytes)
-describes both forms.
+[Errors and diagnostics](ERRORS.md#traceparent-and-identifiers) lists the
+errors of refused bytes, such as the list one byte short above.

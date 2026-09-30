@@ -571,10 +571,9 @@ def continuation() -> IO(Unit):
     strict_service([Fail{(3, "no entropy")}], TC.Context.extract(limits, received_request(), None{}))
 
 # An SDK's identifiers as bytes and as hexadecimal text: an exporter writes
-# bytes to protobuf and the text to JSON, and IDs that come from another
-# system as bytes are validated as parsed ones are. A cell is one byte, from
-# 0 to 255, most significant first, as Base's TCP.send_bytes takes them; the
-# cells below are those of the W3C example IDs.
+# bytes to protobuf and the text to JSON, and IDs that another tracer hands
+# over as bytes are validated as parsed ones are. The cells below are the
+# bytes of the W3C example IDs.
 def sdk_bytes.cells.rest(cells: List<&2, U32>) -> String:
   match cells:
     case Nil{}:
@@ -604,9 +603,10 @@ def sdk_bytes() -> IO(Unit):
     Unit <- IO.print("sdk bytes: trace ID " ++ TC.TraceId.to_string(trace) ++ " from bytes, random: " ++
       Bool.show(TC.TraceId.is_random(trace)))
     Unit <- IO.print("sdk bytes: span ID " ++ TC.SpanId.to_string(span) ++ " from bytes")
-    # Bytes make no randomness assertion: this caller's generator is random,
-    # so it asserts it, and the operation is sent with random-trace-id.
-    +operation : TC.LocalContext = TC.Context.from_ids(TC.TraceId.assert_random(trace), span, True{})
+    # The operation that the other tracer created. Bytes do not say how its
+    # IDs were made, so the trace ID makes no randomness assertion, and the
+    # operation is sent without random-trace-id.
+    +operation : TC.LocalContext = TC.Context.from_ids(trace, span, True{})
     Unit <- emit("sdk bytes: operation", operation)
     Unit <- IO.print("sdk bytes: trace ID as bytes " ++ sdk_bytes.cells(TC.TraceId.to_bytes(
       TC.LocalContext.trace_id(operation))) ++ ", as hex " ++ TC.TraceId.to_string(TC.LocalContext.trace_id(operation)))

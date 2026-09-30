@@ -183,8 +183,8 @@ an offset that counts cells from the start of the list:
 
 - `UnexpectedEnd{offset}` when the list ends before the ID's last byte;
 - `InvalidByte{offset}` for a cell above 255;
-- `TrailingInput{}` for a cell after the ID's last byte, whatever it holds:
-  reading stops there, so a long list is not read further;
+- `TrailingInput{}` for a cell after the ID's last byte, whatever it and the
+  cells after it hold;
 - `ZeroId{TraceIdField{}}` or `ZeroId{SpanIdField{}}` when every byte is
   zero.
 
@@ -1184,14 +1184,13 @@ section describes, and the kernel needs Lean 4.34.
   assertion.
 - **Bytes:** the bytes of a trace or span ID are, in order, the numbers that
   the pairs of digits of its text denote in hexadecimal, so they are most
-  significant first and each from 0 to 255. Reading them back gives the same
-  ID, and every list that `from_bytes` accepts is the bytes of the ID it
-  gives, so the two forms convert into each other without loss; two IDs
-  with the same bytes have the same digits. A trace ID read from bytes makes
-  no randomness assertion. A list that ends early, holds a cell above 255 or
-  has a cell after the last byte is refused with the error of its first
-  problem, all-zero bytes are refused, and every other list of 16 or 8 bytes
-  is accepted.
+  significant first and each from 0 to 255. Reading back the bytes of a span
+  ID gives that span ID, and those of a trace ID its digits without the
+  randomness assertion, which no trace ID read from bytes makes. Every list
+  that `from_bytes` accepts is the bytes of the ID it gives, and two IDs with
+  the same bytes have the same digits. Each refusal that
+  [Identifiers as bytes](#identifiers-as-bytes) lists is a law, and so is the
+  acceptance of every other list of 16 or 8 bytes.
 - **Generation:** a source error ends generation at once. Reading a tape, the
   IO operations compute exactly the pure tape driver, word for word. For every
   tape, a root or restart ends within 48 words and a child within 16. Eight
