@@ -69,8 +69,8 @@ cells from the start of the list.
 | Constructor | `show` | Meaning |
 | --- | --- | --- |
 | `SourceFailure{code, message}` | `SourceFailure 1 unavailable` | The source failed with its own code and message; generation stopped at that word |
-| `ExhaustedTraceId{}` | `ExhaustedTraceId` | Eight trace ID candidates were rejected: all zero, or the received trace ID for a restart |
-| `ExhaustedSpanId{}` | `ExhaustedSpanId` | Eight span ID candidates were rejected: all zero, or the parent's span ID for a child |
+| `ExhaustedTraceId{}` | `ExhaustedTraceId` | Eight trace ID candidates were rejected: all zero, or the trace ID to exclude, such as the received one for a restart |
+| `ExhaustedSpanId{}` | `ExhaustedSpanId` | Eight span ID candidates were rejected: all zero, or the span ID to exclude, such as the parent's for a child |
 
 | Source | Failures |
 | --- | --- |

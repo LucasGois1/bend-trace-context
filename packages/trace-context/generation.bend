@@ -1,13 +1,14 @@
 # Generation on the host's cryptographic source
 # =============================================
 #
-# Generated contexts on the host's cryptographic source: WebCrypto in
-# JavaScript and the operating system's generator natively. They apply the
-# rules of trace_context.bend: four words per trace ID candidate and two per
-# span ID candidate, most significant first, eight candidates per identifier,
-# no all-zero identifier, no reuse of the parent's span ID or of a received
-# trace ID, and an immediate stop at the first source error. There is no time,
-# counter or other fallback. TC.Context.root_with and its siblings take a
+# Generated identifiers and contexts on the host's cryptographic source:
+# WebCrypto in JavaScript and the operating system's generator natively. They
+# apply the rules of trace_context.bend: four words per trace ID candidate and
+# two per span ID candidate, most significant first, eight candidates per
+# identifier, no all-zero identifier, no reuse of an identifier to exclude,
+# such as the parent's span ID or a received trace ID, and an immediate stop
+# at the first source error. There is no time, counter or other fallback.
+# TC.TraceId.generate_with, TC.Context.root_with and their siblings take a
 # caller's source instead.
 #
 # The generation machine itself is pure: section 6 of LAWS.bend states its
@@ -34,8 +35,23 @@ def Source.host(state: Unit) -> IO(Unit & Result<&1, &1, U32 & String, U32>):
 def on_host(-A: Type, action: IO(Unit & A)) -> IO(A):
   IO.bind(Unit & A, A, action, done => IO.pure(A, Pair.snd(Unit, A, done)))
 
-# Start a trace. The trace ID asserts random-trace-id and the root is not
-# sampled, so it is emitted with flags 02.
+# A trace ID alone, as an OpenTelemetry SDK generates one before its sampler
+# decides on it (TC.TraceId.generate_with). It asserts random-trace-id and is
+# never `excluded`, when there is one.
+def TraceId.generate(excluded: Maybe<&2, TC.TraceId>) -> IO(Result<&2, &2, TC.GenerationError, TC.TraceId>):
+  on_host(Result<&2, &2, TC.GenerationError, TC.TraceId>,
+    TC.TraceId.generate_with(~Unit, ~Source.host, Unit{}, excluded))
+
+# A span ID alone, as an SDK generates one once its sampler has decided, or
+# for a child span with its parent's span ID excluded
+# (TC.SpanId.generate_with).
+def SpanId.generate(excluded: Maybe<&2, TC.SpanId>) -> IO(Result<&2, &2, TC.GenerationError, TC.SpanId>):
+  on_host(Result<&2, &2, TC.GenerationError, TC.SpanId>,
+    TC.SpanId.generate_with(~Unit, ~Source.host, Unit{}, excluded))
+
+# Start a trace: a trace ID, then a span ID, as TC.Context.root_with composes
+# them. The trace ID asserts random-trace-id and the root is not sampled, so
+# it is emitted with flags 02.
 def Context.root() -> IO(Result<&2, &2, TC.GenerationError, TC.LocalContext>):
   on_host(Result<&2, &2, TC.GenerationError, TC.LocalContext>, TC.Context.root_with(~Unit, ~Source.host, Unit{}))
 

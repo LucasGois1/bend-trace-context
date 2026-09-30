@@ -43,6 +43,25 @@
   directions, injectivity, each refusal, the acceptance of every other list
   and the absence of an assertion; the guide's "Building blocks for an
   OpenTelemetry SDK" section shows both forms in an exporter.
+- Generate a trace ID or a span ID on its own
+  ([#42](https://github.com/LucasGois1/bend-trace-context/issues/42)), as an
+  OpenTelemetry SDK needs to start a span; the
+  [guide](packages/trace-context/GUIDE.md#building-blocks-for-an-opentelemetry-sdk)
+  shows the steps. `Generate.TraceId.generate` and
+  `Generate.SpanId.generate` run on the host's cryptographic source, and
+  `TC.TraceId.generate_with` and `TC.SpanId.generate_with` on a caller's,
+  such as a replayed tape. Each takes an optional identifier to exclude,
+  reads four or two words per candidate, most significant first, for at most
+  eight candidates, and fails with `SourceFailure`, `ExhaustedTraceId` or
+  `ExhaustedSpanId`; a generated trace ID asserts random-trace-id. Root,
+  child and restart generation are now compositions of the two, with the
+  same words, budgets and results, and the machine behind the ready path and
+  the JavaScript facade draws each identifier with the same pieces, run by
+  one driver. Fifteen new laws state the pieces and the compositions. This
+  change alters no existing law, public signature or corpus line:
+  `tests/expected-smoke.txt` adds the line of the identifiers generated
+  alone on the host's source, and `tests/expected-host-defs.txt` the two new
+  host definitions, `TraceId.generate` and `SpanId.generate`.
 
 **Migration from 0.1.2:** a `match` on `TC.Error` that lists every
 constructor adds a case for `InvalidByte{offset}`; a `match` with a

@@ -54,6 +54,12 @@ invalid traceparent request: Fresh | Accept: application/json | traceparent: 00-
 boundary service: Restarted 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-02
 boundary request: Fresh | Accept: application/json | traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-53995c3f42cd8ad8-02
 strict service: refused after SourceFailure 3 no entropy
+sdk generation: trace ID 4bf92f3577b34da6a3ce929d0e0e4736, random True
+sdk generation: sampled True
+sdk generation: span ID 00f067aa0ba902b7
+sdk generation: local context: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-03
+sdk generation: child span ID 53995c3f42cd8ad8, not the parent's 00f067aa0ba902b7
+sdk generation: new trace ID 0af7651916cd43dd8448eb211c80319c, not the replaced 4bf92f3577b34da6a3ce929d0e0e4736
 sdk flags: local 0 emits 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-00
 sdk flags: local 1 emits 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01
 sdk flags: local 2 emits 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-02

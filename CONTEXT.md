@@ -148,6 +148,10 @@ _Avoid_: Incoming context
 The package's interface for JavaScript applications. It converts JavaScript values at the boundary and feeds the package's generation words from WebCrypto, without deciding any Trace Context rule.
 _Avoid_: JavaScript SDK, second implementation
 
+**OpenTelemetry SDK**:
+Separate software that records spans, makes their sampling decisions and exports them, building span identity, identifier generation and propagation on this package.
+_Avoid_: Tracer, tracing package
+
 **Propagation allowlist**:
 The origins or URLs, beyond a page's own origin, to which a page's requests carry context fields. A cross-origin request carrying them needs a CORS preflight that allows them.
 _Avoid_: Trusted origins

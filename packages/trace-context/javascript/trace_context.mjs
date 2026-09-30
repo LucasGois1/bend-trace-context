@@ -1185,93 +1185,6 @@ function $SpanId$from_bytes$(_bytes_0) {
 }));
 }
 
-function $Draw$root$() {
-  return {$: "NeedWord", "draw": {$: "DrawTrace", "remaining": 7, "words": {$: "NoTraceWord"}, "previous": {$: "None"}}};
-}
-
-function $Draw$restart$(_previous_0) {
-  return {$: "NeedWord", "draw": {$: "DrawTrace", "remaining": 7, "words": {$: "NoTraceWord"}, "previous": {$: "Some", "value": ($RemoteContext$trace_id$(_previous_0))}}};
-}
-
-function $Draw$child$(_parent_0, _sampling_0) {
-  return {$: "NeedWord", "draw": {$: "DrawSpan", "remaining": 7, "words": {$: "NoSpanWord"}, "plan": {$: "SpanPlan", "trace_id": ($Parent$trace_id$(_parent_0)), "sampled": ($Sampling$resolve$(_sampling_0, ($Parent$is_sampled$(_parent_0)))), "parent": {$: "Some", "value": ($Parent$span_id$(_parent_0))}}}};
-}
-
-function $Draw$retry_trace$(_remaining_0, _previous_0) {
-  if (_remaining_0 === 0) {
-    return {$: "Failed", "error": {$: "ExhaustedTraceId"}};
-  } else {
-    const _p_0 = (_remaining_0 - 1);
-    return {$: "NeedWord", "draw": {$: "DrawTrace", "remaining": _p_0, "words": {$: "NoTraceWord"}, "previous": _previous_0}};
-  }
-}
-
-function $Draw$accept_trace$(_trace_id_0) {
-  return {$: "NeedWord", "draw": {$: "DrawSpan", "remaining": 7, "words": {$: "NoSpanWord"}, "plan": {$: "SpanPlan", "trace_id": _trace_id_0, "sampled": false, "parent": {$: "None"}}}};
-}
-
-function $Draw$reuse_trace$(_reused_0, _id_0, _previous_0, _remaining_0) {
-  if (_reused_0) {
-    return $Draw$retry_trace$(_remaining_0, {$: "Some", "value": _previous_0});
-  } else {
-    return $Draw$accept_trace$(_id_0);
-  }
-}
-
-function $Draw$check_trace$(_candidate_0, _previous_0, _remaining_0) {
-  if (_candidate_0.$ === "None") {
-    return $Draw$retry_trace$(_remaining_0, _previous_0);
-  } else {
-    const _id_0 = _candidate_0["value"];
-    if (_previous_0.$ === "None") {
-      return $Draw$accept_trace$(_id_0);
-    } else {
-      const _old_0 = _previous_0["value"];
-      return $Draw$reuse_trace$(($TraceId$is_eq$(_id_0, _old_0)), _id_0, _old_0, _remaining_0);
-    }
-  }
-}
-
-function $Draw$retry_span$(_remaining_0, _plan_0) {
-  if (_remaining_0 === 0) {
-    return {$: "Failed", "error": {$: "ExhaustedSpanId"}};
-  } else {
-    const _p_0 = (_remaining_0 - 1);
-    return {$: "NeedWord", "draw": {$: "DrawSpan", "remaining": _p_0, "words": {$: "NoSpanWord"}, "plan": _plan_0}};
-  }
-}
-
-function $Draw$accept_span$(_id_0, _plan_0) {
-  const _trace_id_0 = _plan_0["trace_id"];
-  const _sampled_0 = _plan_0["sampled"];
-  return {$: "Created", "context": ($Context$from_ids$(_trace_id_0, _id_0, _sampled_0))};
-}
-
-function $Draw$reuse_span$(_reused_0, _id_0, _plan_0, _remaining_0) {
-  if (_reused_0) {
-    return $Draw$retry_span$(_remaining_0, _plan_0);
-  } else {
-    return $Draw$accept_span$(_id_0, _plan_0);
-  }
-}
-
-function $Draw$check_span$(_candidate_0, _plan_0, _remaining_0) {
-  if (_candidate_0.$ === "None") {
-    return $Draw$retry_span$(_remaining_0, _plan_0);
-  } else {
-    const _id_0 = _candidate_0["value"];
-    const _trace_id_0 = _plan_0["trace_id"];
-    const _sampled_0 = _plan_0["sampled"];
-    const _t_0 = _plan_0["parent"];
-    if (_t_0.$ === "None") {
-      return $Draw$accept_span$(_id_0, {$: "SpanPlan", "trace_id": _trace_id_0, "sampled": _sampled_0, "parent": {$: "None"}});
-    } else {
-      const _old_0 = _t_0["value"];
-      return $Draw$reuse_span$(($SpanId$is_eq$(_id_0, _old_0)), _id_0, {$: "SpanPlan", "trace_id": _trace_id_0, "sampled": _sampled_0, "parent": {$: "Some", "value": _old_0}}, _remaining_0);
-    }
-  }
-}
-
 function $Draw$asserted$(_candidate_0) {
   if (_candidate_0.$ === "None") {
     return {$: "None"};
@@ -1281,48 +1194,302 @@ function $Draw$asserted$(_candidate_0) {
   }
 }
 
-function $Draw$feed$(_word_0, _draw_0) {
+function $Tape$next$(_tape_0) {
+  if (_tape_0.$ === "Nil") {
+    return {$: "Tuple", "fst": {$: "Nil"}, "snd": {$: "Fail", "error": {$: "Tuple", "fst": 1, "snd": "tape-exhausted"}}};
+  } else {
+    const _word_0 = _tape_0["head"];
+    const _rest_0 = _tape_0["tail"];
+    return {$: "Tuple", "fst": _rest_0, "snd": _word_0};
+  }
+}
+
+function $TraceDraw$start$(_excluded_0) {
+  return {$: "NeedTraceWord", "draw": {$: "TraceDraw", "remaining": 7, "words": {$: "NoTraceWord"}, "excluded": _excluded_0}};
+}
+
+function $TraceDraw$retry$(_remaining_0, _excluded_0) {
+  if (_remaining_0 === 0) {
+    return {$: "TraceFailed", "error": {$: "ExhaustedTraceId"}};
+  } else {
+    const _p_0 = (_remaining_0 - 1);
+    return {$: "NeedTraceWord", "draw": {$: "TraceDraw", "remaining": _p_0, "words": {$: "NoTraceWord"}, "excluded": _excluded_0}};
+  }
+}
+
+function $TraceDraw$reuse$(_reused_0, _id_0, _excluded_0, _remaining_0) {
+  if (_reused_0) {
+    return $TraceDraw$retry$(_remaining_0, {$: "Some", "value": _excluded_0});
+  } else {
+    return {$: "DrawnTraceId", "id": _id_0};
+  }
+}
+
+function $TraceDraw$check$(_candidate_0, _excluded_0, _remaining_0) {
+  if (_candidate_0.$ === "None") {
+    return $TraceDraw$retry$(_remaining_0, _excluded_0);
+  } else {
+    const _id_0 = _candidate_0["value"];
+    if (_excluded_0.$ === "None") {
+      return {$: "DrawnTraceId", "id": _id_0};
+    } else {
+      const _old_0 = _excluded_0["value"];
+      return $TraceDraw$reuse$(($TraceId$is_eq$(_id_0, _old_0)), _id_0, _old_0, _remaining_0);
+    }
+  }
+}
+
+function $TraceDraw$take$(_word_0, _remaining_0, _words_0, _excluded_0) {
+  if (_words_0.$ === "NoTraceWord") {
+    return {$: "NeedTraceWord", "draw": {$: "TraceDraw", "remaining": _remaining_0, "words": {$: "OneTraceWord", "first": _word_0}, "excluded": _excluded_0}};
+  } else if (_words_0.$ === "OneTraceWord") {
+    const _first_0 = _words_0["first"];
+    return {$: "NeedTraceWord", "draw": {$: "TraceDraw", "remaining": _remaining_0, "words": {$: "TwoTraceWords", "first": _first_0, "second": _word_0}, "excluded": _excluded_0}};
+  } else if (_words_0.$ === "TwoTraceWords") {
+    const _first_1 = _words_0["first"];
+    const _second_0 = _words_0["second"];
+    return {$: "NeedTraceWord", "draw": {$: "TraceDraw", "remaining": _remaining_0, "words": {$: "ThreeTraceWords", "first": _first_1, "second": _second_0, "third": _word_0}, "excluded": _excluded_0}};
+  } else {
+    const _first_2 = _words_0["first"];
+    const _second_1 = _words_0["second"];
+    const _third_0 = _words_0["third"];
+    return $TraceDraw$check$(($Draw$asserted$(($TraceId$from_words$(_first_2, _second_1, _third_0, _word_0)))), _excluded_0, _remaining_0);
+  }
+}
+
+function $TraceDraw$feed$(_word_0, _remaining_0, _words_0, _excluded_0) {
   if (_word_0.$ === "Fail") {
     const _t_0 = _word_0["error"];
     const _code_0 = _t_0["fst"];
     const _message_0 = _t_0["snd"];
-    return {$: "Failed", "error": {$: "SourceFailure", "code": _code_0, "message": _message_0}};
+    return {$: "TraceFailed", "error": {$: "SourceFailure", "code": _code_0, "message": _message_0}};
   } else {
     const _next_0 = _word_0["value"];
-    if (_draw_0.$ === "DrawTrace") {
-      const _remaining_0 = _draw_0["remaining"];
-      const _t_1 = _draw_0["words"];
-      if (_t_1.$ === "NoTraceWord") {
-        const _previous_0 = _draw_0["previous"];
-        return {$: "NeedWord", "draw": {$: "DrawTrace", "remaining": _remaining_0, "words": {$: "OneTraceWord", "first": _next_0}, "previous": _previous_0}};
-      } else if (_t_1.$ === "OneTraceWord") {
-        const _first_0 = _t_1["first"];
-        const _previous_1 = _draw_0["previous"];
-        return {$: "NeedWord", "draw": {$: "DrawTrace", "remaining": _remaining_0, "words": {$: "TwoTraceWords", "first": _first_0, "second": _next_0}, "previous": _previous_1}};
-      } else if (_t_1.$ === "TwoTraceWords") {
-        const _first_1 = _t_1["first"];
-        const _second_0 = _t_1["second"];
-        const _previous_2 = _draw_0["previous"];
-        return {$: "NeedWord", "draw": {$: "DrawTrace", "remaining": _remaining_0, "words": {$: "ThreeTraceWords", "first": _first_1, "second": _second_0, "third": _next_0}, "previous": _previous_2}};
-      } else {
-        const _first_2 = _t_1["first"];
-        const _second_1 = _t_1["second"];
-        const _third_0 = _t_1["third"];
-        const _previous_3 = _draw_0["previous"];
-        return $Draw$check_trace$(($Draw$asserted$(($TraceId$from_words$(_first_2, _second_1, _third_0, _next_0)))), _previous_3, _remaining_0);
-      }
+    return $TraceDraw$take$(_next_0, _remaining_0, _words_0, _excluded_0);
+  }
+}
+
+function $TraceDraw$next$(_word_0, _draw_0) {
+  const _remaining_0 = _draw_0["remaining"];
+  const _words_0 = _draw_0["words"];
+  const _excluded_0 = _draw_0["excluded"];
+  return $TraceDraw$feed$(_word_0, _remaining_0, _words_0, _excluded_0);
+}
+
+function $TraceStep$waiting$(_step_0) {
+  if (_step_0.$ === "NeedTraceWord") {
+    const _draw_0 = _step_0["draw"];
+    return {$: "Some", "value": _draw_0};
+  } else if (_step_0.$ === "DrawnTraceId") {
+    return {$: "None"};
+  } else {
+    return {$: "None"};
+  }
+}
+
+function $TraceDraw$result$(_step_0) {
+  if (_step_0.$ === "DrawnTraceId") {
+    const _id_0 = _step_0["id"];
+    return {$: "Done", "value": _id_0};
+  } else if (_step_0.$ === "TraceFailed") {
+    const _error_0 = _step_0["error"];
+    return {$: "Fail", "error": _error_0};
+  } else {
+    return {$: "Fail", "error": {$: "ExhaustedTraceId"}};
+  }
+}
+
+function $TraceDraw$run$(_fuel_0, _current_0) {
+  const _tape_0 = _current_0["fst"];
+  const _step_0 = _current_0["snd"];
+  return $Drive$run$1260$(_fuel_0, {$: "Tuple", "fst": _tape_0, "snd": {$: "Tuple", "fst": _step_0, "snd": ($TraceStep$waiting$(_step_0))}});
+}
+
+function $TraceDraw$ended$(_result_0) {
+  return $Drive$ended$1260$(_result_0);
+}
+
+function $TraceDraw$outcome$(_done_0) {
+  return $Drive$outcome$1260$(_done_0);
+}
+
+function $SpanDraw$start$(_excluded_0) {
+  return {$: "NeedSpanWord", "draw": {$: "SpanDraw", "remaining": 7, "words": {$: "NoSpanWord"}, "excluded": _excluded_0}};
+}
+
+function $SpanDraw$retry$(_remaining_0, _excluded_0) {
+  if (_remaining_0 === 0) {
+    return {$: "SpanFailed", "error": {$: "ExhaustedSpanId"}};
+  } else {
+    const _p_0 = (_remaining_0 - 1);
+    return {$: "NeedSpanWord", "draw": {$: "SpanDraw", "remaining": _p_0, "words": {$: "NoSpanWord"}, "excluded": _excluded_0}};
+  }
+}
+
+function $SpanDraw$reuse$(_reused_0, _id_0, _excluded_0, _remaining_0) {
+  if (_reused_0) {
+    return $SpanDraw$retry$(_remaining_0, {$: "Some", "value": _excluded_0});
+  } else {
+    return {$: "DrawnSpanId", "id": _id_0};
+  }
+}
+
+function $SpanDraw$check$(_candidate_0, _excluded_0, _remaining_0) {
+  if (_candidate_0.$ === "None") {
+    return $SpanDraw$retry$(_remaining_0, _excluded_0);
+  } else {
+    const _id_0 = _candidate_0["value"];
+    if (_excluded_0.$ === "None") {
+      return {$: "DrawnSpanId", "id": _id_0};
     } else {
-      const _remaining_1 = _draw_0["remaining"];
-      const _t_2 = _draw_0["words"];
-      if (_t_2.$ === "NoSpanWord") {
-        const _plan_0 = _draw_0["plan"];
-        return {$: "NeedWord", "draw": {$: "DrawSpan", "remaining": _remaining_1, "words": {$: "OneSpanWord", "first": _next_0}, "plan": _plan_0}};
-      } else {
-        const _first_3 = _t_2["first"];
-        const _plan_1 = _draw_0["plan"];
-        return $Draw$check_span$(($SpanId$from_words$(_first_3, _next_0)), _plan_1, _remaining_1);
-      }
+      const _old_0 = _excluded_0["value"];
+      return $SpanDraw$reuse$(($SpanId$is_eq$(_id_0, _old_0)), _id_0, _old_0, _remaining_0);
     }
+  }
+}
+
+function $SpanDraw$take$(_word_0, _remaining_0, _words_0, _excluded_0) {
+  if (_words_0.$ === "NoSpanWord") {
+    return {$: "NeedSpanWord", "draw": {$: "SpanDraw", "remaining": _remaining_0, "words": {$: "OneSpanWord", "first": _word_0}, "excluded": _excluded_0}};
+  } else {
+    const _first_0 = _words_0["first"];
+    return $SpanDraw$check$(($SpanId$from_words$(_first_0, _word_0)), _excluded_0, _remaining_0);
+  }
+}
+
+function $SpanDraw$feed$(_word_0, _remaining_0, _words_0, _excluded_0) {
+  if (_word_0.$ === "Fail") {
+    const _t_0 = _word_0["error"];
+    const _code_0 = _t_0["fst"];
+    const _message_0 = _t_0["snd"];
+    return {$: "SpanFailed", "error": {$: "SourceFailure", "code": _code_0, "message": _message_0}};
+  } else {
+    const _next_0 = _word_0["value"];
+    return $SpanDraw$take$(_next_0, _remaining_0, _words_0, _excluded_0);
+  }
+}
+
+function $SpanDraw$next$(_word_0, _draw_0) {
+  const _remaining_0 = _draw_0["remaining"];
+  const _words_0 = _draw_0["words"];
+  const _excluded_0 = _draw_0["excluded"];
+  return $SpanDraw$feed$(_word_0, _remaining_0, _words_0, _excluded_0);
+}
+
+function $SpanStep$waiting$(_step_0) {
+  if (_step_0.$ === "NeedSpanWord") {
+    const _draw_0 = _step_0["draw"];
+    return {$: "Some", "value": _draw_0};
+  } else if (_step_0.$ === "DrawnSpanId") {
+    return {$: "None"};
+  } else {
+    return {$: "None"};
+  }
+}
+
+function $SpanDraw$result$(_step_0) {
+  if (_step_0.$ === "DrawnSpanId") {
+    const _id_0 = _step_0["id"];
+    return {$: "Done", "value": _id_0};
+  } else if (_step_0.$ === "SpanFailed") {
+    const _error_0 = _step_0["error"];
+    return {$: "Fail", "error": _error_0};
+  } else {
+    return {$: "Fail", "error": {$: "ExhaustedSpanId"}};
+  }
+}
+
+function $SpanDraw$run$(_fuel_0, _current_0) {
+  const _tape_0 = _current_0["fst"];
+  const _step_0 = _current_0["snd"];
+  return $Drive$run$1261$(_fuel_0, {$: "Tuple", "fst": _tape_0, "snd": {$: "Tuple", "fst": _step_0, "snd": ($SpanStep$waiting$(_step_0))}});
+}
+
+function $SpanDraw$ended$(_result_0) {
+  return $Drive$ended$1261$(_result_0);
+}
+
+function $SpanDraw$outcome$(_done_0) {
+  return $Drive$outcome$1261$(_done_0);
+}
+
+function $Step$of_span$(_step_0, _trace_id_0, _sampled_0) {
+  if (_step_0.$ === "NeedSpanWord") {
+    const _draw_0 = _step_0["draw"];
+    return {$: "NeedWord", "draw": {$: "DrawSpan", "draw": _draw_0, "trace_id": _trace_id_0, "sampled": _sampled_0}};
+  } else if (_step_0.$ === "DrawnSpanId") {
+    const _id_0 = _step_0["id"];
+    return {$: "Created", "context": ($Context$from_ids$(_trace_id_0, _id_0, _sampled_0))};
+  } else {
+    const _error_0 = _step_0["error"];
+    return {$: "Failed", "error": _error_0};
+  }
+}
+
+function $SpanPlan$root$(_trace_id_0) {
+  return {$: "SpanPlan", "excluded": {$: "None"}, "trace_id": _trace_id_0, "sampled": false};
+}
+
+function $SpanPlan$child$(_parent_0, _sampling_0) {
+  return {$: "SpanPlan", "excluded": {$: "Some", "value": ($Parent$span_id$(_parent_0))}, "trace_id": ($Parent$trace_id$(_parent_0)), "sampled": ($Sampling$resolve$(_sampling_0, ($Parent$is_sampled$(_parent_0))))};
+}
+
+function $SpanPlan$draw$(_plan_0) {
+  const _excluded_0 = _plan_0["excluded"];
+  const _trace_id_0 = _plan_0["trace_id"];
+  const _sampled_0 = _plan_0["sampled"];
+  return $Step$of_span$(($SpanDraw$start$(_excluded_0)), _trace_id_0, _sampled_0);
+}
+
+function $Step$of_trace$(_step_0) {
+  if (_step_0.$ === "NeedTraceWord") {
+    const _draw_0 = _step_0["draw"];
+    return {$: "NeedWord", "draw": {$: "DrawTrace", "draw": _draw_0}};
+  } else if (_step_0.$ === "DrawnTraceId") {
+    const _id_0 = _step_0["id"];
+    return $SpanPlan$draw$(($SpanPlan$root$(_id_0)));
+  } else {
+    const _error_0 = _step_0["error"];
+    return {$: "Failed", "error": _error_0};
+  }
+}
+
+function $Draw$restart_excluded$(_previous_0) {
+  return {$: "Some", "value": ($RemoteContext$trace_id$(_previous_0))};
+}
+
+function $Draw$root$() {
+  return $Step$of_trace$(($TraceDraw$start$({$: "None"})));
+}
+
+function $Draw$restart$(_previous_0) {
+  return $Step$of_trace$(($TraceDraw$start$(($Draw$restart_excluded$(_previous_0)))));
+}
+
+function $Draw$child$(_parent_0, _sampling_0) {
+  return $SpanPlan$draw$(($SpanPlan$child$(_parent_0, _sampling_0)));
+}
+
+function $Draw$feed$(_word_0, _draw_0) {
+  if (_draw_0.$ === "DrawTrace") {
+    const _trace_0 = _draw_0["draw"];
+    return $Step$of_trace$(($TraceDraw$next$(_word_0, _trace_0)));
+  } else {
+    const _span_0 = _draw_0["draw"];
+    const _trace_id_0 = _draw_0["trace_id"];
+    const _sampled_0 = _draw_0["sampled"];
+    return $Step$of_span$(($SpanDraw$next$(_word_0, _span_0)), _trace_id_0, _sampled_0);
+  }
+}
+
+function $Step$waiting$(_step_0) {
+  if (_step_0.$ === "NeedWord") {
+    const _draw_0 = _step_0["draw"];
+    return {$: "Some", "value": _draw_0};
+  } else if (_step_0.$ === "Created") {
+    return {$: "None"};
+  } else {
+    return {$: "None"};
   }
 }
 
@@ -1343,80 +1510,18 @@ function $Step$result$(_step_0) {
   }
 }
 
-function $Step$is_finished$(_step_0) {
-  if (_step_0.$ === "NeedWord") {
-    return false;
-  } else if (_step_0.$ === "Created") {
-    return true;
-  } else {
-    return true;
-  }
-}
-
-function $Tape$next$(_tape_0) {
-  if (_tape_0.$ === "Nil") {
-    return {$: "Tuple", "fst": {$: "Nil"}, "snd": {$: "Fail", "error": {$: "Tuple", "fst": 1, "snd": "tape-exhausted"}}};
-  } else {
-    const _word_0 = _tape_0["head"];
-    const _rest_0 = _tape_0["tail"];
-    return {$: "Tuple", "fst": _rest_0, "snd": _word_0};
-  }
-}
-
-function $Draw$fed_by$(_got_0, _draw_0) {
-  const _state_0 = _got_0["fst"];
-  const _word_0 = _got_0["snd"];
-  return {$: "Tuple", "fst": _state_0, "snd": ($Draw$feed$(_word_0, _draw_0))};
+function $Draw$run$(_fuel_0, _current_0) {
+  const _tape_0 = _current_0["fst"];
+  const _step_0 = _current_0["snd"];
+  return $Drive$run$1262$(_fuel_0, {$: "Tuple", "fst": _tape_0, "snd": {$: "Tuple", "fst": _step_0, "snd": ($Step$waiting$(_step_0))}});
 }
 
 function $Draw$ended$(_result_0) {
-  const _step_0 = _result_0["snd"];
-  return $Step$is_finished$(_step_0);
-}
-
-function $Draw$run$($0, $1) {
-  for (;;) {
-    {
-      const _fuel_0 = $0;
-      const _current_0 = $1;
-      if (_fuel_0 === 0) {
-        const _tape_0 = _current_0["fst"];
-        const _t_0 = _current_0["snd"];
-        if (_t_0.$ === "Created") {
-          const _context_0 = _t_0["context"];
-          return {$: "Tuple", "fst": _tape_0, "snd": {$: "Created", "context": _context_0}};
-        } else if (_t_0.$ === "Failed") {
-          const _error_0 = _t_0["error"];
-          return {$: "Tuple", "fst": _tape_0, "snd": {$: "Failed", "error": _error_0}};
-        } else {
-          const _draw_0 = _t_0["draw"];
-          return {$: "Tuple", "fst": _tape_0, "snd": {$: "NeedWord", "draw": _draw_0}};
-        }
-      } else {
-        const _p_0 = (_fuel_0 - 1);
-        const _tape_1 = _current_0["fst"];
-        const _t_1 = _current_0["snd"];
-        if (_t_1.$ === "Created") {
-          const _context_1 = _t_1["context"];
-          return {$: "Tuple", "fst": _tape_1, "snd": {$: "Created", "context": _context_1}};
-        } else if (_t_1.$ === "Failed") {
-          const _error_1 = _t_1["error"];
-          return {$: "Tuple", "fst": _tape_1, "snd": {$: "Failed", "error": _error_1}};
-        } else {
-          const _draw_1 = _t_1["draw"];
-          $0 = _p_0;
-          $1 = ($Draw$fed_by$(($Tape$next$(_tape_1)), _draw_1));
-          continue;
-        }
-      }
-    }
-  }
+  return $Drive$ended$1262$(_result_0);
 }
 
 function $Draw$outcome$(_done_0) {
-  const _state_0 = _done_0["fst"];
-  const _step_0 = _done_0["snd"];
-  return {$: "Tuple", "fst": _state_0, "snd": ($Step$result$(_step_0))};
+  return $Drive$outcome$1262$(_done_0);
 }
 
 function $Generation$root$() {
@@ -1478,6 +1583,18 @@ function $Generation$feed$(_generation_0, _word_0) {
 function $Generation$result$(_generation_0) {
   const _step_0 = _generation_0["step"];
   return $Step$result$(_step_0);
+}
+
+function $Draw$span_context$(_trace_id_0, _sampled_0, _done_0) {
+  const _state_0 = _done_0["fst"];
+  const _t_0 = _done_0["snd"];
+  if (_t_0.$ === "Fail") {
+    const _error_0 = _t_0["error"];
+    return {$: "Tuple", "fst": _state_0, "snd": {$: "Fail", "error": _error_0}};
+  } else {
+    const _span_id_0 = _t_0["value"];
+    return {$: "Tuple", "fst": _state_0, "snd": {$: "Done", "value": ($Context$from_ids$(_trace_id_0, _span_id_0, _sampled_0))}};
+  }
 }
 
 function $Source$tape$(_tape_0) {
@@ -3510,6 +3627,141 @@ function $Bool$to_u32$(_b_0) {
   }
 }
 
+function $Drive$run$1260$($0, $1) {
+  for (;;) {
+    {
+      const _fuel_0 = $0;
+      const _current_0 = $1;
+      if (_fuel_0 === 0) {
+        const _tape_0 = _current_0["fst"];
+        const _t_0 = _current_0["snd"];
+        const _step_0 = _t_0["fst"];
+        const _t_1 = _t_0["snd"];
+        if (_t_1.$ === "None") {
+          return {$: "Tuple", "fst": _tape_0, "snd": _step_0};
+        } else {
+          return {$: "Tuple", "fst": _tape_0, "snd": _step_0};
+        }
+      } else {
+        const _p_0 = (_fuel_0 - 1);
+        const _tape_1 = _current_0["fst"];
+        const _t_2 = _current_0["snd"];
+        const _step_1 = _t_2["fst"];
+        const _t_3 = _t_2["snd"];
+        if (_t_3.$ === "None") {
+          return {$: "Tuple", "fst": _tape_1, "snd": _step_1};
+        } else {
+          const _draw_1 = _t_3["value"];
+          $0 = _p_0;
+          $1 = ($Drive$fed$1260$(($Tape$next$(_tape_1)), _draw_1));
+          continue;
+        }
+      }
+    }
+  }
+}
+
+function $Drive$ended$1260$(_result_0) {
+  const _step_0 = _result_0["snd"];
+  return $Maybe$is_none$(($TraceStep$waiting$(_step_0)));
+}
+
+function $Drive$outcome$1260$(_done_0) {
+  const _state_0 = _done_0["fst"];
+  const _step_0 = _done_0["snd"];
+  return {$: "Tuple", "fst": _state_0, "snd": ($TraceDraw$result$(_step_0))};
+}
+
+function $Drive$run$1261$($0, $1) {
+  for (;;) {
+    {
+      const _fuel_0 = $0;
+      const _current_0 = $1;
+      if (_fuel_0 === 0) {
+        const _tape_0 = _current_0["fst"];
+        const _t_0 = _current_0["snd"];
+        const _step_0 = _t_0["fst"];
+        const _t_1 = _t_0["snd"];
+        if (_t_1.$ === "None") {
+          return {$: "Tuple", "fst": _tape_0, "snd": _step_0};
+        } else {
+          return {$: "Tuple", "fst": _tape_0, "snd": _step_0};
+        }
+      } else {
+        const _p_0 = (_fuel_0 - 1);
+        const _tape_1 = _current_0["fst"];
+        const _t_2 = _current_0["snd"];
+        const _step_1 = _t_2["fst"];
+        const _t_3 = _t_2["snd"];
+        if (_t_3.$ === "None") {
+          return {$: "Tuple", "fst": _tape_1, "snd": _step_1};
+        } else {
+          const _draw_1 = _t_3["value"];
+          $0 = _p_0;
+          $1 = ($Drive$fed$1261$(($Tape$next$(_tape_1)), _draw_1));
+          continue;
+        }
+      }
+    }
+  }
+}
+
+function $Drive$ended$1261$(_result_0) {
+  const _step_0 = _result_0["snd"];
+  return $Maybe$is_none$(($SpanStep$waiting$(_step_0)));
+}
+
+function $Drive$outcome$1261$(_done_0) {
+  const _state_0 = _done_0["fst"];
+  const _step_0 = _done_0["snd"];
+  return {$: "Tuple", "fst": _state_0, "snd": ($SpanDraw$result$(_step_0))};
+}
+
+function $Drive$run$1262$($0, $1) {
+  for (;;) {
+    {
+      const _fuel_0 = $0;
+      const _current_0 = $1;
+      if (_fuel_0 === 0) {
+        const _tape_0 = _current_0["fst"];
+        const _t_0 = _current_0["snd"];
+        const _step_0 = _t_0["fst"];
+        const _t_1 = _t_0["snd"];
+        if (_t_1.$ === "None") {
+          return {$: "Tuple", "fst": _tape_0, "snd": _step_0};
+        } else {
+          return {$: "Tuple", "fst": _tape_0, "snd": _step_0};
+        }
+      } else {
+        const _p_0 = (_fuel_0 - 1);
+        const _tape_1 = _current_0["fst"];
+        const _t_2 = _current_0["snd"];
+        const _step_1 = _t_2["fst"];
+        const _t_3 = _t_2["snd"];
+        if (_t_3.$ === "None") {
+          return {$: "Tuple", "fst": _tape_1, "snd": _step_1};
+        } else {
+          const _draw_1 = _t_3["value"];
+          $0 = _p_0;
+          $1 = ($Drive$fed$1262$(($Tape$next$(_tape_1)), _draw_1));
+          continue;
+        }
+      }
+    }
+  }
+}
+
+function $Drive$ended$1262$(_result_0) {
+  const _step_0 = _result_0["snd"];
+  return $Maybe$is_none$(($Step$waiting$(_step_0)));
+}
+
+function $Drive$outcome$1262$(_done_0) {
+  const _state_0 = _done_0["fst"];
+  const _step_0 = _done_0["snd"];
+  return {$: "Tuple", "fst": _state_0, "snd": ($Step$result$(_step_0))};
+}
+
 function $IO$pure$(_x_0, _k_0) {
   return run_tail(_k_0, _x_0);
 }
@@ -3695,6 +3947,31 @@ function $String$order$(_a_0, _b_0) {
   return $Pair$snd$(($String$cmp$(_a_0, _b_0)));
 }
 
+function $Drive$fed$1260$(_got_0, _draw_0) {
+  const _state_0 = _got_0["fst"];
+  const _word_0 = _got_0["snd"];
+  const _next_0 = ($TraceDraw$next$(_word_0, _draw_0));
+  return {$: "Tuple", "fst": _state_0, "snd": {$: "Tuple", "fst": _next_0, "snd": ($TraceStep$waiting$(_next_0))}};
+}
+
+function $Maybe$is_none$(_m_0) {
+  return $Bool$not$(($Maybe$is_some$(_m_0)));
+}
+
+function $Drive$fed$1261$(_got_0, _draw_0) {
+  const _state_0 = _got_0["fst"];
+  const _word_0 = _got_0["snd"];
+  const _next_0 = ($SpanDraw$next$(_word_0, _draw_0));
+  return {$: "Tuple", "fst": _state_0, "snd": {$: "Tuple", "fst": _next_0, "snd": ($SpanStep$waiting$(_next_0))}};
+}
+
+function $Drive$fed$1262$(_got_0, _draw_0) {
+  const _state_0 = _got_0["fst"];
+  const _word_0 = _got_0["snd"];
+  const _next_0 = ($Draw$feed$(_word_0, _draw_0));
+  return {$: "Tuple", "fst": _state_0, "snd": {$: "Tuple", "fst": _next_0, "snd": ($Step$waiting$(_next_0))}};
+}
+
 function $Nat$show$fin$($0, $1, $2) {
   let $pc = 0;
   for (;;) switch ($pc) {
@@ -3800,6 +4077,14 @@ function $String$cmp$(_a_0, _b_0) {
       const _t2_0 = (_b_0.codePointAt(0) > 0xFFFF ? _b_0.slice(2) : _b_0.slice(1));
       return $String$cmp$fin$(_t_1, _t2_0, ($Char$cmp$(_h_1, _h2_0)));
     }
+  }
+}
+
+function $Maybe$is_some$(_m_0) {
+  if (_m_0.$ === "None") {
+    return false;
+  } else {
+    return true;
   }
 }
 
@@ -4106,9 +4391,8 @@ function $0m13(v) {
   const top = [v];
   for (let at = top, key = 0;;) {
     switch (v.$) {
-      case "DrawTrace": at = at[key] = {...v, "remaining": BigInt(v["remaining"])}; return top[0];
-      case "DrawSpan": at = at[key] = {...v, "remaining": BigInt(v["remaining"])}; return top[0];
-      default: throw "bend: Draw has no tag " + v?.$ + " (its tags: DrawTrace, DrawSpan); a tag names its constructor as the"
+      case "TraceDraw": at = at[key] = {...v, "remaining": BigInt(v["remaining"])}; return top[0];
+      default: throw "bend: TraceDraw has no tag " + v?.$ + " (its tags: TraceDraw); a tag names its constructor as the"
       + " loading file sees it, which a later version will make the same"
       + " everywhere (#1105)";
     }
@@ -4119,10 +4403,10 @@ function $0m12(v) {
   const top = [v];
   for (let at = top, key = 0;;) {
     switch (v.$) {
-      case "NeedWord": at = at[key] = {...v, "draw": $0m13(v["draw"])}; return top[0];
-      case "Created": at[key] = v; return top[0];
-      case "Failed": at[key] = v; return top[0];
-      default: throw "bend: Step has no tag " + v?.$ + " (its tags: NeedWord, Created, Failed); a tag names its constructor as the"
+      case "NeedTraceWord": at = at[key] = {...v, "draw": $0m13(v["draw"])}; return top[0];
+      case "DrawnTraceId": at[key] = v; return top[0];
+      case "TraceFailed": at[key] = v; return top[0];
+      default: throw "bend: TraceStep has no tag " + v?.$ + " (its tags: NeedTraceWord, DrawnTraceId, TraceFailed); a tag names its constructor as the"
       + " loading file sees it, which a later version will make the same"
       + " everywhere (#1105)";
     }
@@ -4133,9 +4417,8 @@ function $0m14(v) {
   const top = [v];
   for (let at = top, key = 0;;) {
     switch (v.$) {
-      case "DrawTrace": at = at[key] = {...v, "remaining": nat_host(v["remaining"])}; return top[0];
-      case "DrawSpan": at = at[key] = {...v, "remaining": nat_host(v["remaining"])}; return top[0];
-      default: throw "bend: Draw has no tag " + v?.$ + " (its tags: DrawTrace, DrawSpan); a tag names its constructor as the"
+      case "TraceDraw": at = at[key] = {...v, "remaining": nat_host(v["remaining"])}; return top[0];
+      default: throw "bend: TraceDraw has no tag " + v?.$ + " (its tags: TraceDraw); a tag names its constructor as the"
       + " loading file sees it, which a later version will make the same"
       + " everywhere (#1105)";
     }
@@ -4146,10 +4429,10 @@ function $0m15(v) {
   const top = [v];
   for (let at = top, key = 0;;) {
     switch (v.$) {
-      case "NeedWord": at = at[key] = {...v, "draw": $0m14(v["draw"])}; return top[0];
-      case "Created": at[key] = v; return top[0];
-      case "Failed": at[key] = v; return top[0];
-      default: throw "bend: Step has no tag " + v?.$ + " (its tags: NeedWord, Created, Failed); a tag names its constructor as the"
+      case "NeedTraceWord": at = at[key] = {...v, "draw": $0m14(v["draw"])}; return top[0];
+      case "DrawnTraceId": at[key] = v; return top[0];
+      case "TraceFailed": at[key] = v; return top[0];
+      default: throw "bend: TraceStep has no tag " + v?.$ + " (its tags: NeedTraceWord, DrawnTraceId, TraceFailed); a tag names its constructor as the"
       + " loading file sees it, which a later version will make the same"
       + " everywhere (#1105)";
     }
@@ -4160,8 +4443,9 @@ function $0m16(v) {
   const top = [v];
   for (let at = top, key = 0;;) {
     switch (v.$) {
-      case "Tuple": at = at[key] = {...v, "snd": $0m12(v["snd"])}; return top[0];
-      default: throw "bend: Sigma has no tag " + v?.$ + " (its tags: Tuple); a tag names its constructor as the"
+      case "None": at[key] = v; return top[0];
+      case "Some": at = at[key] = {...v, "value": $0m13(v["value"])}; return top[0];
+      default: throw "bend: Maybe has no tag " + v?.$ + " (its tags: None, Some); a tag names its constructor as the"
       + " loading file sees it, which a later version will make the same"
       + " everywhere (#1105)";
     }
@@ -4192,24 +4476,26 @@ function $0m18(v) {
   }
 }
 
-function $0m19(v) {
+function $0m20(v) {
   const top = [v];
   for (let at = top, key = 0;;) {
     switch (v.$) {
-      case "Generation": at = at[key] = {...v, "fuel": BigInt(v["fuel"]), "step": $0m12(v["step"])}; return top[0];
-      default: throw "bend: Generation has no tag " + v?.$ + " (its tags: Generation); a tag names its constructor as the"
+      case "SpanDraw": at = at[key] = {...v, "remaining": BigInt(v["remaining"])}; return top[0];
+      default: throw "bend: SpanDraw has no tag " + v?.$ + " (its tags: SpanDraw); a tag names its constructor as the"
       + " loading file sees it, which a later version will make the same"
       + " everywhere (#1105)";
     }
   }
 }
 
-function $0m20(v) {
+function $0m19(v) {
   const top = [v];
   for (let at = top, key = 0;;) {
     switch (v.$) {
-      case "Generation": at = at[key] = {...v, "fuel": nat_host(v["fuel"]), "step": $0m15(v["step"])}; return top[0];
-      default: throw "bend: Generation has no tag " + v?.$ + " (its tags: Generation); a tag names its constructor as the"
+      case "NeedSpanWord": at = at[key] = {...v, "draw": $0m20(v["draw"])}; return top[0];
+      case "DrawnSpanId": at[key] = v; return top[0];
+      case "SpanFailed": at[key] = v; return top[0];
+      default: throw "bend: SpanStep has no tag " + v?.$ + " (its tags: NeedSpanWord, DrawnSpanId, SpanFailed); a tag names its constructor as the"
       + " loading file sees it, which a later version will make the same"
       + " everywhere (#1105)";
     }
@@ -4217,6 +4503,184 @@ function $0m20(v) {
 }
 
 function $0m21(v) {
+  const top = [v];
+  for (let at = top, key = 0;;) {
+    switch (v.$) {
+      case "SpanDraw": at = at[key] = {...v, "remaining": nat_host(v["remaining"])}; return top[0];
+      default: throw "bend: SpanDraw has no tag " + v?.$ + " (its tags: SpanDraw); a tag names its constructor as the"
+      + " loading file sees it, which a later version will make the same"
+      + " everywhere (#1105)";
+    }
+  }
+}
+
+function $0m22(v) {
+  const top = [v];
+  for (let at = top, key = 0;;) {
+    switch (v.$) {
+      case "NeedSpanWord": at = at[key] = {...v, "draw": $0m21(v["draw"])}; return top[0];
+      case "DrawnSpanId": at[key] = v; return top[0];
+      case "SpanFailed": at[key] = v; return top[0];
+      default: throw "bend: SpanStep has no tag " + v?.$ + " (its tags: NeedSpanWord, DrawnSpanId, SpanFailed); a tag names its constructor as the"
+      + " loading file sees it, which a later version will make the same"
+      + " everywhere (#1105)";
+    }
+  }
+}
+
+function $0m23(v) {
+  const top = [v];
+  for (let at = top, key = 0;;) {
+    switch (v.$) {
+      case "None": at[key] = v; return top[0];
+      case "Some": at = at[key] = {...v, "value": $0m20(v["value"])}; return top[0];
+      default: throw "bend: Maybe has no tag " + v?.$ + " (its tags: None, Some); a tag names its constructor as the"
+      + " loading file sees it, which a later version will make the same"
+      + " everywhere (#1105)";
+    }
+  }
+}
+
+function $0m24(v) {
+  const top = [v];
+  for (let at = top, key = 0;;) {
+    switch (v.$) {
+      case "Tuple": at = at[key] = {...v, "snd": $0m22(v["snd"])}; return top[0];
+      default: throw "bend: Sigma has no tag " + v?.$ + " (its tags: Tuple); a tag names its constructor as the"
+      + " loading file sees it, which a later version will make the same"
+      + " everywhere (#1105)";
+    }
+  }
+}
+
+function $0m25(v) {
+  const top = [v];
+  for (let at = top, key = 0;;) {
+    switch (v.$) {
+      case "Tuple": at = at[key] = {...v, "snd": $0m19(v["snd"])}; return top[0];
+      default: throw "bend: Sigma has no tag " + v?.$ + " (its tags: Tuple); a tag names its constructor as the"
+      + " loading file sees it, which a later version will make the same"
+      + " everywhere (#1105)";
+    }
+  }
+}
+
+function $0m27(v) {
+  const top = [v];
+  for (let at = top, key = 0;;) {
+    switch (v.$) {
+      case "DrawTrace": at = at[key] = {...v, "draw": $0m13(v["draw"])}; return top[0];
+      case "DrawSpan": at = at[key] = {...v, "draw": $0m20(v["draw"])}; return top[0];
+      default: throw "bend: Draw has no tag " + v?.$ + " (its tags: DrawTrace, DrawSpan); a tag names its constructor as the"
+      + " loading file sees it, which a later version will make the same"
+      + " everywhere (#1105)";
+    }
+  }
+}
+
+function $0m26(v) {
+  const top = [v];
+  for (let at = top, key = 0;;) {
+    switch (v.$) {
+      case "NeedWord": at = at[key] = {...v, "draw": $0m27(v["draw"])}; return top[0];
+      case "Created": at[key] = v; return top[0];
+      case "Failed": at[key] = v; return top[0];
+      default: throw "bend: Step has no tag " + v?.$ + " (its tags: NeedWord, Created, Failed); a tag names its constructor as the"
+      + " loading file sees it, which a later version will make the same"
+      + " everywhere (#1105)";
+    }
+  }
+}
+
+function $0m28(v) {
+  const top = [v];
+  for (let at = top, key = 0;;) {
+    switch (v.$) {
+      case "DrawTrace": at = at[key] = {...v, "draw": $0m14(v["draw"])}; return top[0];
+      case "DrawSpan": at = at[key] = {...v, "draw": $0m21(v["draw"])}; return top[0];
+      default: throw "bend: Draw has no tag " + v?.$ + " (its tags: DrawTrace, DrawSpan); a tag names its constructor as the"
+      + " loading file sees it, which a later version will make the same"
+      + " everywhere (#1105)";
+    }
+  }
+}
+
+function $0m29(v) {
+  const top = [v];
+  for (let at = top, key = 0;;) {
+    switch (v.$) {
+      case "NeedWord": at = at[key] = {...v, "draw": $0m28(v["draw"])}; return top[0];
+      case "Created": at[key] = v; return top[0];
+      case "Failed": at[key] = v; return top[0];
+      default: throw "bend: Step has no tag " + v?.$ + " (its tags: NeedWord, Created, Failed); a tag names its constructor as the"
+      + " loading file sees it, which a later version will make the same"
+      + " everywhere (#1105)";
+    }
+  }
+}
+
+function $0m30(v) {
+  const top = [v];
+  for (let at = top, key = 0;;) {
+    switch (v.$) {
+      case "None": at[key] = v; return top[0];
+      case "Some": at = at[key] = {...v, "value": $0m27(v["value"])}; return top[0];
+      default: throw "bend: Maybe has no tag " + v?.$ + " (its tags: None, Some); a tag names its constructor as the"
+      + " loading file sees it, which a later version will make the same"
+      + " everywhere (#1105)";
+    }
+  }
+}
+
+function $0m31(v) {
+  const top = [v];
+  for (let at = top, key = 0;;) {
+    switch (v.$) {
+      case "Tuple": at = at[key] = {...v, "snd": $0m29(v["snd"])}; return top[0];
+      default: throw "bend: Sigma has no tag " + v?.$ + " (its tags: Tuple); a tag names its constructor as the"
+      + " loading file sees it, which a later version will make the same"
+      + " everywhere (#1105)";
+    }
+  }
+}
+
+function $0m32(v) {
+  const top = [v];
+  for (let at = top, key = 0;;) {
+    switch (v.$) {
+      case "Tuple": at = at[key] = {...v, "snd": $0m26(v["snd"])}; return top[0];
+      default: throw "bend: Sigma has no tag " + v?.$ + " (its tags: Tuple); a tag names its constructor as the"
+      + " loading file sees it, which a later version will make the same"
+      + " everywhere (#1105)";
+    }
+  }
+}
+
+function $0m33(v) {
+  const top = [v];
+  for (let at = top, key = 0;;) {
+    switch (v.$) {
+      case "Generation": at = at[key] = {...v, "fuel": BigInt(v["fuel"]), "step": $0m26(v["step"])}; return top[0];
+      default: throw "bend: Generation has no tag " + v?.$ + " (its tags: Generation); a tag names its constructor as the"
+      + " loading file sees it, which a later version will make the same"
+      + " everywhere (#1105)";
+    }
+  }
+}
+
+function $0m34(v) {
+  const top = [v];
+  for (let at = top, key = 0;;) {
+    switch (v.$) {
+      case "Generation": at = at[key] = {...v, "fuel": nat_host(v["fuel"]), "step": $0m29(v["step"])}; return top[0];
+      default: throw "bend: Generation has no tag " + v?.$ + " (its tags: Generation); a tag names its constructor as the"
+      + " loading file sees it, which a later version will make the same"
+      + " everywhere (#1105)";
+    }
+  }
+}
+
+function $0m35(v) {
   const top = [v];
   for (let at = top, key = 0;;) {
     switch (v.$) {
@@ -4236,7 +4700,7 @@ function $0m21(v) {
   }
 }
 
-function $0m23(v) {
+function $0m37(v) {
   const top = [v];
   for (let at = top, key = 0;;) {
     switch (v.$) {
@@ -4248,12 +4712,12 @@ function $0m23(v) {
   }
 }
 
-function $0m22(v) {
+function $0m36(v) {
   const top = [v];
   for (let at = top, key = 0;;) {
     switch (v.$) {
       case "Fail": at[key] = v; return top[0];
-      case "Done": at = at[key] = {...v, "value": $0m23(v["value"])}; return top[0];
+      case "Done": at = at[key] = {...v, "value": $0m37(v["value"])}; return top[0];
       default: throw "bend: Result has no tag " + v?.$ + " (its tags: Fail, Done); a tag names its constructor as the"
       + " loading file sees it, which a later version will make the same"
       + " everywhere (#1105)";
@@ -4261,7 +4725,7 @@ function $0m22(v) {
   }
 }
 
-function $0m24(v) {
+function $0m38(v) {
   const top = [v];
   for (let at = top, key = 0;;) {
     switch (v.$) {
@@ -4273,7 +4737,7 @@ function $0m24(v) {
   }
 }
 
-function $0m25(v) {
+function $0m39(v) {
   const top = [v];
   for (let at = top, key = 0;;) {
     switch (v.$) {
@@ -4286,7 +4750,7 @@ function $0m25(v) {
   }
 }
 
-function $0m26(v) {
+function $0m40(v) {
   const top = [v];
   for (let at = top, key = 0;;) {
     switch (v.$) {
@@ -4299,7 +4763,7 @@ function $0m26(v) {
   }
 }
 
-function $0m28(v) {
+function $0m42(v) {
   const top = [v];
   for (let at = top, key = 0;;) {
     switch (v.$) {
@@ -4313,12 +4777,12 @@ function $0m28(v) {
   }
 }
 
-function $0m27(v) {
+function $0m41(v) {
   const top = [v];
   for (let at = top, key = 0;;) {
     switch (v.$) {
       case "Scanning": at = at[key] = {...v, "member": BigInt(v["member"]), "room": BigInt(v["room"])}; return top[0];
-      case "Stopped": at = at[key] = {...v, "error": $0m28(v["error"])}; return top[0];
+      case "Stopped": at = at[key] = {...v, "error": $0m42(v["error"])}; return top[0];
       default: throw "bend: Scan has no tag " + v?.$ + " (its tags: Scanning, Stopped); a tag names its constructor as the"
       + " loading file sees it, which a later version will make the same"
       + " everywhere (#1105)";
@@ -4326,7 +4790,7 @@ function $0m27(v) {
   }
 }
 
-function $0m30(v) {
+function $0m44(v) {
   const top = [v];
   for (let at = top, key = 0;;) {
     switch (v.$) {
@@ -4340,12 +4804,12 @@ function $0m30(v) {
   }
 }
 
-function $0m29(v) {
+function $0m43(v) {
   const top = [v];
   for (let at = top, key = 0;;) {
     switch (v.$) {
       case "Scanning": at = at[key] = {...v, "member": nat_host(v["member"]), "room": nat_host(v["room"])}; return top[0];
-      case "Stopped": at = at[key] = {...v, "error": $0m30(v["error"])}; return top[0];
+      case "Stopped": at = at[key] = {...v, "error": $0m44(v["error"])}; return top[0];
       default: throw "bend: Scan has no tag " + v?.$ + " (its tags: Scanning, Stopped); a tag names its constructor as the"
       + " loading file sees it, which a later version will make the same"
       + " everywhere (#1105)";
@@ -4353,11 +4817,11 @@ function $0m29(v) {
   }
 }
 
-function $0m31(v) {
+function $0m45(v) {
   const top = [v];
   for (let at = top, key = 0;;) {
     switch (v.$) {
-      case "Fail": at = at[key] = {...v, "error": $0m28(v["error"])}; return top[0];
+      case "Fail": at = at[key] = {...v, "error": $0m42(v["error"])}; return top[0];
       case "Done": at[key] = v; return top[0];
       default: throw "bend: Result has no tag " + v?.$ + " (its tags: Fail, Done); a tag names its constructor as the"
       + " loading file sees it, which a later version will make the same"
@@ -4366,7 +4830,7 @@ function $0m31(v) {
   }
 }
 
-function $0m32(v) {
+function $0m46(v) {
   const top = [v];
   for (let at = top, key = 0;;) {
     switch (v.$) {
@@ -4379,11 +4843,11 @@ function $0m32(v) {
   }
 }
 
-function $0m33(v) {
+function $0m47(v) {
   const top = [v];
   for (let at = top, key = 0;;) {
     switch (v.$) {
-      case "Fail": at = at[key] = {...v, "error": $0m21(v["error"])}; return top[0];
+      case "Fail": at = at[key] = {...v, "error": $0m35(v["error"])}; return top[0];
       case "Done": at[key] = v; return top[0];
       default: throw "bend: Result has no tag " + v?.$ + " (its tags: Fail, Done); a tag names its constructor as the"
       + " loading file sees it, which a later version will make the same"
@@ -4392,7 +4856,7 @@ function $0m33(v) {
   }
 }
 
-function $0m35(v) {
+function $0m49(v) {
   const top = [v];
   for (let at = top, key = 0;;) {
     switch (v.$) {
@@ -4406,204 +4870,13 @@ function $0m35(v) {
   }
 }
 
-function $0m34(v) {
-  const top = [v];
-  for (let at = top, key = 0;;) {
-    switch (v.$) {
-      case "Fail": at = at[key] = {...v, "error": $0m35(v["error"])}; return top[0];
-      case "Done": at[key] = v; return top[0];
-      default: throw "bend: Result has no tag " + v?.$ + " (its tags: Fail, Done); a tag names its constructor as the"
-      + " loading file sees it, which a later version will make the same"
-      + " everywhere (#1105)";
-    }
-  }
-}
-
-function $0m36(v) {
-  const top = [v];
-  for (let at = top, key = 0;;) {
-    switch (v.$) {
-      case "StateAbsent": at[key] = v; return top[0];
-      case "StateAccepted": at[key] = v; return top[0];
-      case "StateDiscarded": at = at[key] = {...v, "error": $0m28(v["error"])}; return top[0];
-      case "StateIgnored": at[key] = v; return top[0];
-      default: throw "bend: StateOutcome has no tag " + v?.$ + " (its tags: StateAbsent, StateAccepted, StateDiscarded, StateIgnored); a tag names its constructor as the"
-      + " loading file sees it, which a later version will make the same"
-      + " everywhere (#1105)";
-    }
-  }
-}
-
-function $0m38(v) {
-  const top = [v];
-  for (let at = top, key = 0;;) {
-    switch (v.$) {
-      case "RepeatedTraceParent": at[key] = v; return top[0];
-      case "TraceParentTooLarge": at[key] = v; return top[0];
-      case "InvalidTraceParent": at = at[key] = {...v, "error": $0m21(v["error"])}; return top[0];
-      default: throw "bend: TraceParentError has no tag " + v?.$ + " (its tags: RepeatedTraceParent, TraceParentTooLarge, InvalidTraceParent); a tag names its constructor as the"
-      + " loading file sees it, which a later version will make the same"
-      + " everywhere (#1105)";
-    }
-  }
-}
-
-function $0m37(v) {
-  const top = [v];
-  for (let at = top, key = 0;;) {
-    switch (v.$) {
-      case "TraceParentAccepted": at[key] = v; return top[0];
-      case "TraceParentAbsent": at[key] = v; return top[0];
-      case "TraceParentRejected": at = at[key] = {...v, "error": $0m38(v["error"])}; return top[0];
-      default: throw "bend: TraceParentOutcome has no tag " + v?.$ + " (its tags: TraceParentAccepted, TraceParentAbsent, TraceParentRejected); a tag names its constructor as the"
-      + " loading file sees it, which a later version will make the same"
-      + " everywhere (#1105)";
-    }
-  }
-}
-
-function $0m39(v) {
-  const top = [v];
-  for (let at = top, key = 0;;) {
-    switch (v.$) {
-      case "TraceParentAccepted": at[key] = v; return top[0];
-      case "TraceParentAbsent": at[key] = v; return top[0];
-      case "TraceParentRejected": at = at[key] = {...v, "error": $0m35(v["error"])}; return top[0];
-      default: throw "bend: TraceParentOutcome has no tag " + v?.$ + " (its tags: TraceParentAccepted, TraceParentAbsent, TraceParentRejected); a tag names its constructor as the"
-      + " loading file sees it, which a later version will make the same"
-      + " everywhere (#1105)";
-    }
-  }
-}
-
-function $0m40(v) {
-  const top = [v];
-  for (let at = top, key = 0;;) {
-    switch (v.$) {
-      case "Extraction": at = at[key] = {...v, "parent": $0m39(v["parent"]), "state": $0m36(v["state"])}; return top[0];
-      default: throw "bend: Extraction has no tag " + v?.$ + " (its tags: Extraction); a tag names its constructor as the"
-      + " loading file sees it, which a later version will make the same"
-      + " everywhere (#1105)";
-    }
-  }
-}
-
-function $0m41(v) {
-  const top = [v];
-  for (let at = top, key = 0;;) {
-    switch (v.$) {
-      case "Fail": at = at[key] = {...v, "error": $0m30(v["error"])}; return top[0];
-      case "Done": at[key] = v; return top[0];
-      default: throw "bend: Result has no tag " + v?.$ + " (its tags: Fail, Done); a tag names its constructor as the"
-      + " loading file sees it, which a later version will make the same"
-      + " everywhere (#1105)";
-    }
-  }
-}
-
-function $0m42(v) {
-  const top = [v];
-  for (let at = top, key = 0;;) {
-    switch (v.$) {
-      case "Fail": at = at[key] = {...v, "error": $0m38(v["error"])}; return top[0];
-      case "Done": at[key] = v; return top[0];
-      default: throw "bend: Result has no tag " + v?.$ + " (its tags: Fail, Done); a tag names its constructor as the"
-      + " loading file sees it, which a later version will make the same"
-      + " everywhere (#1105)";
-    }
-  }
-}
-
-function $0m44(v) {
-  const top = [v];
-  for (let at = top, key = 0;;) {
-    switch (v.$) {
-      case "StateAbsent": at[key] = v; return top[0];
-      case "StateAccepted": at[key] = v; return top[0];
-      case "StateDiscarded": at = at[key] = {...v, "error": $0m30(v["error"])}; return top[0];
-      case "StateIgnored": at[key] = v; return top[0];
-      default: throw "bend: StateOutcome has no tag " + v?.$ + " (its tags: StateAbsent, StateAccepted, StateDiscarded, StateIgnored); a tag names its constructor as the"
-      + " loading file sees it, which a later version will make the same"
-      + " everywhere (#1105)";
-    }
-  }
-}
-
-function $0m43(v) {
-  const top = [v];
-  for (let at = top, key = 0;;) {
-    switch (v.$) {
-      case "Extraction": at = at[key] = {...v, "parent": $0m37(v["parent"]), "state": $0m44(v["state"])}; return top[0];
-      default: throw "bend: Extraction has no tag " + v?.$ + " (its tags: Extraction); a tag names its constructor as the"
-      + " loading file sees it, which a later version will make the same"
-      + " everywhere (#1105)";
-    }
-  }
-}
-
-function $0m46(v) {
-  const top = [v];
-  for (let at = top, key = 0;;) {
-    switch (v.$) {
-      case "NothingToForward": at[key] = v; return top[0];
-      case "ForwardTooLarge": at[key] = v; return top[0];
-      case "InvalidForwardParent": at = at[key] = {...v, "error": $0m35(v["error"])}; return top[0];
-      case "InvalidForwardState": at = at[key] = {...v, "error": $0m28(v["error"])}; return top[0];
-      default: throw "bend: ForwardError has no tag " + v?.$ + " (its tags: NothingToForward, ForwardTooLarge, InvalidForwardParent, InvalidForwardState); a tag names its constructor as the"
-      + " loading file sees it, which a later version will make the same"
-      + " everywhere (#1105)";
-    }
-  }
-}
-
-function $0m45(v) {
-  const top = [v];
-  for (let at = top, key = 0;;) {
-    switch (v.$) {
-      case "Fail": at = at[key] = {...v, "error": $0m46(v["error"])}; return top[0];
-      case "Done": at[key] = v; return top[0];
-      default: throw "bend: Result has no tag " + v?.$ + " (its tags: Fail, Done); a tag names its constructor as the"
-      + " loading file sees it, which a later version will make the same"
-      + " everywhere (#1105)";
-    }
-  }
-}
-
-function $0m47(v) {
-  const top = [v];
-  for (let at = top, key = 0;;) {
-    switch (v.$) {
-      case "NothingToForward": at[key] = v; return top[0];
-      case "ForwardTooLarge": at[key] = v; return top[0];
-      case "InvalidForwardParent": at = at[key] = {...v, "error": $0m38(v["error"])}; return top[0];
-      case "InvalidForwardState": at = at[key] = {...v, "error": $0m30(v["error"])}; return top[0];
-      default: throw "bend: ForwardError has no tag " + v?.$ + " (its tags: NothingToForward, ForwardTooLarge, InvalidForwardParent, InvalidForwardState); a tag names its constructor as the"
-      + " loading file sees it, which a later version will make the same"
-      + " everywhere (#1105)";
-    }
-  }
-}
-
 function $0m48(v) {
   const top = [v];
   for (let at = top, key = 0;;) {
     switch (v.$) {
-      case "ContinuePlan": at = at[key] = {...v, "generation": $0m19(v["generation"])}; return top[0];
-      case "StartPlan": at = at[key] = {...v, "generation": $0m19(v["generation"])}; return top[0];
-      default: throw "bend: ServicePlan has no tag " + v?.$ + " (its tags: ContinuePlan, StartPlan); a tag names its constructor as the"
-      + " loading file sees it, which a later version will make the same"
-      + " everywhere (#1105)";
-    }
-  }
-}
-
-function $0m49(v) {
-  const top = [v];
-  for (let at = top, key = 0;;) {
-    switch (v.$) {
-      case "ContinuePlan": at = at[key] = {...v, "generation": $0m20(v["generation"])}; return top[0];
-      case "StartPlan": at = at[key] = {...v, "generation": $0m20(v["generation"])}; return top[0];
-      default: throw "bend: ServicePlan has no tag " + v?.$ + " (its tags: ContinuePlan, StartPlan); a tag names its constructor as the"
+      case "Fail": at = at[key] = {...v, "error": $0m49(v["error"])}; return top[0];
+      case "Done": at[key] = v; return top[0];
+      default: throw "bend: Result has no tag " + v?.$ + " (its tags: Fail, Done); a tag names its constructor as the"
       + " loading file sees it, which a later version will make the same"
       + " everywhere (#1105)";
     }
@@ -4614,9 +4887,11 @@ function $0m50(v) {
   const top = [v];
   for (let at = top, key = 0;;) {
     switch (v.$) {
-      case "Fail": at = at[key] = {...v, "error": $0m47(v["error"])}; return top[0];
-      case "Done": at[key] = v; return top[0];
-      default: throw "bend: Result has no tag " + v?.$ + " (its tags: Fail, Done); a tag names its constructor as the"
+      case "StateAbsent": at[key] = v; return top[0];
+      case "StateAccepted": at[key] = v; return top[0];
+      case "StateDiscarded": at = at[key] = {...v, "error": $0m42(v["error"])}; return top[0];
+      case "StateIgnored": at[key] = v; return top[0];
+      default: throw "bend: StateOutcome has no tag " + v?.$ + " (its tags: StateAbsent, StateAccepted, StateDiscarded, StateIgnored); a tag names its constructor as the"
       + " loading file sees it, which a later version will make the same"
       + " everywhere (#1105)";
     }
@@ -4627,9 +4902,10 @@ function $0m52(v) {
   const top = [v];
   for (let at = top, key = 0;;) {
     switch (v.$) {
-      case "NothingKept": at[key] = v; return top[0];
-      case "ForwardFailed": at = at[key] = {...v, "error": $0m46(v["error"])}; return top[0];
-      default: throw "bend: Unforwarded has no tag " + v?.$ + " (its tags: NothingKept, ForwardFailed); a tag names its constructor as the"
+      case "RepeatedTraceParent": at[key] = v; return top[0];
+      case "TraceParentTooLarge": at[key] = v; return top[0];
+      case "InvalidTraceParent": at = at[key] = {...v, "error": $0m35(v["error"])}; return top[0];
+      default: throw "bend: TraceParentError has no tag " + v?.$ + " (its tags: RepeatedTraceParent, TraceParentTooLarge, InvalidTraceParent); a tag names its constructor as the"
       + " loading file sees it, which a later version will make the same"
       + " everywhere (#1105)";
     }
@@ -4640,10 +4916,10 @@ function $0m51(v) {
   const top = [v];
   for (let at = top, key = 0;;) {
     switch (v.$) {
-      case "Fresh": at[key] = v; return top[0];
-      case "Forwarded": at[key] = v; return top[0];
-      case "NoContext": at = at[key] = {...v, "reason": $0m52(v["reason"])}; return top[0];
-      default: throw "bend: Sent has no tag " + v?.$ + " (its tags: Fresh, Forwarded, NoContext); a tag names its constructor as the"
+      case "TraceParentAccepted": at[key] = v; return top[0];
+      case "TraceParentAbsent": at[key] = v; return top[0];
+      case "TraceParentRejected": at = at[key] = {...v, "error": $0m52(v["error"])}; return top[0];
+      default: throw "bend: TraceParentOutcome has no tag " + v?.$ + " (its tags: TraceParentAccepted, TraceParentAbsent, TraceParentRejected); a tag names its constructor as the"
       + " loading file sees it, which a later version will make the same"
       + " everywhere (#1105)";
     }
@@ -4654,9 +4930,10 @@ function $0m53(v) {
   const top = [v];
   for (let at = top, key = 0;;) {
     switch (v.$) {
-      case "SendChild": at = at[key] = {...v, "generation": $0m19(v["generation"]), "limits": $0m23(v["limits"])}; return top[0];
-      case "SendFallback": at = at[key] = {...v, "limits": $0m23(v["limits"])}; return top[0];
-      default: throw "bend: SendPlan has no tag " + v?.$ + " (its tags: SendChild, SendFallback); a tag names its constructor as the"
+      case "TraceParentAccepted": at[key] = v; return top[0];
+      case "TraceParentAbsent": at[key] = v; return top[0];
+      case "TraceParentRejected": at = at[key] = {...v, "error": $0m49(v["error"])}; return top[0];
+      default: throw "bend: TraceParentOutcome has no tag " + v?.$ + " (its tags: TraceParentAccepted, TraceParentAbsent, TraceParentRejected); a tag names its constructor as the"
       + " loading file sees it, which a later version will make the same"
       + " everywhere (#1105)";
     }
@@ -4667,9 +4944,8 @@ function $0m54(v) {
   const top = [v];
   for (let at = top, key = 0;;) {
     switch (v.$) {
-      case "SendChild": at = at[key] = {...v, "generation": $0m20(v["generation"]), "limits": $0m24(v["limits"])}; return top[0];
-      case "SendFallback": at = at[key] = {...v, "limits": $0m24(v["limits"])}; return top[0];
-      default: throw "bend: SendPlan has no tag " + v?.$ + " (its tags: SendChild, SendFallback); a tag names its constructor as the"
+      case "Extraction": at = at[key] = {...v, "parent": $0m53(v["parent"]), "state": $0m50(v["state"])}; return top[0];
+      default: throw "bend: Extraction has no tag " + v?.$ + " (its tags: Extraction); a tag names its constructor as the"
       + " loading file sees it, which a later version will make the same"
       + " everywhere (#1105)";
     }
@@ -4680,21 +4956,9 @@ function $0m55(v) {
   const top = [v];
   for (let at = top, key = 0;;) {
     switch (v.$) {
-      case "Tuple": at = at[key] = {...v, "snd": $0m51(v["snd"])}; return top[0];
-      default: throw "bend: Sigma has no tag " + v?.$ + " (its tags: Tuple); a tag names its constructor as the"
-      + " loading file sees it, which a later version will make the same"
-      + " everywhere (#1105)";
-    }
-  }
-}
-
-function $0m57(v) {
-  const top = [v];
-  for (let at = top, key = 0;;) {
-    switch (v.$) {
-      case "NothingKept": at[key] = v; return top[0];
-      case "ForwardFailed": at = at[key] = {...v, "error": $0m47(v["error"])}; return top[0];
-      default: throw "bend: Unforwarded has no tag " + v?.$ + " (its tags: NothingKept, ForwardFailed); a tag names its constructor as the"
+      case "Fail": at = at[key] = {...v, "error": $0m44(v["error"])}; return top[0];
+      case "Done": at[key] = v; return top[0];
+      default: throw "bend: Result has no tag " + v?.$ + " (its tags: Fail, Done); a tag names its constructor as the"
       + " loading file sees it, which a later version will make the same"
       + " everywhere (#1105)";
     }
@@ -4705,10 +4969,9 @@ function $0m56(v) {
   const top = [v];
   for (let at = top, key = 0;;) {
     switch (v.$) {
-      case "Fresh": at[key] = v; return top[0];
-      case "Forwarded": at[key] = v; return top[0];
-      case "NoContext": at = at[key] = {...v, "reason": $0m57(v["reason"])}; return top[0];
-      default: throw "bend: Sent has no tag " + v?.$ + " (its tags: Fresh, Forwarded, NoContext); a tag names its constructor as the"
+      case "Fail": at = at[key] = {...v, "error": $0m52(v["error"])}; return top[0];
+      case "Done": at[key] = v; return top[0];
+      default: throw "bend: Result has no tag " + v?.$ + " (its tags: Fail, Done); a tag names its constructor as the"
       + " loading file sees it, which a later version will make the same"
       + " everywhere (#1105)";
     }
@@ -4719,8 +4982,209 @@ function $0m58(v) {
   const top = [v];
   for (let at = top, key = 0;;) {
     switch (v.$) {
+      case "StateAbsent": at[key] = v; return top[0];
+      case "StateAccepted": at[key] = v; return top[0];
+      case "StateDiscarded": at = at[key] = {...v, "error": $0m44(v["error"])}; return top[0];
+      case "StateIgnored": at[key] = v; return top[0];
+      default: throw "bend: StateOutcome has no tag " + v?.$ + " (its tags: StateAbsent, StateAccepted, StateDiscarded, StateIgnored); a tag names its constructor as the"
+      + " loading file sees it, which a later version will make the same"
+      + " everywhere (#1105)";
+    }
+  }
+}
+
+function $0m57(v) {
+  const top = [v];
+  for (let at = top, key = 0;;) {
+    switch (v.$) {
+      case "Extraction": at = at[key] = {...v, "parent": $0m51(v["parent"]), "state": $0m58(v["state"])}; return top[0];
+      default: throw "bend: Extraction has no tag " + v?.$ + " (its tags: Extraction); a tag names its constructor as the"
+      + " loading file sees it, which a later version will make the same"
+      + " everywhere (#1105)";
+    }
+  }
+}
+
+function $0m60(v) {
+  const top = [v];
+  for (let at = top, key = 0;;) {
+    switch (v.$) {
+      case "NothingToForward": at[key] = v; return top[0];
+      case "ForwardTooLarge": at[key] = v; return top[0];
+      case "InvalidForwardParent": at = at[key] = {...v, "error": $0m49(v["error"])}; return top[0];
+      case "InvalidForwardState": at = at[key] = {...v, "error": $0m42(v["error"])}; return top[0];
+      default: throw "bend: ForwardError has no tag " + v?.$ + " (its tags: NothingToForward, ForwardTooLarge, InvalidForwardParent, InvalidForwardState); a tag names its constructor as the"
+      + " loading file sees it, which a later version will make the same"
+      + " everywhere (#1105)";
+    }
+  }
+}
+
+function $0m59(v) {
+  const top = [v];
+  for (let at = top, key = 0;;) {
+    switch (v.$) {
+      case "Fail": at = at[key] = {...v, "error": $0m60(v["error"])}; return top[0];
+      case "Done": at[key] = v; return top[0];
+      default: throw "bend: Result has no tag " + v?.$ + " (its tags: Fail, Done); a tag names its constructor as the"
+      + " loading file sees it, which a later version will make the same"
+      + " everywhere (#1105)";
+    }
+  }
+}
+
+function $0m61(v) {
+  const top = [v];
+  for (let at = top, key = 0;;) {
+    switch (v.$) {
+      case "NothingToForward": at[key] = v; return top[0];
+      case "ForwardTooLarge": at[key] = v; return top[0];
+      case "InvalidForwardParent": at = at[key] = {...v, "error": $0m52(v["error"])}; return top[0];
+      case "InvalidForwardState": at = at[key] = {...v, "error": $0m44(v["error"])}; return top[0];
+      default: throw "bend: ForwardError has no tag " + v?.$ + " (its tags: NothingToForward, ForwardTooLarge, InvalidForwardParent, InvalidForwardState); a tag names its constructor as the"
+      + " loading file sees it, which a later version will make the same"
+      + " everywhere (#1105)";
+    }
+  }
+}
+
+function $0m62(v) {
+  const top = [v];
+  for (let at = top, key = 0;;) {
+    switch (v.$) {
+      case "ContinuePlan": at = at[key] = {...v, "generation": $0m33(v["generation"])}; return top[0];
+      case "StartPlan": at = at[key] = {...v, "generation": $0m33(v["generation"])}; return top[0];
+      default: throw "bend: ServicePlan has no tag " + v?.$ + " (its tags: ContinuePlan, StartPlan); a tag names its constructor as the"
+      + " loading file sees it, which a later version will make the same"
+      + " everywhere (#1105)";
+    }
+  }
+}
+
+function $0m63(v) {
+  const top = [v];
+  for (let at = top, key = 0;;) {
+    switch (v.$) {
+      case "ContinuePlan": at = at[key] = {...v, "generation": $0m34(v["generation"])}; return top[0];
+      case "StartPlan": at = at[key] = {...v, "generation": $0m34(v["generation"])}; return top[0];
+      default: throw "bend: ServicePlan has no tag " + v?.$ + " (its tags: ContinuePlan, StartPlan); a tag names its constructor as the"
+      + " loading file sees it, which a later version will make the same"
+      + " everywhere (#1105)";
+    }
+  }
+}
+
+function $0m64(v) {
+  const top = [v];
+  for (let at = top, key = 0;;) {
+    switch (v.$) {
+      case "Fail": at = at[key] = {...v, "error": $0m61(v["error"])}; return top[0];
+      case "Done": at[key] = v; return top[0];
+      default: throw "bend: Result has no tag " + v?.$ + " (its tags: Fail, Done); a tag names its constructor as the"
+      + " loading file sees it, which a later version will make the same"
+      + " everywhere (#1105)";
+    }
+  }
+}
+
+function $0m66(v) {
+  const top = [v];
+  for (let at = top, key = 0;;) {
+    switch (v.$) {
+      case "NothingKept": at[key] = v; return top[0];
+      case "ForwardFailed": at = at[key] = {...v, "error": $0m60(v["error"])}; return top[0];
+      default: throw "bend: Unforwarded has no tag " + v?.$ + " (its tags: NothingKept, ForwardFailed); a tag names its constructor as the"
+      + " loading file sees it, which a later version will make the same"
+      + " everywhere (#1105)";
+    }
+  }
+}
+
+function $0m65(v) {
+  const top = [v];
+  for (let at = top, key = 0;;) {
+    switch (v.$) {
+      case "Fresh": at[key] = v; return top[0];
+      case "Forwarded": at[key] = v; return top[0];
+      case "NoContext": at = at[key] = {...v, "reason": $0m66(v["reason"])}; return top[0];
+      default: throw "bend: Sent has no tag " + v?.$ + " (its tags: Fresh, Forwarded, NoContext); a tag names its constructor as the"
+      + " loading file sees it, which a later version will make the same"
+      + " everywhere (#1105)";
+    }
+  }
+}
+
+function $0m67(v) {
+  const top = [v];
+  for (let at = top, key = 0;;) {
+    switch (v.$) {
+      case "SendChild": at = at[key] = {...v, "generation": $0m33(v["generation"]), "limits": $0m37(v["limits"])}; return top[0];
+      case "SendFallback": at = at[key] = {...v, "limits": $0m37(v["limits"])}; return top[0];
+      default: throw "bend: SendPlan has no tag " + v?.$ + " (its tags: SendChild, SendFallback); a tag names its constructor as the"
+      + " loading file sees it, which a later version will make the same"
+      + " everywhere (#1105)";
+    }
+  }
+}
+
+function $0m68(v) {
+  const top = [v];
+  for (let at = top, key = 0;;) {
+    switch (v.$) {
+      case "SendChild": at = at[key] = {...v, "generation": $0m34(v["generation"]), "limits": $0m38(v["limits"])}; return top[0];
+      case "SendFallback": at = at[key] = {...v, "limits": $0m38(v["limits"])}; return top[0];
+      default: throw "bend: SendPlan has no tag " + v?.$ + " (its tags: SendChild, SendFallback); a tag names its constructor as the"
+      + " loading file sees it, which a later version will make the same"
+      + " everywhere (#1105)";
+    }
+  }
+}
+
+function $0m69(v) {
+  const top = [v];
+  for (let at = top, key = 0;;) {
+    switch (v.$) {
+      case "Tuple": at = at[key] = {...v, "snd": $0m65(v["snd"])}; return top[0];
+      default: throw "bend: Sigma has no tag " + v?.$ + " (its tags: Tuple); a tag names its constructor as the"
+      + " loading file sees it, which a later version will make the same"
+      + " everywhere (#1105)";
+    }
+  }
+}
+
+function $0m71(v) {
+  const top = [v];
+  for (let at = top, key = 0;;) {
+    switch (v.$) {
+      case "NothingKept": at[key] = v; return top[0];
+      case "ForwardFailed": at = at[key] = {...v, "error": $0m61(v["error"])}; return top[0];
+      default: throw "bend: Unforwarded has no tag " + v?.$ + " (its tags: NothingKept, ForwardFailed); a tag names its constructor as the"
+      + " loading file sees it, which a later version will make the same"
+      + " everywhere (#1105)";
+    }
+  }
+}
+
+function $0m70(v) {
+  const top = [v];
+  for (let at = top, key = 0;;) {
+    switch (v.$) {
+      case "Fresh": at[key] = v; return top[0];
+      case "Forwarded": at[key] = v; return top[0];
+      case "NoContext": at = at[key] = {...v, "reason": $0m71(v["reason"])}; return top[0];
+      default: throw "bend: Sent has no tag " + v?.$ + " (its tags: Fresh, Forwarded, NoContext); a tag names its constructor as the"
+      + " loading file sees it, which a later version will make the same"
+      + " everywhere (#1105)";
+    }
+  }
+}
+
+function $0m72(v) {
+  const top = [v];
+  for (let at = top, key = 0;;) {
+    switch (v.$) {
       case "Fail": at[key] = v; return top[0];
-      case "Done": at = at[key] = {...v, "value": $0m51(v["value"])}; return top[0];
+      case "Done": at = at[key] = {...v, "value": $0m65(v["value"])}; return top[0];
       default: throw "bend: Result has no tag " + v?.$ + " (its tags: Fail, Done); a tag names its constructor as the"
       + " loading file sees it, which a later version will make the same"
       + " everywhere (#1105)";
@@ -4818,46 +5282,68 @@ export default {
   "TraceId.from_bytes": run_lib((a0) => { const r = $0m7(run_loop($TraceId$from_bytes$((a0)))); (a0); return r; }, 1),
   "SpanId.to_bytes": run_lib((a0) => { const r = (run_loop($SpanId$to_bytes$((a0)))); (a0); return r; }, 1),
   "SpanId.from_bytes": run_lib((a0) => { const r = $0m8(run_loop($SpanId$from_bytes$((a0)))); (a0); return r; }, 1),
-  "Draw.root": run_lib(() => { const r = $0m12(run_loop($Draw$root$()));  return r; }, 0),
-  "Draw.restart": run_lib((a0) => { const r = $0m12(run_loop($Draw$restart$((a0)))); (a0); return r; }, 1),
-  "Draw.child": run_lib((a0, a1) => { const r = $0m12(run_loop($Draw$child$((a0), (a1)))); (a0); (a1); return r; }, 2),
-  "Draw.retry_trace": run_lib((a0, a1) => { const r = $0m12(run_loop($Draw$retry_trace$(nat_host(a0), (a1)))); BigInt(a0); (a1); return r; }, 2),
-  "Draw.accept_trace": run_lib((a0) => { const r = $0m12(run_loop($Draw$accept_trace$((a0)))); (a0); return r; }, 1),
-  "Draw.reuse_trace": run_lib((a0, a1, a2, a3) => { const r = $0m12(run_loop($Draw$reuse_trace$((a0), (a1), (a2), nat_host(a3)))); (a0); (a1); (a2); BigInt(a3); return r; }, 4),
-  "Draw.check_trace": run_lib((a0, a1, a2) => { const r = $0m12(run_loop($Draw$check_trace$((a0), (a1), nat_host(a2)))); (a0); (a1); BigInt(a2); return r; }, 3),
-  "Draw.retry_span": run_lib((a0, a1) => { const r = $0m12(run_loop($Draw$retry_span$(nat_host(a0), (a1)))); BigInt(a0); (a1); return r; }, 2),
-  "Draw.accept_span": run_lib((a0, a1) => { const r = $0m12(run_loop($Draw$accept_span$((a0), (a1)))); (a0); (a1); return r; }, 2),
-  "Draw.reuse_span": run_lib((a0, a1, a2, a3) => { const r = $0m12(run_loop($Draw$reuse_span$((a0), (a1), (a2), nat_host(a3)))); (a0); (a1); (a2); BigInt(a3); return r; }, 4),
-  "Draw.check_span": run_lib((a0, a1, a2) => { const r = $0m12(run_loop($Draw$check_span$((a0), (a1), nat_host(a2)))); (a0); (a1); BigInt(a2); return r; }, 3),
   "Draw.asserted": run_lib((a0) => { const r = (run_loop($Draw$asserted$((a0)))); (a0); return r; }, 1),
-  "Draw.feed": run_lib((a0, a1) => { const r = $0m12(run_loop($Draw$feed$((a0), $0m14(a1)))); (a0); $0m13(a1); return r; }, 2),
-  "Step.result": run_lib((a0) => { const r = (run_loop($Step$result$($0m15(a0)))); $0m12(a0); return r; }, 1),
-  "Step.is_finished": run_lib((a0) => { const r = (run_loop($Step$is_finished$($0m15(a0)))); $0m12(a0); return r; }, 1),
   "Tape.next": run_lib((a0) => { const r = (run_loop($Tape$next$((a0)))); (a0); return r; }, 1),
-  "Draw.fed_by": run_lib((a0, a1) => { const r = $0m16(run_loop($Draw$fed_by$((a0), $0m14(a1)))); (a0); $0m13(a1); return r; }, 2),
-  "Draw.ended": run_lib((a0) => { const r = (run_loop($Draw$ended$((a0)))); (a0); return r; }, 1),
+  "TraceDraw.start": run_lib((a0) => { const r = $0m12(run_loop($TraceDraw$start$((a0)))); (a0); return r; }, 1),
+  "TraceDraw.retry": run_lib((a0, a1) => { const r = $0m12(run_loop($TraceDraw$retry$(nat_host(a0), (a1)))); BigInt(a0); (a1); return r; }, 2),
+  "TraceDraw.reuse": run_lib((a0, a1, a2, a3) => { const r = $0m12(run_loop($TraceDraw$reuse$((a0), (a1), (a2), nat_host(a3)))); (a0); (a1); (a2); BigInt(a3); return r; }, 4),
+  "TraceDraw.check": run_lib((a0, a1, a2) => { const r = $0m12(run_loop($TraceDraw$check$((a0), (a1), nat_host(a2)))); (a0); (a1); BigInt(a2); return r; }, 3),
+  "TraceDraw.take": run_lib((a0, a1, a2, a3) => { const r = $0m12(run_loop($TraceDraw$take$((a0), nat_host(a1), (a2), (a3)))); (a0); BigInt(a1); (a2); (a3); return r; }, 4),
+  "TraceDraw.feed": run_lib((a0, a1, a2, a3) => { const r = $0m12(run_loop($TraceDraw$feed$((a0), nat_host(a1), (a2), (a3)))); (a0); BigInt(a1); (a2); (a3); return r; }, 4),
+  "TraceDraw.next": run_lib((a0, a1) => { const r = $0m12(run_loop($TraceDraw$next$((a0), $0m14(a1)))); (a0); $0m13(a1); return r; }, 2),
+  "TraceStep.waiting": run_lib((a0) => { const r = $0m16(run_loop($TraceStep$waiting$($0m15(a0)))); $0m12(a0); return r; }, 1),
+  "TraceDraw.result": run_lib((a0) => { const r = (run_loop($TraceDraw$result$($0m15(a0)))); $0m12(a0); return r; }, 1),
+  "TraceDraw.run": run_lib((a0, a1) => { const r = (run_loop($TraceDraw$run$(nat_host(a0), (a1)))); BigInt(a0); (a1); return r; }, 2),
+  "TraceDraw.ended": run_lib((a0) => { const r = (run_loop($TraceDraw$ended$((a0)))); (a0); return r; }, 1),
+  "TraceDraw.outcome": run_lib((a0) => { const r = (run_loop($TraceDraw$outcome$($0m17(a0)))); $0m18(a0); return r; }, 1),
+  "SpanDraw.start": run_lib((a0) => { const r = $0m19(run_loop($SpanDraw$start$((a0)))); (a0); return r; }, 1),
+  "SpanDraw.retry": run_lib((a0, a1) => { const r = $0m19(run_loop($SpanDraw$retry$(nat_host(a0), (a1)))); BigInt(a0); (a1); return r; }, 2),
+  "SpanDraw.reuse": run_lib((a0, a1, a2, a3) => { const r = $0m19(run_loop($SpanDraw$reuse$((a0), (a1), (a2), nat_host(a3)))); (a0); (a1); (a2); BigInt(a3); return r; }, 4),
+  "SpanDraw.check": run_lib((a0, a1, a2) => { const r = $0m19(run_loop($SpanDraw$check$((a0), (a1), nat_host(a2)))); (a0); (a1); BigInt(a2); return r; }, 3),
+  "SpanDraw.take": run_lib((a0, a1, a2, a3) => { const r = $0m19(run_loop($SpanDraw$take$((a0), nat_host(a1), (a2), (a3)))); (a0); BigInt(a1); (a2); (a3); return r; }, 4),
+  "SpanDraw.feed": run_lib((a0, a1, a2, a3) => { const r = $0m19(run_loop($SpanDraw$feed$((a0), nat_host(a1), (a2), (a3)))); (a0); BigInt(a1); (a2); (a3); return r; }, 4),
+  "SpanDraw.next": run_lib((a0, a1) => { const r = $0m19(run_loop($SpanDraw$next$((a0), $0m21(a1)))); (a0); $0m20(a1); return r; }, 2),
+  "SpanStep.waiting": run_lib((a0) => { const r = $0m23(run_loop($SpanStep$waiting$($0m22(a0)))); $0m19(a0); return r; }, 1),
+  "SpanDraw.result": run_lib((a0) => { const r = (run_loop($SpanDraw$result$($0m22(a0)))); $0m19(a0); return r; }, 1),
+  "SpanDraw.run": run_lib((a0, a1) => { const r = (run_loop($SpanDraw$run$(nat_host(a0), (a1)))); BigInt(a0); (a1); return r; }, 2),
+  "SpanDraw.ended": run_lib((a0) => { const r = (run_loop($SpanDraw$ended$((a0)))); (a0); return r; }, 1),
+  "SpanDraw.outcome": run_lib((a0) => { const r = (run_loop($SpanDraw$outcome$($0m24(a0)))); $0m25(a0); return r; }, 1),
+  "Step.of_span": run_lib((a0, a1, a2) => { const r = $0m26(run_loop($Step$of_span$($0m22(a0), (a1), (a2)))); $0m19(a0); (a1); (a2); return r; }, 3),
+  "SpanPlan.root": run_lib((a0) => { const r = (run_loop($SpanPlan$root$((a0)))); (a0); return r; }, 1),
+  "SpanPlan.child": run_lib((a0, a1) => { const r = (run_loop($SpanPlan$child$((a0), (a1)))); (a0); (a1); return r; }, 2),
+  "SpanPlan.draw": run_lib((a0) => { const r = $0m26(run_loop($SpanPlan$draw$((a0)))); (a0); return r; }, 1),
+  "Step.of_trace": run_lib((a0) => { const r = $0m26(run_loop($Step$of_trace$($0m15(a0)))); $0m12(a0); return r; }, 1),
+  "Draw.restart_excluded": run_lib((a0) => { const r = (run_loop($Draw$restart_excluded$((a0)))); (a0); return r; }, 1),
+  "Draw.root": run_lib(() => { const r = $0m26(run_loop($Draw$root$()));  return r; }, 0),
+  "Draw.restart": run_lib((a0) => { const r = $0m26(run_loop($Draw$restart$((a0)))); (a0); return r; }, 1),
+  "Draw.child": run_lib((a0, a1) => { const r = $0m26(run_loop($Draw$child$((a0), (a1)))); (a0); (a1); return r; }, 2),
+  "Draw.feed": run_lib((a0, a1) => { const r = $0m26(run_loop($Draw$feed$((a0), $0m28(a1)))); (a0); $0m27(a1); return r; }, 2),
+  "Step.waiting": run_lib((a0) => { const r = $0m30(run_loop($Step$waiting$($0m29(a0)))); $0m26(a0); return r; }, 1),
+  "Step.result": run_lib((a0) => { const r = (run_loop($Step$result$($0m29(a0)))); $0m26(a0); return r; }, 1),
   "Draw.run": run_lib((a0, a1) => { const r = (run_loop($Draw$run$(nat_host(a0), (a1)))); BigInt(a0); (a1); return r; }, 2),
-  "Draw.outcome": run_lib((a0) => { const r = (run_loop($Draw$outcome$($0m17(a0)))); $0m18(a0); return r; }, 1),
-  "Generation.root": run_lib(() => { const r = $0m19(run_loop($Generation$root$()));  return r; }, 0),
-  "Generation.restart": run_lib((a0) => { const r = $0m19(run_loop($Generation$restart$((a0)))); (a0); return r; }, 1),
-  "Generation.child": run_lib((a0, a1) => { const r = $0m19(run_loop($Generation$child$((a0), (a1)))); (a0); (a1); return r; }, 2),
-  "Generation.needs.of": run_lib((a0, a1) => { const r = (run_loop($Generation$needs$of$(nat_host(a0), $0m15(a1)))); BigInt(a0); $0m12(a1); return r; }, 2),
-  "Generation.needs": run_lib((a0) => { const r = (run_loop($Generation$needs$($0m20(a0)))); $0m19(a0); return r; }, 1),
-  "Generation.fed": run_lib((a0, a1, a2) => { const r = $0m19(run_loop($Generation$fed$(nat_host(a0), $0m15(a1), (a2)))); BigInt(a0); $0m12(a1); (a2); return r; }, 3),
-  "Generation.feed": run_lib((a0, a1) => { const r = $0m19(run_loop($Generation$feed$($0m20(a0), (a1)))); $0m19(a0); (a1); return r; }, 2),
-  "Generation.result": run_lib((a0) => { const r = (run_loop($Generation$result$($0m20(a0)))); $0m19(a0); return r; }, 1),
+  "Draw.ended": run_lib((a0) => { const r = (run_loop($Draw$ended$((a0)))); (a0); return r; }, 1),
+  "Draw.outcome": run_lib((a0) => { const r = (run_loop($Draw$outcome$($0m31(a0)))); $0m32(a0); return r; }, 1),
+  "Generation.root": run_lib(() => { const r = $0m33(run_loop($Generation$root$()));  return r; }, 0),
+  "Generation.restart": run_lib((a0) => { const r = $0m33(run_loop($Generation$restart$((a0)))); (a0); return r; }, 1),
+  "Generation.child": run_lib((a0, a1) => { const r = $0m33(run_loop($Generation$child$((a0), (a1)))); (a0); (a1); return r; }, 2),
+  "Generation.needs.of": run_lib((a0, a1) => { const r = (run_loop($Generation$needs$of$(nat_host(a0), $0m29(a1)))); BigInt(a0); $0m26(a1); return r; }, 2),
+  "Generation.needs": run_lib((a0) => { const r = (run_loop($Generation$needs$($0m34(a0)))); $0m33(a0); return r; }, 1),
+  "Generation.fed": run_lib((a0, a1, a2) => { const r = $0m33(run_loop($Generation$fed$(nat_host(a0), $0m29(a1), (a2)))); BigInt(a0); $0m26(a1); (a2); return r; }, 3),
+  "Generation.feed": run_lib((a0, a1) => { const r = $0m33(run_loop($Generation$feed$($0m34(a0), (a1)))); $0m33(a0); (a1); return r; }, 2),
+  "Generation.result": run_lib((a0) => { const r = (run_loop($Generation$result$($0m34(a0)))); $0m33(a0); return r; }, 1),
+  "Draw.span_context": run_lib((a0, a1, a2) => { const r = (run_loop($Draw$span_context$((a0), (a1), (a2)))); (a0); (a1); (a2); return r; }, 3),
   "Source.tape": run_lib((a0) => { const r = (run_loop($Source$tape$((a0)))); (a0); return r; }, 1),
-  "Error.show": run_lib((a0) => { const r = (run_loop($Error$show$($0m21(a0)))); $0m1(a0); return r; }, 1),
+  "Error.show": run_lib((a0) => { const r = (run_loop($Error$show$($0m35(a0)))); $0m1(a0); return r; }, 1),
   "ContextError.show": run_lib((a0) => { const r = (run_loop($ContextError$show$((a0)))); (a0); return r; }, 1),
   "GenerationError.show": run_lib((a0) => { const r = (run_loop($GenerationError$show$((a0)))); (a0); return r; }, 1),
   "Limits.is_valid": run_lib((a0, a1, a2) => { const r = (run_loop($Limits$is_valid$(nat_host(a0), nat_host(a1), nat_host(a2)))); BigInt(a0); BigInt(a1); BigInt(a2); return r; }, 3),
   "Limits.error": run_lib((a0, a1) => { const r = (run_loop($Limits$error$(nat_host(a0), nat_host(a1)))); BigInt(a0); BigInt(a1); return r; }, 2),
-  "Limits.new.checked": run_lib((a0, a1, a2, a3, a4) => { const r = $0m22(run_loop($Limits$new$checked$(nat_host(a0), nat_host(a1), nat_host(a2), (a3), (a4)))); BigInt(a0); BigInt(a1); BigInt(a2); (a3); (a4); return r; }, 5),
-  "Limits.new": run_lib((a0, a1, a2) => { const r = $0m22(run_loop($Limits$new$(nat_host(a0), nat_host(a1), nat_host(a2)))); BigInt(a0); BigInt(a1); BigInt(a2); return r; }, 3),
-  "Limits.default": run_lib(() => { const r = $0m23(run_loop($Limits$default$()));  return r; }, 0),
-  "Limits.traceparent_input": run_lib((a0) => { const r = BigInt(run_loop($Limits$traceparent_input$($0m24(a0)))); $0m23(a0); return r; }, 1),
-  "Limits.tracestate_input": run_lib((a0) => { const r = BigInt(run_loop($Limits$tracestate_input$($0m24(a0)))); $0m23(a0); return r; }, 1),
-  "Limits.tracestate_output": run_lib((a0) => { const r = BigInt(run_loop($Limits$tracestate_output$($0m24(a0)))); $0m23(a0); return r; }, 1),
+  "Limits.new.checked": run_lib((a0, a1, a2, a3, a4) => { const r = $0m36(run_loop($Limits$new$checked$(nat_host(a0), nat_host(a1), nat_host(a2), (a3), (a4)))); BigInt(a0); BigInt(a1); BigInt(a2); (a3); (a4); return r; }, 5),
+  "Limits.new": run_lib((a0, a1, a2) => { const r = $0m36(run_loop($Limits$new$(nat_host(a0), nat_host(a1), nat_host(a2)))); BigInt(a0); BigInt(a1); BigInt(a2); return r; }, 3),
+  "Limits.default": run_lib(() => { const r = $0m37(run_loop($Limits$default$()));  return r; }, 0),
+  "Limits.traceparent_input": run_lib((a0) => { const r = BigInt(run_loop($Limits$traceparent_input$($0m38(a0)))); $0m37(a0); return r; }, 1),
+  "Limits.tracestate_input": run_lib((a0) => { const r = BigInt(run_loop($Limits$tracestate_input$($0m38(a0)))); $0m37(a0); return r; }, 1),
+  "Limits.tracestate_output": run_lib((a0) => { const r = BigInt(run_loop($Limits$tracestate_output$($0m38(a0)))); $0m37(a0); return r; }, 1),
   "LimitsError.show": run_lib((a0) => { const r = (run_loop($LimitsError$show$((a0)))); (a0); return r; }, 1),
   "StateChar.in_range": run_lib((a0, a1, a2) => { const r = (run_loop($StateChar$in_range$((a0), (a1), (a2)))); (a0); (a1); (a2); return r; }, 3),
   "StateChar.is_key_start": run_lib((a0) => { const r = (run_loop($StateChar$is_key_start$((a0)))); (a0); return r; }, 1),
@@ -4894,10 +5380,10 @@ export default {
   "TraceState.format": run_lib((a0) => { const r = (run_loop($TraceState$format$((a0)))); (a0); return r; }, 1),
   "Utf8.width": run_lib((a0) => { const r = BigInt(run_loop($Utf8$width$((a0)))); (a0); return r; }, 1),
   "Utf8.length": run_lib((a0) => { const r = BigInt(run_loop($Utf8$length$((a0)))); (a0); return r; }, 1),
-  "Budget.take": run_lib((a0, a1) => { const r = $0m25(run_loop($Budget$take$(nat_host(a0), nat_host(a1)))); BigInt(a0); BigInt(a1); return r; }, 2),
-  "Utf8.left": run_lib((a0, a1) => { const r = $0m25(run_loop($Utf8$left$((a0), $0m26(a1)))); (a0); $0m25(a1); return r; }, 2),
-  "Utf8.left_more": run_lib((a0, a1) => { const r = $0m25(run_loop($Utf8$left_more$((a0), $0m26(a1)))); (a0); $0m25(a1); return r; }, 2),
-  "Utf8.left_fields": run_lib((a0, a1) => { const r = $0m25(run_loop($Utf8$left_fields$((a0), $0m26(a1)))); (a0); $0m25(a1); return r; }, 2),
+  "Budget.take": run_lib((a0, a1) => { const r = $0m39(run_loop($Budget$take$(nat_host(a0), nat_host(a1)))); BigInt(a0); BigInt(a1); return r; }, 2),
+  "Utf8.left": run_lib((a0, a1) => { const r = $0m39(run_loop($Utf8$left$((a0), $0m40(a1)))); (a0); $0m39(a1); return r; }, 2),
+  "Utf8.left_more": run_lib((a0, a1) => { const r = $0m39(run_loop($Utf8$left_more$((a0), $0m40(a1)))); (a0); $0m39(a1); return r; }, 2),
+  "Utf8.left_fields": run_lib((a0, a1) => { const r = $0m39(run_loop($Utf8$left_fields$((a0), $0m40(a1)))); (a0); $0m39(a1); return r; }, 2),
   "Value.restore.step": run_lib((a0, a1, a2, a3) => { const r = (run_loop($Value$restore$step$((a0), (a1), (a2), (a3)))); (a0); (a1); (a2); (a3); return r; }, 4),
   "Value.restore.go": run_lib((a0, a1) => { const r = (run_loop($Value$restore$go$((a0), (a1)))); (a0); (a1); return r; }, 2),
   "Value.restore": run_lib((a0) => { const r = (run_loop($Value$restore$((a0)))); (a0); return r; }, 1),
@@ -4907,22 +5393,22 @@ export default {
   "Scan.validate": run_lib((a0, a1) => { const r = (run_loop($Scan$validate$((a0), (a1)))); (a0); (a1); return r; }, 2),
   "Entries.add.if": run_lib((a0, a1, a2) => { const r = (run_loop($Entries$add$if$((a0), (a1), (a2)))); (a0); (a1); (a2); return r; }, 3),
   "Entries.add": run_lib((a0, a1) => { const r = (run_loop($Entries$add$((a0), (a1)))); (a0); (a1); return r; }, 2),
-  "Scan.keep": run_lib((a0, a1, a2, a3) => { const r = $0m27(run_loop($Scan$keep$(nat_host(a0), nat_host(a1), (a2), (a3)))); BigInt(a0); BigInt(a1); (a2); (a3); return r; }, 4),
-  "Scan.entry": run_lib((a0, a1, a2, a3) => { const r = $0m27(run_loop($Scan$entry$((a0), nat_host(a1), nat_host(a2), (a3)))); (a0); BigInt(a1); BigInt(a2); (a3); return r; }, 4),
-  "Scan.close": run_lib((a0, a1, a2, a3) => { const r = $0m27(run_loop($Scan$close$(nat_host(a0), nat_host(a1), (a2), (a3)))); BigInt(a0); BigInt(a1); (a2); (a3); return r; }, 4),
-  "Scan.read": run_lib((a0, a1, a2, a3, a4, a5) => { const r = $0m27(run_loop($Scan$read$((a0), (a1), nat_host(a2), nat_host(a3), (a4), (a5)))); (a0); (a1); BigInt(a2); BigInt(a3); (a4); (a5); return r; }, 6),
-  "Scan.char": run_lib((a0, a1) => { const r = $0m27(run_loop($Scan$char$((a0), $0m29(a1)))); (a0); $0m27(a1); return r; }, 2),
-  "Scan.text": run_lib((a0, a1) => { const r = $0m27(run_loop($Scan$text$((a0), $0m29(a1)))); (a0); $0m27(a1); return r; }, 2),
-  "Scan.more": run_lib((a0, a1) => { const r = $0m27(run_loop($Scan$more$((a0), $0m29(a1)))); (a0); $0m27(a1); return r; }, 2),
-  "Scan.fields": run_lib((a0, a1) => { const r = $0m27(run_loop($Scan$fields$((a0), $0m29(a1)))); (a0); $0m27(a1); return r; }, 2),
-  "Scan.start": run_lib(() => { const r = $0m27(run_loop($Scan$start$()));  return r; }, 0),
-  "Scan.state": run_lib((a0, a1, a2) => { const r = $0m31(run_loop($Scan$state$((a0), (a1), (a2)))); (a0); (a1); (a2); return r; }, 3),
-  "Scan.result": run_lib((a0) => { const r = $0m31(run_loop($Scan$result$($0m29(a0)))); $0m27(a0); return r; }, 1),
-  "Scan.finish": run_lib((a0) => { const r = $0m31(run_loop($Scan$finish$($0m29(a0)))); $0m27(a0); return r; }, 1),
-  "Scan.within": run_lib((a0, a1) => { const r = $0m31(run_loop($Scan$within$($0m26(a0), (a1)))); $0m25(a0); (a1); return r; }, 2),
-  "TraceState.parse_fields": run_lib((a0, a1) => { const r = $0m31(run_loop($TraceState$parse_fields$($0m24(a0), (a1)))); $0m23(a0); (a1); return r; }, 2),
-  "TraceState.parse": run_lib((a0, a1) => { const r = $0m31(run_loop($TraceState$parse$($0m24(a0), (a1)))); $0m23(a0); (a1); return r; }, 2),
-  "StateError.show": run_lib((a0) => { const r = (run_loop($StateError$show$($0m30(a0)))); $0m28(a0); return r; }, 1),
+  "Scan.keep": run_lib((a0, a1, a2, a3) => { const r = $0m41(run_loop($Scan$keep$(nat_host(a0), nat_host(a1), (a2), (a3)))); BigInt(a0); BigInt(a1); (a2); (a3); return r; }, 4),
+  "Scan.entry": run_lib((a0, a1, a2, a3) => { const r = $0m41(run_loop($Scan$entry$((a0), nat_host(a1), nat_host(a2), (a3)))); (a0); BigInt(a1); BigInt(a2); (a3); return r; }, 4),
+  "Scan.close": run_lib((a0, a1, a2, a3) => { const r = $0m41(run_loop($Scan$close$(nat_host(a0), nat_host(a1), (a2), (a3)))); BigInt(a0); BigInt(a1); (a2); (a3); return r; }, 4),
+  "Scan.read": run_lib((a0, a1, a2, a3, a4, a5) => { const r = $0m41(run_loop($Scan$read$((a0), (a1), nat_host(a2), nat_host(a3), (a4), (a5)))); (a0); (a1); BigInt(a2); BigInt(a3); (a4); (a5); return r; }, 6),
+  "Scan.char": run_lib((a0, a1) => { const r = $0m41(run_loop($Scan$char$((a0), $0m43(a1)))); (a0); $0m41(a1); return r; }, 2),
+  "Scan.text": run_lib((a0, a1) => { const r = $0m41(run_loop($Scan$text$((a0), $0m43(a1)))); (a0); $0m41(a1); return r; }, 2),
+  "Scan.more": run_lib((a0, a1) => { const r = $0m41(run_loop($Scan$more$((a0), $0m43(a1)))); (a0); $0m41(a1); return r; }, 2),
+  "Scan.fields": run_lib((a0, a1) => { const r = $0m41(run_loop($Scan$fields$((a0), $0m43(a1)))); (a0); $0m41(a1); return r; }, 2),
+  "Scan.start": run_lib(() => { const r = $0m41(run_loop($Scan$start$()));  return r; }, 0),
+  "Scan.state": run_lib((a0, a1, a2) => { const r = $0m45(run_loop($Scan$state$((a0), (a1), (a2)))); (a0); (a1); (a2); return r; }, 3),
+  "Scan.result": run_lib((a0) => { const r = $0m45(run_loop($Scan$result$($0m43(a0)))); $0m41(a0); return r; }, 1),
+  "Scan.finish": run_lib((a0) => { const r = $0m45(run_loop($Scan$finish$($0m43(a0)))); $0m41(a0); return r; }, 1),
+  "Scan.within": run_lib((a0, a1) => { const r = $0m45(run_loop($Scan$within$($0m40(a0), (a1)))); $0m39(a0); (a1); return r; }, 2),
+  "TraceState.parse_fields": run_lib((a0, a1) => { const r = $0m45(run_loop($TraceState$parse_fields$($0m38(a0), (a1)))); $0m37(a0); (a1); return r; }, 2),
+  "TraceState.parse": run_lib((a0, a1) => { const r = $0m45(run_loop($TraceState$parse$($0m38(a0), (a1)))); $0m37(a0); (a1); return r; }, 2),
+  "StateError.show": run_lib((a0) => { const r = (run_loop($StateError$show$($0m44(a0)))); $0m42(a0); return r; }, 1),
   "Entries.unless": run_lib((a0, a1, a2) => { const r = (run_loop($Entries$unless$((a0), (a1), (a2)))); (a0); (a1); (a2); return r; }, 3),
   "Entries.without": run_lib((a0, a1) => { const r = (run_loop($Entries$without$((a0), (a1)))); (a0); (a1); return r; }, 2),
   "TraceState.from_entries.checked": run_lib((a0, a1, a2, a3) => { const r = (run_loop($TraceState$from_entries$checked$((a0), (a1), (a2), (a3)))); (a0); (a1); (a2); (a3); return r; }, 4),
@@ -4942,7 +5428,7 @@ export default {
   "Entries.shrink": run_lib((a0) => { const r = (run_loop($Entries$shrink$((a0)))); (a0); return r; }, 1),
   "Entries.truncate": run_lib((a0, a1, a2) => { const r = (run_loop($Entries$truncate$(nat_host(a0), nat_host(a1), (a2)))); BigInt(a0); BigInt(a1); (a2); return r; }, 3),
   "Entries.dropped": run_lib((a0, a1) => { const r = (run_loop($Entries$dropped$((a0), (a1)))); (a0); (a1); return r; }, 2),
-  "TraceState.truncate": run_lib((a0, a1) => { const r = (run_loop($TraceState$truncate$($0m24(a0), (a1)))); $0m23(a0); (a1); return r; }, 2),
+  "TraceState.truncate": run_lib((a0, a1) => { const r = (run_loop($TraceState$truncate$($0m38(a0), (a1)))); $0m37(a0); (a1); return r; }, 2),
   "OutgoingContext.new": run_lib((a0) => { const r = (run_loop($OutgoingContext$new$((a0)))); (a0); return r; }, 1),
   "OutgoingContext.with_state": run_lib((a0, a1) => { const r = (run_loop($OutgoingContext$with_state$((a0), (a1)))); (a0); (a1); return r; }, 2),
   "OutgoingContext.context": run_lib((a0) => { const r = (run_loop($OutgoingContext$context$((a0)))); (a0); return r; }, 1),
@@ -4951,7 +5437,7 @@ export default {
   "OutgoingContext.set": run_lib((a0, a1, a2) => { const r = (run_loop($OutgoingContext$set$((a0), (a1), (a2)))); (a0); (a1); (a2); return r; }, 3),
   "OutgoingContext.remove": run_lib((a0, a1) => { const r = (run_loop($OutgoingContext$remove$((a0), (a1)))); (a0); (a1); return r; }, 2),
   "Emission.of": run_lib((a0, a1) => { const r = (run_loop($Emission$of$((a0), (a1)))); (a0); (a1); return r; }, 2),
-  "OutgoingContext.emit": run_lib((a0, a1) => { const r = (run_loop($OutgoingContext$emit$($0m24(a0), (a1)))); $0m23(a0); (a1); return r; }, 2),
+  "OutgoingContext.emit": run_lib((a0, a1) => { const r = (run_loop($OutgoingContext$emit$($0m38(a0), (a1)))); $0m37(a0); (a1); return r; }, 2),
   "Emission.traceparent": run_lib((a0) => { const r = (run_loop($Emission$traceparent$((a0)))); (a0); return r; }, 1),
   "Emission.tracestate": run_lib((a0) => { const r = (run_loop($Emission$tracestate$((a0)))); (a0); return r; }, 1),
   "Emission.dropped": run_lib((a0) => { const r = (run_loop($Emission$dropped$((a0)))); (a0); return r; }, 1),
@@ -4969,33 +5455,33 @@ export default {
   "Text.has_comma.go": run_lib((a0, a1) => { const r = (run_loop($Text$has_comma$go$((a0), (a1)))); (a0); (a1); return r; }, 2),
   "Text.has_comma": run_lib((a0) => { const r = (run_loop($Text$has_comma$((a0)))); (a0); return r; }, 1),
   "Text.is_control": run_lib((a0) => { const r = (run_loop($Text$is_control$((a0)))); (a0); return r; }, 1),
-  "Text.control.go": run_lib((a0, a1, a2) => { const r = $0m25(run_loop($Text$control$go$((a0), nat_host(a1), $0m26(a2)))); (a0); BigInt(a1); $0m25(a2); return r; }, 3),
-  "Read.is_later": run_lib((a0) => { const r = $0m32(run_loop($Read$is_later$((a0)))); (a0); return r; }, 1),
-  "Read.is_later.parsed": run_lib((a0) => { const r = $0m32(run_loop($Read$is_later$parsed$((a0)))); (a0); return r; }, 1),
-  "Read.clean": run_lib((a0) => { const r = $0m4(run_loop($Read$clean$($0m26(a0)))); $0m25(a0); return r; }, 1),
+  "Text.control.go": run_lib((a0, a1, a2) => { const r = $0m39(run_loop($Text$control$go$((a0), nat_host(a1), $0m40(a2)))); (a0); BigInt(a1); $0m39(a2); return r; }, 3),
+  "Read.is_later": run_lib((a0) => { const r = $0m46(run_loop($Read$is_later$((a0)))); (a0); return r; }, 1),
+  "Read.is_later.parsed": run_lib((a0) => { const r = $0m46(run_loop($Read$is_later$parsed$((a0)))); (a0); return r; }, 1),
+  "Read.clean": run_lib((a0) => { const r = $0m4(run_loop($Read$clean$($0m40(a0)))); $0m39(a0); return r; }, 1),
   "Read.extension": run_lib((a0) => { const r = $0m4(run_loop($Read$extension$((a0)))); (a0); return r; }, 1),
   "Read.prefix": run_lib((a0) => { const r = $0m6(run_loop($Read$prefix$((a0)))); (a0); return r; }, 1),
   "Read.by_version": run_lib((a0, a1) => { const r = $0m6(run_loop($Read$by_version$((a0), (a1)))); (a0); (a1); return r; }, 2),
   "Read.known": run_lib((a0) => { const r = $0m6(run_loop($Read$known$((a0)))); (a0); return r; }, 1),
-  "Read.invalid": run_lib((a0) => { const r = $0m34(run_loop($Read$invalid$($0m33(a0)))); $0m6(a0); return r; }, 1),
-  "Read.single": run_lib((a0, a1) => { const r = $0m34(run_loop($Read$single$((a0), (a1)))); (a0); (a1); return r; }, 2),
-  "Read.trimmed": run_lib((a0) => { const r = $0m34(run_loop($Read$trimmed$((a0)))); (a0); return r; }, 1),
-  "Read.within": run_lib((a0, a1) => { const r = $0m34(run_loop($Read$within$($0m26(a0), (a1)))); $0m25(a0); (a1); return r; }, 2),
-  "TraceParent.read": run_lib((a0, a1) => { const r = $0m34(run_loop($TraceParent$read$($0m24(a0), (a1)))); $0m23(a0); (a1); return r; }, 2),
-  "Extract.ignored": run_lib((a0) => { const r = $0m36(run_loop($Extract$ignored$((a0)))); (a0); return r; }, 1),
-  "Extract.kept": run_lib((a0, a1, a2) => { const r = $0m40(run_loop($Extract$kept$((a0), $0m37(a1), (a2)))); (a0); $0m39(a1); (a2); return r; }, 3),
+  "Read.invalid": run_lib((a0) => { const r = $0m48(run_loop($Read$invalid$($0m47(a0)))); $0m6(a0); return r; }, 1),
+  "Read.single": run_lib((a0, a1) => { const r = $0m48(run_loop($Read$single$((a0), (a1)))); (a0); (a1); return r; }, 2),
+  "Read.trimmed": run_lib((a0) => { const r = $0m48(run_loop($Read$trimmed$((a0)))); (a0); return r; }, 1),
+  "Read.within": run_lib((a0, a1) => { const r = $0m48(run_loop($Read$within$($0m40(a0), (a1)))); $0m39(a0); (a1); return r; }, 2),
+  "TraceParent.read": run_lib((a0, a1) => { const r = $0m48(run_loop($TraceParent$read$($0m38(a0), (a1)))); $0m37(a0); (a1); return r; }, 2),
+  "Extract.ignored": run_lib((a0) => { const r = $0m50(run_loop($Extract$ignored$((a0)))); (a0); return r; }, 1),
+  "Extract.kept": run_lib((a0, a1, a2) => { const r = $0m54(run_loop($Extract$kept$((a0), $0m51(a1), (a2)))); (a0); $0m53(a1); (a2); return r; }, 3),
   "Extract.incoming": run_lib((a0, a1, a2) => { const r = (run_loop($Extract$incoming$((a0), (a1), (a2)))); (a0); (a1); (a2); return r; }, 3),
-  "Extract.parsed": run_lib((a0, a1, a2, a3) => { const r = $0m40(run_loop($Extract$parsed$($0m41(a0), (a1), (a2), (a3)))); $0m31(a0); (a1); (a2); (a3); return r; }, 4),
-  "Extract.state": run_lib((a0, a1, a2, a3) => { const r = $0m40(run_loop($Extract$state$($0m24(a0), (a1), (a2), (a3)))); $0m23(a0); (a1); (a2); (a3); return r; }, 4),
-  "Extract.read": run_lib((a0, a1, a2, a3, a4) => { const r = $0m40(run_loop($Extract$read$($0m42(a0), (a1), $0m24(a2), (a3), (a4)))); $0m34(a0); (a1); $0m23(a2); (a3); (a4); return r; }, 5),
-  "Extract.parents": run_lib((a0, a1, a2, a3) => { const r = $0m40(run_loop($Extract$parents$($0m24(a0), (a1), (a2), (a3)))); $0m23(a0); (a1); (a2); (a3); return r; }, 4),
-  "Context.extract": run_lib((a0, a1, a2) => { const r = $0m40(run_loop($Context$extract$($0m24(a0), (a1), (a2)))); $0m23(a0); (a1); (a2); return r; }, 3),
-  "Extraction.context": run_lib((a0) => { const r = (run_loop($Extraction$context$($0m43(a0)))); $0m40(a0); return r; }, 1),
-  "Extraction.parent": run_lib((a0) => { const r = $0m39(run_loop($Extraction$parent$($0m43(a0)))); $0m40(a0); return r; }, 1),
-  "Extraction.state": run_lib((a0) => { const r = $0m36(run_loop($Extraction$state$($0m43(a0)))); $0m40(a0); return r; }, 1),
+  "Extract.parsed": run_lib((a0, a1, a2, a3) => { const r = $0m54(run_loop($Extract$parsed$($0m55(a0), (a1), (a2), (a3)))); $0m45(a0); (a1); (a2); (a3); return r; }, 4),
+  "Extract.state": run_lib((a0, a1, a2, a3) => { const r = $0m54(run_loop($Extract$state$($0m38(a0), (a1), (a2), (a3)))); $0m37(a0); (a1); (a2); (a3); return r; }, 4),
+  "Extract.read": run_lib((a0, a1, a2, a3, a4) => { const r = $0m54(run_loop($Extract$read$($0m56(a0), (a1), $0m38(a2), (a3), (a4)))); $0m48(a0); (a1); $0m37(a2); (a3); (a4); return r; }, 5),
+  "Extract.parents": run_lib((a0, a1, a2, a3) => { const r = $0m54(run_loop($Extract$parents$($0m38(a0), (a1), (a2), (a3)))); $0m37(a0); (a1); (a2); (a3); return r; }, 4),
+  "Context.extract": run_lib((a0, a1, a2) => { const r = $0m54(run_loop($Context$extract$($0m38(a0), (a1), (a2)))); $0m37(a0); (a1); (a2); return r; }, 3),
+  "Extraction.context": run_lib((a0) => { const r = (run_loop($Extraction$context$($0m57(a0)))); $0m54(a0); return r; }, 1),
+  "Extraction.parent": run_lib((a0) => { const r = $0m53(run_loop($Extraction$parent$($0m57(a0)))); $0m54(a0); return r; }, 1),
+  "Extraction.state": run_lib((a0) => { const r = $0m50(run_loop($Extraction$state$($0m57(a0)))); $0m54(a0); return r; }, 1),
   "Extraction.incoming.base": run_lib((a0) => { const r = (run_loop($Extraction$incoming$base$((a0)))); (a0); return r; }, 1),
-  "Extraction.incoming.of": run_lib((a0, a1) => { const r = (run_loop($Extraction$incoming$of$($0m37(a0), (a1)))); $0m39(a0); (a1); return r; }, 2),
-  "Extraction.incoming": run_lib((a0) => { const r = (run_loop($Extraction$incoming$($0m43(a0)))); $0m40(a0); return r; }, 1),
+  "Extraction.incoming.of": run_lib((a0, a1) => { const r = (run_loop($Extraction$incoming$of$($0m51(a0), (a1)))); $0m53(a0); (a1); return r; }, 2),
+  "Extraction.incoming": run_lib((a0) => { const r = (run_loop($Extraction$incoming$($0m57(a0)))); $0m54(a0); return r; }, 1),
   "IncomingContext.context": run_lib((a0) => { const r = (run_loop($IncomingContext$context$((a0)))); (a0); return r; }, 1),
   "IncomingContext.state": run_lib((a0) => { const r = (run_loop($IncomingContext$state$((a0)))); (a0); return r; }, 1),
   "IncomingContext.received": run_lib((a0) => { const r = (run_loop($IncomingContext$received$((a0)))); (a0); return r; }, 1),
@@ -5005,10 +5491,10 @@ export default {
   "ReceivedPair.tracestate": run_lib((a0) => { const r = (run_loop($ReceivedPair$tracestate$((a0)))); (a0); return r; }, 1),
   "BaseContext.parent": run_lib((a0) => { const r = (run_loop($BaseContext$parent$((a0)))); (a0); return r; }, 1),
   "BaseContext.state": run_lib((a0) => { const r = (run_loop($BaseContext$state$((a0)))); (a0); return r; }, 1),
-  "TraceParentError.show": run_lib((a0) => { const r = (run_loop($TraceParentError$show$($0m38(a0)))); $0m35(a0); return r; }, 1),
-  "TraceParentOutcome.show": run_lib((a0) => { const r = (run_loop($TraceParentOutcome$show$($0m37(a0)))); $0m39(a0); return r; }, 1),
-  "StateOutcome.show": run_lib((a0) => { const r = (run_loop($StateOutcome$show$($0m44(a0)))); $0m36(a0); return r; }, 1),
-  "Extraction.show": run_lib((a0) => { const r = (run_loop($Extraction$show$($0m43(a0)))); $0m40(a0); return r; }, 1),
+  "TraceParentError.show": run_lib((a0) => { const r = (run_loop($TraceParentError$show$($0m52(a0)))); $0m49(a0); return r; }, 1),
+  "TraceParentOutcome.show": run_lib((a0) => { const r = (run_loop($TraceParentOutcome$show$($0m51(a0)))); $0m53(a0); return r; }, 1),
+  "StateOutcome.show": run_lib((a0) => { const r = (run_loop($StateOutcome$show$($0m58(a0)))); $0m50(a0); return r; }, 1),
+  "Extraction.show": run_lib((a0) => { const r = (run_loop($Extraction$show$($0m57(a0)))); $0m54(a0); return r; }, 1),
   "Carrier.is_context": run_lib((a0) => { const r = (run_loop($Carrier$is_context$((a0)))); (a0); return r; }, 1),
   "Carrier.keep_unrelated": run_lib((a0, a1, a2) => { const r = (run_loop($Carrier$keep_unrelated$((a0), (a1), (a2)))); (a0); (a1); (a2); return r; }, 3),
   "Carrier.unrelated.go": run_lib((a0, a1) => { const r = (run_loop($Carrier$unrelated$go$((a0), (a1)))); (a0); (a1); return r; }, 2),
@@ -5017,18 +5503,18 @@ export default {
   "Carrier.context_fields": run_lib((a0, a1) => { const r = (run_loop($Carrier$context_fields$((a0), (a1)))); (a0); (a1); return r; }, 2),
   "Context.clear": run_lib((a0) => { const r = (run_loop($Context$clear$((a0)))); (a0); return r; }, 1),
   "Injection.of": run_lib((a0, a1) => { const r = (run_loop($Injection$of$((a0), (a1)))); (a0); (a1); return r; }, 2),
-  "Context.inject": run_lib((a0, a1, a2) => { const r = (run_loop($Context$inject$($0m24(a0), (a1), (a2)))); $0m23(a0); (a1); (a2); return r; }, 3),
+  "Context.inject": run_lib((a0, a1, a2) => { const r = (run_loop($Context$inject$($0m38(a0), (a1), (a2)))); $0m37(a0); (a1); (a2); return r; }, 3),
   "Injection.carrier": run_lib((a0) => { const r = (run_loop($Injection$carrier$((a0)))); (a0); return r; }, 1),
   "Injection.dropped": run_lib((a0) => { const r = (run_loop($Injection$dropped$((a0)))); (a0); return r; }, 1),
   "Text.joined.go": run_lib((a0, a1) => { const r = (run_loop($Text$joined$go$((a0), (a1)))); (a0); (a1); return r; }, 2),
   "Text.joined": run_lib((a0) => { const r = (run_loop($Text$joined$((a0)))); (a0); return r; }, 1),
   "Forward.carrier": run_lib((a0, a1, a2) => { const r = (run_loop($Forward$carrier$((a0), (a1), (a2)))); (a0); (a1); (a2); return r; }, 3),
-  "Forward.state": run_lib((a0, a1, a2, a3) => { const r = $0m45(run_loop($Forward$state$($0m41(a0), (a1), (a2), (a3)))); $0m31(a0); (a1); (a2); (a3); return r; }, 4),
-  "Forward.parent": run_lib((a0, a1, a2, a3, a4) => { const r = $0m45(run_loop($Forward$parent$($0m42(a0), $0m24(a1), (a2), (a3), (a4)))); $0m34(a0); $0m23(a1); (a2); (a3); (a4); return r; }, 5),
-  "Forward.fits": run_lib((a0, a1, a2, a3, a4) => { const r = $0m45(run_loop($Forward$fits$($0m26(a0), $0m24(a1), (a2), (a3), (a4)))); $0m25(a0); $0m23(a1); (a2); (a3); (a4); return r; }, 5),
-  "Forward.pair": run_lib((a0, a1, a2) => { const r = $0m45(run_loop($Forward$pair$($0m24(a0), (a1), (a2)))); $0m23(a0); (a1); (a2); return r; }, 3),
-  "Context.forward": run_lib((a0, a1, a2) => { const r = $0m45(run_loop($Context$forward$($0m24(a0), (a1), (a2)))); $0m23(a0); (a1); (a2); return r; }, 3),
-  "ForwardError.show": run_lib((a0) => { const r = (run_loop($ForwardError$show$($0m47(a0)))); $0m46(a0); return r; }, 1),
+  "Forward.state": run_lib((a0, a1, a2, a3) => { const r = $0m59(run_loop($Forward$state$($0m55(a0), (a1), (a2), (a3)))); $0m45(a0); (a1); (a2); (a3); return r; }, 4),
+  "Forward.parent": run_lib((a0, a1, a2, a3, a4) => { const r = $0m59(run_loop($Forward$parent$($0m56(a0), $0m38(a1), (a2), (a3), (a4)))); $0m48(a0); $0m37(a1); (a2); (a3); (a4); return r; }, 5),
+  "Forward.fits": run_lib((a0, a1, a2, a3, a4) => { const r = $0m59(run_loop($Forward$fits$($0m40(a0), $0m38(a1), (a2), (a3), (a4)))); $0m39(a0); $0m37(a1); (a2); (a3); (a4); return r; }, 5),
+  "Forward.pair": run_lib((a0, a1, a2) => { const r = $0m59(run_loop($Forward$pair$($0m38(a0), (a1), (a2)))); $0m37(a0); (a1); (a2); return r; }, 3),
+  "Context.forward": run_lib((a0, a1, a2) => { const r = $0m59(run_loop($Context$forward$($0m38(a0), (a1), (a2)))); $0m37(a0); (a1); (a2); return r; }, 3),
+  "ForwardError.show": run_lib((a0) => { const r = (run_loop($ForwardError$show$($0m61(a0)))); $0m60(a0); return r; }, 1),
   "FailurePolicy.result": run_lib((a0, a1) => { const r = (run_loop($FailurePolicy$result$((a0), (a1)))); (a0); (a1); return r; }, 2),
   "Policy.apply": run_lib((a0, a1, a2) => { const r = (run_loop($Policy$apply$((a0), (a1), (a2)))); (a0); (a1); (a2); return r; }, 3),
   "Policy.apply.done": run_lib((a0, a1, a2) => { const r = (run_loop($Policy$apply$done$((a0), (a1), (a2)))); (a0); (a1); (a2); return r; }, 3),
@@ -5036,21 +5522,21 @@ export default {
   "Serve.from_child": run_lib((a0, a1, a2) => { const r = (run_loop($Serve$from_child$((a0), (a1), (a2)))); (a0); (a1); (a2); return r; }, 3),
   "Serve.from_start": run_lib((a0, a1, a2) => { const r = (run_loop($Serve$from_start$((a0), (a1), (a2)))); (a0); (a1); (a2); return r; }, 3),
   "Serve.replaced": run_lib((a0) => { const r = (run_loop($Serve$replaced$((a0)))); (a0); return r; }, 1),
-  "Serve.usable": run_lib((a0, a1, a2, a3) => { const r = $0m48(run_loop($Serve$usable$((a0), (a1), (a2), (a3)))); (a0); (a1); (a2); (a3); return r; }, 4),
-  "Serve.kept": run_lib((a0, a1, a2, a3) => { const r = $0m48(run_loop($Serve$kept$((a0), (a1), (a2), (a3)))); (a0); (a1); (a2); (a3); return r; }, 4),
-  "ServicePlan.new": run_lib((a0, a1, a2) => { const r = $0m48(run_loop($ServicePlan$new$($0m43(a0), (a1), (a2)))); $0m40(a0); (a1); (a2); return r; }, 3),
-  "ServicePlan.generation": run_lib((a0) => { const r = $0m19(run_loop($ServicePlan$generation$($0m49(a0)))); $0m48(a0); return r; }, 1),
-  "ServicePlan.service": run_lib((a0, a1) => { const r = (run_loop($ServicePlan$service$($0m49(a0), (a1)))); $0m48(a0); (a1); return r; }, 2),
-  "Serve.finish": run_lib((a0, a1) => { const r = (run_loop($Serve$finish$($0m49(a0), (a1)))); $0m48(a0); (a1); return r; }, 2),
+  "Serve.usable": run_lib((a0, a1, a2, a3) => { const r = $0m62(run_loop($Serve$usable$((a0), (a1), (a2), (a3)))); (a0); (a1); (a2); (a3); return r; }, 4),
+  "Serve.kept": run_lib((a0, a1, a2, a3) => { const r = $0m62(run_loop($Serve$kept$((a0), (a1), (a2), (a3)))); (a0); (a1); (a2); (a3); return r; }, 4),
+  "ServicePlan.new": run_lib((a0, a1, a2) => { const r = $0m62(run_loop($ServicePlan$new$($0m57(a0), (a1), (a2)))); $0m54(a0); (a1); (a2); return r; }, 3),
+  "ServicePlan.generation": run_lib((a0) => { const r = $0m33(run_loop($ServicePlan$generation$($0m63(a0)))); $0m62(a0); return r; }, 1),
+  "ServicePlan.service": run_lib((a0, a1) => { const r = (run_loop($ServicePlan$service$($0m63(a0), (a1)))); $0m62(a0); (a1); return r; }, 2),
+  "Serve.finish": run_lib((a0, a1) => { const r = (run_loop($Serve$finish$($0m63(a0), (a1)))); $0m62(a0); (a1); return r; }, 2),
   "Serve.strict": run_lib((a0) => { const r = (run_loop($Serve$strict$((a0)))); (a0); return r; }, 1),
-  "Send.forwarded": run_lib((a0, a1, a2) => { const r = $0m51(run_loop($Send$forwarded$($0m50(a0), (a1), (a2)))); $0m45(a0); (a1); (a2); return r; }, 3),
-  "Send.fallback": run_lib((a0, a1, a2, a3) => { const r = $0m51(run_loop($Send$fallback$($0m24(a0), (a1), (a2), (a3)))); $0m23(a0); (a1); (a2); (a3); return r; }, 4),
-  "Send.of": run_lib((a0, a1, a2, a3, a4) => { const r = $0m51(run_loop($Send$of$($0m24(a0), (a1), (a2), (a3), (a4)))); $0m23(a0); (a1); (a2); (a3); (a4); return r; }, 5),
-  "SendPlan.new": run_lib((a0, a1, a2, a3) => { const r = $0m53(run_loop($SendPlan$new$($0m24(a0), (a1), (a2), (a3)))); $0m23(a0); (a1); (a2); (a3); return r; }, 4),
-  "SendPlan.generation": run_lib((a0) => { const r = $0m19(run_loop($SendPlan$generation$($0m54(a0)))); $0m53(a0); return r; }, 1),
-  "SendPlan.sent": run_lib((a0, a1) => { const r = $0m51(run_loop($SendPlan$sent$($0m54(a0), (a1)))); $0m53(a0); (a1); return r; }, 2),
-  "Send.finish": run_lib((a0, a1) => { const r = $0m55(run_loop($Send$finish$($0m54(a0), (a1)))); $0m53(a0); (a1); return r; }, 2),
-  "Send.strict": run_lib((a0) => { const r = $0m58(run_loop($Send$strict$($0m56(a0)))); $0m51(a0); return r; }, 1),
+  "Send.forwarded": run_lib((a0, a1, a2) => { const r = $0m65(run_loop($Send$forwarded$($0m64(a0), (a1), (a2)))); $0m59(a0); (a1); (a2); return r; }, 3),
+  "Send.fallback": run_lib((a0, a1, a2, a3) => { const r = $0m65(run_loop($Send$fallback$($0m38(a0), (a1), (a2), (a3)))); $0m37(a0); (a1); (a2); (a3); return r; }, 4),
+  "Send.of": run_lib((a0, a1, a2, a3, a4) => { const r = $0m65(run_loop($Send$of$($0m38(a0), (a1), (a2), (a3), (a4)))); $0m37(a0); (a1); (a2); (a3); (a4); return r; }, 5),
+  "SendPlan.new": run_lib((a0, a1, a2, a3) => { const r = $0m67(run_loop($SendPlan$new$($0m38(a0), (a1), (a2), (a3)))); $0m37(a0); (a1); (a2); (a3); return r; }, 4),
+  "SendPlan.generation": run_lib((a0) => { const r = $0m33(run_loop($SendPlan$generation$($0m68(a0)))); $0m67(a0); return r; }, 1),
+  "SendPlan.sent": run_lib((a0, a1) => { const r = $0m65(run_loop($SendPlan$sent$($0m68(a0), (a1)))); $0m67(a0); (a1); return r; }, 2),
+  "Send.finish": run_lib((a0, a1) => { const r = $0m69(run_loop($Send$finish$($0m68(a0), (a1)))); $0m67(a0); (a1); return r; }, 2),
+  "Send.strict": run_lib((a0) => { const r = $0m72(run_loop($Send$strict$($0m70(a0)))); $0m65(a0); return r; }, 1),
   "Origin.show": run_lib((a0) => { const r = (run_loop($Origin$show$((a0)))); (a0); return r; }, 1),
   "Service.origin": run_lib((a0) => { const r = (run_loop($Service$origin$((a0)))); (a0); return r; }, 1),
   "Service.outgoing": run_lib((a0) => { const r = (run_loop($Service$outgoing$((a0)))); (a0); return r; }, 1),
@@ -5058,11 +5544,11 @@ export default {
   "Service.set": run_lib((a0, a1, a2) => { const r = (run_loop($Service$set$((a0), (a1), (a2)))); (a0); (a1); (a2); return r; }, 3),
   "Service.remove": run_lib((a0, a1) => { const r = (run_loop($Service$remove$((a0), (a1)))); (a0); (a1); return r; }, 2),
   "Service.show": run_lib((a0) => { const r = (run_loop($Service$show$((a0)))); (a0); return r; }, 1),
-  "Unforwarded.show": run_lib((a0) => { const r = (run_loop($Unforwarded$show$($0m57(a0)))); $0m52(a0); return r; }, 1),
-  "Sent.carrier": run_lib((a0) => { const r = (run_loop($Sent$carrier$($0m56(a0)))); $0m51(a0); return r; }, 1),
-  "Sent.operation": run_lib((a0) => { const r = (run_loop($Sent$operation$($0m56(a0)))); $0m51(a0); return r; }, 1),
-  "Sent.error": run_lib((a0) => { const r = (run_loop($Sent$error$($0m56(a0)))); $0m51(a0); return r; }, 1),
-  "Sent.dropped": run_lib((a0) => { const r = (run_loop($Sent$dropped$($0m56(a0)))); $0m51(a0); return r; }, 1),
+  "Unforwarded.show": run_lib((a0) => { const r = (run_loop($Unforwarded$show$($0m71(a0)))); $0m66(a0); return r; }, 1),
+  "Sent.carrier": run_lib((a0) => { const r = (run_loop($Sent$carrier$($0m70(a0)))); $0m65(a0); return r; }, 1),
+  "Sent.operation": run_lib((a0) => { const r = (run_loop($Sent$operation$($0m70(a0)))); $0m65(a0); return r; }, 1),
+  "Sent.error": run_lib((a0) => { const r = (run_loop($Sent$error$($0m70(a0)))); $0m65(a0); return r; }, 1),
+  "Sent.dropped": run_lib((a0) => { const r = (run_loop($Sent$dropped$($0m70(a0)))); $0m65(a0); return r; }, 1),
   "Send.fresh": run_lib((a0) => { const r = (run_loop($Send$fresh$((a0)))); (a0); return r; }, 1),
-  "Sent.show": run_lib((a0) => { const r = (run_loop($Sent$show$($0m56(a0)))); $0m51(a0); return r; }, 1),
+  "Sent.show": run_lib((a0) => { const r = (run_loop($Sent$show$($0m70(a0)))); $0m65(a0); return r; }, 1),
 };
