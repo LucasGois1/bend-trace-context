@@ -122,14 +122,14 @@ def Test.roots() -> IO(Unit):
   do IO<Unit>:
     first : List<&1, Result<&1, &1, U32 & String, U32>> & Result<&2, &2, TC.GenerationError, TC.LocalContext> <-
       TC.Context.root_with(~List<&1, Result<&1, &1, U32 & String, U32>>, ~TC.Source.tape,
-        Test.w3c_trace(Test.w3c_span(Test.sentinel())))
+        Test.w3c_trace(Test.w3c_span(Test.sentinel())), False{})
     Unit <- Test.created("a generated root is random and unsampled",
       "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-02", 1n, first)
     retried : List<&1, Result<&1, &1, U32 & String, U32>> & Result<&2, &2, TC.GenerationError, TC.LocalContext> <-
       TC.Context.root_with(~List<&1, Result<&1, &1, U32 & String, U32>>, ~TC.Source.tape,
         List.append(&1, Result<&1, &1, U32 & String, U32>, Test.zeros(4n),
           Test.w3c_trace(List.append(&1, Result<&1, &1, U32 & String, U32>, Test.zeros(2n),
-            Test.w3c_span(Test.sentinel())))))
+            Test.w3c_span(Test.sentinel())))), False{})
     Unit <- Test.created("zero candidates are replaced",
       "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-02", 1n, retried)
     IO.print("OK: generated roots")
@@ -138,11 +138,11 @@ def Test.exhaustion() -> IO(Unit):
   do IO<Unit>:
     trace : List<&1, Result<&1, &1, U32 & String, U32>> & Result<&2, &2, TC.GenerationError, TC.LocalContext> <-
       TC.Context.root_with(~List<&1, Result<&1, &1, U32 & String, U32>>, ~TC.Source.tape,
-        List.append(&1, Result<&1, &1, U32 & String, U32>, Test.zeros(32n), Test.sentinel()))
+        List.append(&1, Result<&1, &1, U32 & String, U32>, Test.zeros(32n), Test.sentinel()), False{})
     Unit <- Test.failed("eight zero trace ID candidates", "ExhaustedTraceId", 1n, trace)
     span : List<&1, Result<&1, &1, U32 & String, U32>> & Result<&2, &2, TC.GenerationError, TC.LocalContext> <-
       TC.Context.root_with(~List<&1, Result<&1, &1, U32 & String, U32>>, ~TC.Source.tape,
-        Test.w3c_trace(List.append(&1, Result<&1, &1, U32 & String, U32>, Test.zeros(16n), Test.sentinel())))
+        Test.w3c_trace(List.append(&1, Result<&1, &1, U32 & String, U32>, Test.zeros(16n), Test.sentinel())), False{})
     Unit <- Test.failed("eight zero span ID candidates", "ExhaustedSpanId", 1n, span)
     IO.print("OK: eight candidates and no ninth")
 
@@ -150,10 +150,11 @@ def Test.source_failures() -> IO(Unit):
   do IO<Unit>:
     middle : List<&1, Result<&1, &1, U32 & String, U32>> & Result<&2, &2, TC.GenerationError, TC.LocalContext> <-
       TC.Context.root_with(~List<&1, Result<&1, &1, U32 & String, U32>>, ~TC.Source.tape,
-        Con{Done{183985433}, Con{Done{382551005}, Con{Fail{(9, "controlled")}, Test.w3c_span(Test.sentinel())}}})
+        Con{Done{183985433}, Con{Done{382551005}, Con{Fail{(9, "controlled")}, Test.w3c_span(Test.sentinel())}}},
+        False{})
     Unit <- Test.failed("a source error in the middle of a candidate", "SourceFailure 9 controlled", 3n, middle)
     empty : List<&1, Result<&1, &1, U32 & String, U32>> & Result<&2, &2, TC.GenerationError, TC.LocalContext> <-
-      TC.Context.root_with(~List<&1, Result<&1, &1, U32 & String, U32>>, ~TC.Source.tape, Nil{})
+      TC.Context.root_with(~List<&1, Result<&1, &1, U32 & String, U32>>, ~TC.Source.tape, Nil{}, False{})
     Unit <- Test.failed("an empty tape", "SourceFailure 1 tape-exhausted", 0n, empty)
     IO.print("OK: source errors end generation at once")
 
@@ -192,7 +193,7 @@ def Test.restarts() -> IO(Unit):
     incoming : TC.RemoteContext <- Test.received("00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-03")
     restarted : List<&1, Result<&1, &1, U32 & String, U32>> & Result<&2, &2, TC.GenerationError, TC.LocalContext> <-
       TC.Context.restart_with(~List<&1, Result<&1, &1, U32 & String, U32>>, ~TC.Source.tape,
-        Test.w3c_trace(Test.other_trace(Test.other_span(Test.sentinel()))), incoming)
+        Test.w3c_trace(Test.other_trace(Test.other_span(Test.sentinel()))), incoming, False{})
     Unit <- Test.created("a restart never reuses the received trace ID",
       "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-02", 1n, restarted)
     IO.print("OK: generated restarts")
@@ -203,7 +204,7 @@ def Test.worst_case() -> IO(Unit):
       TC.Context.root_with(~List<&1, Result<&1, &1, U32 & String, U32>>, ~TC.Source.tape,
         List.append(&1, Result<&1, &1, U32 & String, U32>, Test.zeros(28n),
           Test.w3c_trace(List.append(&1, Result<&1, &1, U32 & String, U32>, Test.zeros(14n),
-            Test.w3c_span(Test.sentinel())))))
+            Test.w3c_span(Test.sentinel())))), False{})
     Unit <- Test.created("the eighth candidate of each identifier is still accepted",
       "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-02", 1n, longest)
     IO.print("OK: a root may read all 48 words")

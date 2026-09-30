@@ -823,19 +823,21 @@ def span_context_same(trace_id, sampled, outcome):
 
 # What the package runs after a root's or a restart's trace ID,
 # Draw.root_span_with, emits what LAWS.bend's root_of emits, for every
-# outcome of the trace ID: a failure at once, and otherwise the same span ID
-# draw, that of the root's span plan, whose continuations agree by
-# span_context_same.
+# sampled indication and every outcome of the trace ID: a failure at once,
+# and otherwise the same span ID draw, that of the root's span plan, whose
+# continuations agree by span_context_same.
 law root_span_same:
+  for +sampled: Bool
   for outcome: Laws.TapeTraceId()
-  {TC.Draw.root_span_with(~Laws.Tape(), ~TC.Source.tape, outcome)(Laws.TapeOutcome(), value => Emit{value}) ==
-    Laws.root_of(outcome)(Laws.TapeOutcome(), value => Emit{value}) : IO.OP<Laws.TapeOutcome()>}
+  {TC.Draw.root_span_with(~Laws.Tape(), ~TC.Source.tape, sampled, outcome)(Laws.TapeOutcome(),
+    value => Emit{value}) == Laws.root_of(sampled, outcome)(Laws.TapeOutcome(), value => Emit{value}) :
+    IO.OP<Laws.TapeOutcome()>}
 
-def root_span_same(outcome):
+def root_span_same(sampled, outcome):
   match outcome:
     case Tuple{rest, Fail{error}}:
       {==}
     case Tuple{rest, Done{trace_id}}:
-      read_span_same(Laws.TapeOutcome(), done => Emit{TC.Draw.span_context(Laws.Tape(), trace_id, False{}, done)},
-        done => Emit{Laws.context_of(trace_id, False{}, done)}, done => span_context_same(trace_id, False{}, done),
+      read_span_same(Laws.TapeOutcome(), done => Emit{TC.Draw.span_context(Laws.Tape(), trace_id, sampled, done)},
+        done => Emit{Laws.context_of(trace_id, sampled, done)}, done => span_context_same(trace_id, sampled, done),
         16n, rest, TC.SpanDraw.start(None{}))

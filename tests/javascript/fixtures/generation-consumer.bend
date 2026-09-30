@@ -11,5 +11,5 @@ def describe(result: Result<&2, &2, TC.GenerationError, TC.LocalContext>) -> Str
 
 def main() -> IO(Unit):
   do IO<Unit>:
-    result : Result<&2, &2, TC.GenerationError, TC.LocalContext> <- Generate.Context.root()
+    result : Result<&2, &2, TC.GenerationError, TC.LocalContext> <- Generate.Context.root(False{})
     IO.print(describe(result))

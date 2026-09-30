@@ -50,20 +50,24 @@ def SpanId.generate(excluded: Maybe<&2, TC.SpanId>) -> IO(Result<&2, &2, TC.Gene
     TC.SpanId.generate_with(~Unit, ~Source.host, Unit{}, excluded))
 
 # Start a trace: a trace ID, then a span ID, as TC.Context.root_with composes
-# them. The trace ID asserts random-trace-id and the root is not sampled, so
-# it is emitted with flags 02.
-def Context.root() -> IO(Result<&2, &2, TC.GenerationError, TC.LocalContext>):
-  on_host(Result<&2, &2, TC.GenerationError, TC.LocalContext>, TC.Context.root_with(~Unit, ~Source.host, Unit{}))
+# them, with the sampled indication `sampled`, as it is given. The trace ID
+# asserts random-trace-id, so the root is emitted with flags 03 when it is
+# sampled and 02 when it is not: False gives the unsampled root of 0.1.
+def Context.root(sampled: Bool) -> IO(Result<&2, &2, TC.GenerationError, TC.LocalContext>):
+  on_host(Result<&2, &2, TC.GenerationError, TC.LocalContext>,
+    TC.Context.root_with(~Unit, ~Source.host, Unit{}, sampled))
 
 # Continue a remote or local parent with a new operation.
 def Context.child(parent: TC.Parent, sampling: TC.Sampling) -> IO(Result<&2, &2, TC.GenerationError, TC.LocalContext>):
   on_host(Result<&2, &2, TC.GenerationError, TC.LocalContext>,
     TC.Context.child_with(~Unit, ~Source.host, Unit{}, parent, sampling))
 
-# Start a new trace instead of continuing a received context.
-def Context.restart(previous: TC.RemoteContext) -> IO(Result<&2, &2, TC.GenerationError, TC.LocalContext>):
+# Start a new trace instead of continuing a received context, with the
+# sampled indication `sampled`, as a root takes it.
+def Context.restart(previous: TC.RemoteContext, sampled: Bool) ->
+  IO(Result<&2, &2, TC.GenerationError, TC.LocalContext>):
   on_host(Result<&2, &2, TC.GenerationError, TC.LocalContext>,
-    TC.Context.restart_with(~Unit, ~Source.host, Unit{}, previous))
+    TC.Context.restart_with(~Unit, ~Source.host, Unit{}, previous, sampled))
 
 # Give a service its own operation for a received message: a child of the
 # context that extraction keeps, the message's or the base, a root without

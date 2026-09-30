@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.3-dev — unreleased
+## 0.2.0-dev — unreleased
 
 - Read the trace flags and the context field names
   ([#44](https://github.com/LucasGois1/bend-trace-context/issues/44)), for an
@@ -62,10 +62,48 @@
   `tests/expected-smoke.txt` adds the line of the identifiers generated
   alone on the host's source, and `tests/expected-host-defs.txt` the two new
   host definitions, `TraceId.generate` and `SpanId.generate`.
+- Choose the sampled indication when starting a trace
+  ([#46](https://github.com/LucasGois1/bend-trace-context/issues/46)), so
+  that a trace that an application starts, such as a background job's, can
+  be sampled without rebuilding its context. Every way to start a trace
+  takes the indication explicitly, as a `Bool`: `Generate.Context.root` and
+  `Generate.Context.restart`, `TC.Context.root_with` and
+  `TC.Context.restart_with`, the host-fed `TC.Generation.root` and
+  `TC.Generation.restart`, and `TC.Context.root_from_ids` and
+  `TC.Context.restart_from_ids`; a restart still takes only a remote
+  context. No low-level piece applies a default of its own: the default of
+  new traces, not sampled, lives in the ready path, whose
+  `continue_or_start` and `send` keep their `Sampling` parameter and their
+  behavior and pass the indication that they resolve to root and restart
+  generation. The `StartPlan` of `TC.ServicePlan`, which the reference does
+  not list, no longer holds the `Sampling`, since its generation carries the
+  resolved indication. Laws `root`, `restart`, `generated_root` and
+  `generated_restart` now say that root and restart honor the indication
+  that they are given, so a generated root is emitted with flags `02` or
+  `03`, and the old default is their `False` case; the other laws that call
+  these operations take the indication and hold for every value. The
+  JavaScript facade passes the unsampled indication, so it behaves as
+  before, and the ES module is rebuilt. `tests/javascript/facade.test.mjs`
+  checks that the ES module of generation.bend leaves out entropy.bend's
+  `read_u32`, an IO operation without parameters, where it checked
+  `Context.root`, which now takes one, and that `Context.root(false)` reads
+  no word. Every corpus, example and program of the documentation keeps its
+  output, and the independent consumer adds a sampled root and a sampled
+  restart, generated and from supplied IDs.
 
 **Migration from 0.1.2:** a `match` on `TC.Error` that lists every
 constructor adds a case for `InvalidByte{offset}`; a `match` with a
-catch-all case needs no change.
+catch-all case needs no change. Root, restart and their supplied-ID forms
+take the sampled indication as their last argument, and passing `False{}`
+keeps the 0.1 behavior: `Generate.Context.root(False{})`,
+`Generate.Context.restart(previous, False{})`,
+`TC.Context.root_with(~S, ~read, source, False{})`,
+`TC.Context.restart_with(~S, ~read, source, previous, False{})`,
+`TC.Generation.root(False{})`, `TC.Generation.restart(previous, False{})`,
+`TC.Context.root_from_ids(trace_id, span_id, False{})` and
+`TC.Context.restart_from_ids(previous, trace_id, span_id, False{})`. Pass
+`True{}` to sample the new trace. `continue_or_start`, `send`, the native
+HTTP shortcuts and the JavaScript facade need no change.
 
 ## 0.1.2 — 2026-09-29
 

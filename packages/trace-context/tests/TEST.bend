@@ -176,10 +176,12 @@ def Test.roots() -> IO(Unit):
   do IO<Unit>:
     +trace : TC.TraceId <- Test.trace_id("0af7651916cd43dd8448eb211c80319c")
     +span : TC.SpanId <- Test.span_id("b7ad6b7169203331")
-    Unit <- Test.emits("a root starts unsampled", TC.Context.root_from_ids(trace, span),
+    Unit <- Test.emits("a root starts unsampled", TC.Context.root_from_ids(trace, span, False{}),
       "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-00")
-    Unit <- Test.assert("a root reports unsampled", Bool.not(TC.LocalContext.is_sampled(TC.Context.root_from_ids(trace, span))))
-    Unit <- Test.emits("a root with an asserted random trace ID", TC.Context.root_from_ids(TC.TraceId.assert_random(trace), span),
+    Unit <- Test.assert("a root reports unsampled",
+      Bool.not(TC.LocalContext.is_sampled(TC.Context.root_from_ids(trace, span, False{}))))
+    Unit <- Test.emits("a root with an asserted random trace ID",
+      TC.Context.root_from_ids(TC.TraceId.assert_random(trace), span, False{}),
       "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-02")
     Unit <- Test.emits("explicit sampled construction", TC.Context.from_ids(trace, span, True{}),
       "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01")
@@ -249,7 +251,7 @@ def Test.local_children() -> IO(Unit):
     +root_span : TC.SpanId <- Test.span_id("b7ad6b7169203331")
     +first : TC.SpanId <- Test.span_id("00f067aa0ba902b7")
     second : TC.SpanId <- Test.span_id("53995c3f42cd8ad8")
-    +root : TC.LocalContext = TC.Context.root_from_ids(trace, root_span)
+    +root : TC.LocalContext = TC.Context.root_from_ids(trace, root_span, False{})
     Unit <- Test.created("a local child inherits unsampled",
       TC.Context.child_from_id(TC.LocalParent{root}, first, TC.InheritSampled{}),
       "00-0af7651916cd43dd8448eb211c80319c-00f067aa0ba902b7-00")
@@ -257,8 +259,8 @@ def Test.local_children() -> IO(Unit):
       TC.Context.child_from_id(TC.LocalParent{root}, first, TC.SetSampled{True{}}),
       "00-0af7651916cd43dd8448eb211c80319c-00f067aa0ba902b7-01")
     Unit <- Test.created("a local child keeps the random assertion",
-      TC.Context.child_from_id(TC.LocalParent{TC.Context.root_from_ids(TC.TraceId.assert_random(trace), root_span)},
-        first, TC.InheritSampled{}),
+      TC.Context.child_from_id(TC.LocalParent{TC.Context.root_from_ids(TC.TraceId.assert_random(trace), root_span,
+        False{})}, first, TC.InheritSampled{}),
       "00-0af7651916cd43dd8448eb211c80319c-00f067aa0ba902b7-02")
     Unit <- Test.refused("a local child reusing its parent span ID",
       TC.Context.child_from_id(TC.LocalParent{root}, root_span, TC.InheritSampled{}), TC.ReusedSpanId{})
@@ -271,15 +273,16 @@ def Test.restarts() -> IO(Unit):
     +fresh : TC.TraceId <- Test.trace_id("4bf92f3577b34da6a3ce929d0e0e4736")
     +same : TC.TraceId <- Test.trace_id("0af7651916cd43dd8448eb211c80319c")
     +span : TC.SpanId <- Test.span_id("00f067aa0ba902b7")
-    Unit <- Test.created("a restart applies the root defaults", TC.Context.restart_from_ids(received, fresh, span),
+    Unit <- Test.created("a restart applies the root defaults",
+      TC.Context.restart_from_ids(received, fresh, span, False{}),
       "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-00")
     Unit <- Test.created("a restart with an asserted random trace ID",
-      TC.Context.restart_from_ids(received, TC.TraceId.assert_random(fresh), span),
+      TC.Context.restart_from_ids(received, TC.TraceId.assert_random(fresh), span, False{}),
       "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-02")
     Unit <- Test.refused("a restart reusing the received trace ID",
-      TC.Context.restart_from_ids(received, same, span), TC.ReusedTraceId{})
+      TC.Context.restart_from_ids(received, same, span, False{}), TC.ReusedTraceId{})
     Unit <- Test.refused("a restart reusing it with a random assertion",
-      TC.Context.restart_from_ids(received, TC.TraceId.assert_random(same), span), TC.ReusedTraceId{})
+      TC.Context.restart_from_ids(received, TC.TraceId.assert_random(same), span, False{}), TC.ReusedTraceId{})
     IO.print("OK: explicit restarts")
 
 # All 256 flag bytes. The oracles use an independent numeric counter, not the

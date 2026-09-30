@@ -220,7 +220,7 @@ def Test.emitted(+name: String, traceparent: String, tracestate: String, dropped
 
 # A new root has no state, so it emits its traceparent alone.
 def Test.outgoing_root(limits: TC.Limits, trace: TC.TraceId, span: TC.SpanId) -> IO(Unit):
-  +root = TC.OutgoingContext.new(TC.Context.root_from_ids(trace, span))
+  +root = TC.OutgoingContext.new(TC.Context.root_from_ids(trace, span, False{}))
   do IO<Unit>:
     Unit <- Test.assert("a new outgoing context has the empty state",
       TC.TraceState.is_empty(TC.OutgoingContext.state(root)))

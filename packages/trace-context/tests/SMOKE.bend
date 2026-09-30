@@ -104,7 +104,7 @@ def Smoke.flow(+received: TC.RemoteContext) -> IO(Unit):
 
 def main() -> IO(Unit):
   do IO<Unit>:
-    root_result : Result<&2, &2, TC.GenerationError, TC.LocalContext> <- Generate.Context.root()
+    root_result : Result<&2, &2, TC.GenerationError, TC.LocalContext> <- Generate.Context.root(False{})
     +root : TC.LocalContext <- Smoke.valid(TC.LocalContext, "root", root_result)
     Unit <- Smoke.root(root)
     child_result : Result<&2, &2, TC.GenerationError, TC.LocalContext> <-
@@ -113,7 +113,7 @@ def main() -> IO(Unit):
     Unit <- Smoke.child(root, child)
     +incoming : TC.RemoteContext <- Smoke.received(TC.TraceParentV00.parse(
       "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"))
-    restart_result : Result<&2, &2, TC.GenerationError, TC.LocalContext> <- Generate.Context.restart(incoming)
+    restart_result : Result<&2, &2, TC.GenerationError, TC.LocalContext> <- Generate.Context.restart(incoming, False{})
     restarted : TC.LocalContext <- Smoke.valid(TC.LocalContext, "restart", restart_result)
     Unit <- Smoke.restart(incoming, restarted)
     Unit <- IO.print("OK: real-source root, child and restart are well formed")

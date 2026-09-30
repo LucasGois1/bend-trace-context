@@ -126,7 +126,7 @@ def Test.base() -> IO(TC.BaseContext):
   do IO<TC.BaseContext>:
     trace : TC.TraceId <- Test.id(TC.TraceId, TC.TraceId.parse("5b8efff798038103d269b633813fc60c"))
     span : TC.SpanId <- Test.id(TC.SpanId, TC.SpanId.parse("eee19b7ec3c1b174"))
-    return TC.OutgoingBase{TC.OutgoingContext.new(TC.Context.root_from_ids(trace, span))}
+    return TC.OutgoingBase{TC.OutgoingContext.new(TC.Context.root_from_ids(trace, span, False{}))}
 
 def Test.w3c() -> String:
   "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"

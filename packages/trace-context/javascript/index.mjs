@@ -165,11 +165,12 @@ function parentOf(object) {
 }
 
 // Start a trace: a root operation, not sampled, whose trace ID asserts
-// random-trace-id.
+// random-trace-id. The package takes the sampled indication explicitly; the
+// facade passes the unsampled one and offers no option for it.
 export function root(options) {
   const { crypto } = optionsOf(options);
   const source = cryptoOf(crypto);
-  return localHandle(orThrow(generate(TC['Generation.root'](), source)));
+  return localHandle(orThrow(generate(TC['Generation.root'](false), source)));
 }
 
 // A new operation continuing `parent`, an IncomingContext or a LocalContext
@@ -183,12 +184,12 @@ export function child(parent, options) {
 }
 
 // A new trace in place of the IncomingContext `previous`, whose trace ID it
-// never reuses.
+// never reuses, not sampled, as a root.
 export function restart(previous, options) {
   const { crypto } = optionsOf(options);
   const source = cryptoOf(crypto);
   const context = TC['IncomingContext.context'](unwrap('IncomingContext', previous, 'previous'));
-  return localHandle(orThrow(generate(TC['Generation.restart'](context), source)));
+  return localHandle(orThrow(generate(TC['Generation.restart'](context, false), source)));
 }
 
 // Supplied identifiers
@@ -213,11 +214,12 @@ function created(result) {
   return localHandle(result.value);
 }
 
-// A root operation with identifiers that the caller already has.
+// A root operation with identifiers that the caller already has, not
+// sampled.
 export function rootFromIds(traceId, spanId, options) {
   const { random } = optionsOf(options);
   return localHandle(TC['Context.root_from_ids'](traceIdOf(traceId, random), parsedId('SpanId.parse', spanId,
-    'spanId')));
+    'spanId'), false));
 }
 
 // An existing operation of this participant with its own identifiers and
@@ -237,12 +239,13 @@ export function childFromId(parent, spanId, options) {
 }
 
 // A new trace in place of `previous` with identifiers that the caller
-// supplies; the received trace ID is refused with ReusedTraceId.
+// supplies, not sampled; the received trace ID is refused with
+// ReusedTraceId.
 export function restartFromIds(previous, traceId, spanId, options) {
   const { random } = optionsOf(options);
   const context = TC['IncomingContext.context'](unwrap('IncomingContext', previous, 'previous'));
   return created(TC['Context.restart_from_ids'](context, traceIdOf(traceId, random),
-    parsedId('SpanId.parse', spanId, 'spanId')));
+    parsedId('SpanId.parse', spanId, 'spanId'), false));
 }
 
 // Limits

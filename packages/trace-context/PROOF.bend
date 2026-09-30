@@ -152,7 +152,7 @@ def Laws.from_ids(trace_id, span_id, sampled):
   ({==}, ({==}, {==}))
 
 # By computation.
-def Laws.root(trace_id, span_id):
+def Laws.root(trace_id, span_id, sampled):
   {==}
 
 # By computation: the accessors read back the constructor's fields.
@@ -242,17 +242,17 @@ def Laws.child_accepts(parent, span_id, sampling, distinct):
   LifecycleProof.child_accepts(parent, span_id, sampling, distinct)
 
 # Rewrite the hypothesis into the view of a restart.
-def Laws.restart(previous, trace_id, span_id, restarted, accepted):
-  %accepted : LifecycleProof.RestartView(previous, trace_id, span_id, _)
-  LifecycleProof.restart_view(previous, trace_id, span_id)
+def Laws.restart(previous, trace_id, span_id, sampled, restarted, accepted):
+  %accepted : LifecycleProof.RestartView(previous, trace_id, span_id, sampled, _)
+  LifecycleProof.restart_view(previous, trace_id, span_id, sampled)
 
 # As child_reuse, for the received trace ID.
-def Laws.restart_reuse(previous, trace_id, span_id, reused):
-  LifecycleProof.restart_reuse(previous, trace_id, span_id, reused)
+def Laws.restart_reuse(previous, trace_id, span_id, sampled, reused):
+  LifecycleProof.restart_reuse(previous, trace_id, span_id, sampled, reused)
 
 # As child_accepts, for the received trace ID.
-def Laws.restart_accepts(previous, trace_id, span_id, distinct):
-  LifecycleProof.restart_accepts(previous, trace_id, span_id, distinct)
+def Laws.restart_accepts(previous, trace_id, span_id, sampled, distinct):
+  LifecycleProof.restart_accepts(previous, trace_id, span_id, sampled, distinct)
 
 # 5. Identifiers from source words
 # ================================
@@ -290,7 +290,7 @@ def Laws.words_unasserted(first, second, third, fourth, id, made):
 # result ends the machine whatever its state.
 def Laws.feed_failure(code, message, draw):
   match draw:
-    case Trace.DrawTrace{trace}:
+    case Trace.DrawTrace{trace, sampled}:
       match trace:
         case Trace.TraceDraw{remaining, words, excluded}:
           {==}
@@ -300,20 +300,20 @@ def Laws.feed_failure(code, message, draw):
           {==}
 
 # The IO driver over a tape source computes the pure driver step by step.
-def Laws.root_tape(tape):
-  GenerationProof.root_tape(tape)
+def Laws.root_tape(tape, sampled):
+  GenerationProof.root_tape(tape, sampled)
 
 # As root_tape.
 def Laws.child_tape(tape, parent, sampling):
   GenerationProof.child_tape(tape, parent, sampling)
 
 # As root_tape.
-def Laws.restart_tape(tape, previous):
-  GenerationProof.restart_tape(tape, previous)
+def Laws.restart_tape(tape, previous, sampled):
+  GenerationProof.restart_tape(tape, previous, sampled)
 
 # Every step reads a word, and each candidate takes a bounded number of steps.
-def Laws.root_ends(tape):
-  GenerationProof.run_ends(48n, Trace.Draw.root(), tape, GenerationProof.root_within())
+def Laws.root_ends(tape, sampled):
+  GenerationProof.run_ends(48n, Trace.Draw.root(sampled), tape, GenerationProof.root_within(sampled))
 
 # As root_ends.
 def Laws.child_ends(tape, parent, sampling):
@@ -321,11 +321,13 @@ def Laws.child_ends(tape, parent, sampling):
     GenerationProof.child_within(parent, sampling))
 
 # As root_ends.
-def Laws.restart_ends(tape, previous):
-  GenerationProof.run_ends(48n, Trace.Draw.restart(previous), tape, GenerationProof.restart_within(previous))
+def Laws.restart_ends(tape, previous, sampled):
+  GenerationProof.run_ends(48n, Trace.Draw.restart(previous, sampled), tape,
+    GenerationProof.restart_within(previous, sampled))
 
-# By computation on the concrete tape of 32 zero words.
-def Laws.root_exhaustion(rest):
+# By computation on the concrete tape of 32 zero words, whatever the sampled
+# indication, which the trace ID draw only carries.
+def Laws.root_exhaustion(sampled, rest):
   {==}
 
 # By computation on the concrete tape of 16 zero words.
@@ -333,10 +335,10 @@ def Laws.child_exhaustion(parent, sampling, rest):
   {==}
 
 # Rewrite the hypothesis into the view of the driver's final step: a root is
-# a new trace with nothing to avoid.
-def Laws.generated_root(tape, rest, created, generated):
-  %generated : GenerationProof.NewTraceRun(None{}, _)
-  GenerationProof.new_trace_run(None{}, 48n, Trace.Draw.root(), tape, (Unit{}, {==}))
+# a new trace with nothing to avoid and the sampled indication it is given.
+def Laws.generated_root(tape, sampled, rest, created, generated):
+  %generated : GenerationProof.NewTraceRun(Tuple{None{}, sampled}, _)
+  GenerationProof.new_trace_run(Tuple{None{}, sampled}, 48n, Trace.Draw.root(sampled), tape, (Unit{}, ({==}, {==})))
 
 # Rewrite the hypothesis into the view of the driver's final step, for the
 # child's span plan.
@@ -346,11 +348,12 @@ def Laws.generated_child(tape, parent, sampling, rest, created, generated):
     (Unit{}, ({==}, ({==}, {==}))))
 
 # Rewrite the hypothesis into the view of the driver's final step: a restart
-# is a new trace that avoids the received trace ID.
-def Laws.generated_restart(tape, previous, rest, created, generated):
-  %generated : GenerationProof.NewTraceRun(Some{Trace.RemoteContext.trace_id(previous)}, _)
-  GenerationProof.new_trace_run(Some{Trace.RemoteContext.trace_id(previous)}, 48n, Trace.Draw.restart(previous),
-    tape, (Unit{}, {==}))
+# is a new trace that avoids the received trace ID, with the sampled
+# indication it is given.
+def Laws.generated_restart(tape, previous, sampled, rest, created, generated):
+  %generated : GenerationProof.NewTraceRun(Tuple{Some{Trace.RemoteContext.trace_id(previous)}, sampled}, _)
+  GenerationProof.new_trace_run(Tuple{Some{Trace.RemoteContext.trace_id(previous)}, sampled}, 48n,
+    Trace.Draw.restart(previous, sampled), tape, (Unit{}, ({==}, {==})))
 
 # The host's loop feeds the words the pure driver reads (proofs/generation.bend).
 def Laws.generation_drive(fuel, tape, step, extra):
@@ -424,12 +427,12 @@ def Laws.generated_span_id(tape, excluded, rest, id, generated):
 
 # Context.root_with runs that composition; its continuation agrees with
 # root_of on every outcome of the trace ID (proofs/separate.bend).
-def Laws.root_composed(tape):
+def Laws.root_composed(tape, sampled):
   SeparateProof.read_trace_same(Laws.TapeOutcome(),
-    outcome => Trace.Draw.root_span_with(~Laws.Tape(), ~Trace.Source.tape, outcome)(Laws.TapeOutcome(),
+    outcome => Trace.Draw.root_span_with(~Laws.Tape(), ~Trace.Source.tape, sampled, outcome)(Laws.TapeOutcome(),
       value => Emit{value}),
-    outcome => Laws.root_of(outcome)(Laws.TapeOutcome(), value => Emit{value}),
-    outcome => SeparateProof.root_span_same(outcome), 32n, tape, Trace.TraceDraw.start(None{}))
+    outcome => Laws.root_of(sampled, outcome)(Laws.TapeOutcome(), value => Emit{value}),
+    outcome => SeparateProof.root_span_same(sampled, outcome), 32n, tape, Trace.TraceDraw.start(None{}))
 
 # Context.child_with runs that composition; its continuation agrees with
 # context_of on every outcome of the span ID (proofs/separate.bend).
@@ -444,12 +447,12 @@ def Laws.child_composed(tape, parent, sampling):
     16n, tape, Trace.SpanDraw.start(Some{Trace.Parent.span_id(parent)}))
 
 # As root_composed, from the trace ID draw that excludes the received one.
-def Laws.restart_composed(tape, previous):
+def Laws.restart_composed(tape, previous, sampled):
   SeparateProof.read_trace_same(Laws.TapeOutcome(),
-    outcome => Trace.Draw.root_span_with(~Laws.Tape(), ~Trace.Source.tape, outcome)(Laws.TapeOutcome(),
+    outcome => Trace.Draw.root_span_with(~Laws.Tape(), ~Trace.Source.tape, sampled, outcome)(Laws.TapeOutcome(),
       value => Emit{value}),
-    outcome => Laws.root_of(outcome)(Laws.TapeOutcome(), value => Emit{value}),
-    outcome => SeparateProof.root_span_same(outcome), 32n, tape,
+    outcome => Laws.root_of(sampled, outcome)(Laws.TapeOutcome(), value => Emit{value}),
+    outcome => SeparateProof.root_span_same(sampled, outcome), 32n, tape,
     Trace.TraceDraw.start(Some{Trace.RemoteContext.trace_id(previous)}))
 
 # 7. Limits

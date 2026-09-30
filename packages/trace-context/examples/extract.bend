@@ -115,4 +115,4 @@ def main() -> IO(Unit):
     refused(TC.Context.extract(limits,
       [TC.Header{"traceparent", "00-00000000000000000000000000000000-00f067aa0ba902b7-01"},
         TC.Header{"tracestate", "congo=t61rcWkgMzE"}],
-      Some{TC.OutgoingBase{TC.OutgoingContext.new(TC.Context.root_from_ids(trace, span))}}))
+      Some{TC.OutgoingBase{TC.OutgoingContext.new(TC.Context.root_from_ids(trace, span, False{}))}}))

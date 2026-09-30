@@ -439,12 +439,14 @@ test('the ES module exports no template and no IO operation to run, so the facad
     assert.equal(Package[name], undefined, name);
   }
   // The compiler's ES module of generation.bend exports no IO operation
-  // without parameters, and one with parameters comes back as an unrun IO
-  // action: it reads no word. The module names the constructors and
-  // definitions of trace_context.bend as it sees them, with their module's
-  // name, and takes no value of trace_context.mjs (bendlang/bend#1105).
+  // without parameters, such as entropy.bend's read_u32, and one with
+  // parameters, such as Context.root, which takes the sampled indication,
+  // comes back as an unrun IO action: it reads no word. The module names the
+  // constructors and definitions of trace_context.bend and entropy.bend as it
+  // sees them, with their module's name, and takes no value of
+  // trace_context.mjs (bendlang/bend#1105).
   const Generate = await moduleOf('packages/trace-context/generation.bend', 'build/javascript-modules/generation.mjs');
-  assert.equal(Generate['Context.root'], undefined);
+  assert.equal(Generate['entropy.read_u32'], undefined);
   const descriptor = Object.getOwnPropertyDescriptor(globalThis, 'crypto');
   let reads = 0;
   try {
@@ -457,6 +459,7 @@ test('the ES module exports no template and no IO operation to run, so the facad
     const action = Generate['Context.continue_or_start'](extraction, { $: 'trace_context.Continue' },
       { $: 'trace_context.InheritSampled' }, { $: 'trace_context.Lenient' });
     assert.equal(typeof action, 'function');
+    assert.equal(typeof Generate['Context.root'](false), 'function');
     assert.equal(reads, 0);
   } finally {
     Object.defineProperty(globalThis, 'crypto', descriptor);

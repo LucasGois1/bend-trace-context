@@ -6,9 +6,10 @@
 # trace ID, uses the supplied span ID and the resolved sampled indication
 # (law child), and creation fails exactly when the span ID reuses the
 # parent's (child_reuse, child_accepts). For Context.restart_from_ids: a
-# successful restart is the root of the supplied IDs (restart), and it fails
-# exactly when the trace ID reuses the received one (restart_reuse,
-# restart_accepts). Laws.child and Laws.restart in PROOF.bend rewrite their
+# successful restart is the root of the supplied IDs with the sampled
+# indication it is given (restart), and it fails exactly when the trace ID
+# reuses the received one (restart_reuse, restart_accepts), whatever that
+# indication. Laws.child and Laws.restart in PROOF.bend rewrite their
 # hypothesis into ChildView and RestartView; the other four Laws.* proofs
 # call the lemma of the same name here.
 #
@@ -110,14 +111,15 @@ def child_reuse(parent, span_id, sampling, reused):
 
 # The view of a restart: Unit for a failure, and for a success
 # Done{restarted} the two facts of law restart: restarted is the root of the
-# supplied IDs, and the new trace ID's text differs from the received one's.
-def RestartView(previous: TC.RemoteContext, trace_id: TC.TraceId, span_id: TC.SpanId,
+# supplied IDs with the sampled indication `sampled`, and the new trace ID's
+# text differs from the received one's.
+def RestartView(previous: TC.RemoteContext, trace_id: TC.TraceId, span_id: TC.SpanId, sampled: Bool,
   result: Result<&2, &2, TC.ContextError, TC.LocalContext>) -> Type:
   match result:
     case Fail{error}:
       Unit
     case Done{restarted}:
-      {restarted == TC.Context.root_from_ids(trace_id, span_id) : TC.LocalContext} &
+      {restarted == TC.Context.root_from_ids(trace_id, span_id, sampled) : TC.LocalContext} &
       {TC.TraceId.to_string(trace_id) != TC.TraceId.to_string(TC.RemoteContext.trace_id(previous)) : String}
 
 # The restart view holds for Context.restart_from_ids.checked whatever the
@@ -129,11 +131,13 @@ law restart_step:
   for +previous: TC.RemoteContext
   for +trace_id: TC.TraceId
   for span_id: TC.SpanId
+  for -sampled: Bool
   for reused: Bool
   for evidence: {TC.TraceId.is_eq(trace_id, TC.RemoteContext.trace_id(previous)) == reused : Bool}
-  RestartView(previous, trace_id, span_id, TC.Context.restart_from_ids.checked(trace_id, span_id, reused))
+  RestartView(previous, trace_id, span_id, sampled,
+    TC.Context.restart_from_ids.checked(trace_id, span_id, sampled, reused))
 
-def restart_step(previous, trace_id, span_id, reused, evidence):
+def restart_step(previous, trace_id, span_id, sampled, reused, evidence):
   match reused:
     case True{}:
       Unit{}
@@ -148,34 +152,37 @@ law restart_view:
   for +previous: TC.RemoteContext
   for +trace_id: TC.TraceId
   for span_id: TC.SpanId
-  RestartView(previous, trace_id, span_id, TC.Context.restart_from_ids(previous, trace_id, span_id))
+  for -sampled: Bool
+  RestartView(previous, trace_id, span_id, sampled, TC.Context.restart_from_ids(previous, trace_id, span_id, sampled))
 
-def restart_view(previous, trace_id, span_id):
-  restart_step(previous, trace_id, span_id,
+def restart_view(previous, trace_id, span_id, sampled):
+  restart_step(previous, trace_id, span_id, sampled,
     TC.TraceId.is_eq(trace_id, TC.RemoteContext.trace_id(previous)), {==})
 
 # When the new trace ID's text equals the received one's, the restart fails
-# with ReusedTraceId, whatever the new ID's randomness assertion: TraceId.is_eq
-# compares texts only. Laws.restart_reuse (PROOF.bend) calls it.
+# with ReusedTraceId, whatever the new ID's randomness assertion and the
+# sampled indication: TraceId.is_eq compares texts only.
+# Laws.restart_reuse (PROOF.bend) calls it.
 law restart_reuse:
   for +previous: TC.RemoteContext
   for +trace_id: TC.TraceId
   for span_id: TC.SpanId
+  for -sampled: Bool
   for reused: {TC.TraceId.to_string(trace_id) == TC.TraceId.to_string(TC.RemoteContext.trace_id(previous)) : String}
-  {TC.Context.restart_from_ids(previous, trace_id, span_id) == Fail{TC.ReusedTraceId{}} :
+  {TC.Context.restart_from_ids(previous, trace_id, span_id, sampled) == Fail{TC.ReusedTraceId{}} :
     Result<&2, &2, TC.ContextError, TC.LocalContext>}
 
 # `reused` turns the check into String.eq(t, t); eq_refl then makes it True.
-def restart_reuse(previous, trace_id, span_id, reused):
+def restart_reuse(previous, trace_id, span_id, sampled, reused):
   %Equal.sym(String, TC.TraceId.to_string(trace_id),
     TC.TraceId.to_string(TC.RemoteContext.trace_id(previous)), reused) :
-    {TC.Context.restart_from_ids.checked(trace_id, span_id,
+    {TC.Context.restart_from_ids.checked(trace_id, span_id, sampled,
       String.eq(_, TC.TraceId.to_string(TC.RemoteContext.trace_id(previous)))) == Fail{TC.ReusedTraceId{}} :
       Result<&2, &2, TC.ContextError, TC.LocalContext>}
   %Equal.sym(Bool, String.eq(TC.TraceId.to_string(TC.RemoteContext.trace_id(previous)),
     TC.TraceId.to_string(TC.RemoteContext.trace_id(previous))), True{},
     StringsProof.eq_refl(TC.TraceId.to_string(TC.RemoteContext.trace_id(previous)))) :
-    {TC.Context.restart_from_ids.checked(trace_id, span_id, _) == Fail{TC.ReusedTraceId{}} :
+    {TC.Context.restart_from_ids.checked(trace_id, span_id, sampled, _) == Fail{TC.ReusedTraceId{}} :
       Result<&2, &2, TC.ContextError, TC.LocalContext>}
   {==}
 
@@ -234,36 +241,38 @@ law restart_accepts_step:
   for +previous: TC.RemoteContext
   for +trace_id: TC.TraceId
   for -span_id: TC.SpanId
+  for -sampled: Bool
   for same: Bool
   for view: StringsProof.EqView(TC.TraceId.to_string(trace_id),
     TC.TraceId.to_string(TC.RemoteContext.trace_id(previous)), same)
   for distinct: {TC.TraceId.to_string(trace_id) != TC.TraceId.to_string(TC.RemoteContext.trace_id(previous)) : String}
-  {TC.Context.restart_from_ids.checked(trace_id, span_id, same) ==
-    Done{TC.Context.root_from_ids(trace_id, span_id)} : Result<&2, &2, TC.ContextError, TC.LocalContext>}
+  {TC.Context.restart_from_ids.checked(trace_id, span_id, sampled, same) ==
+    Done{TC.Context.root_from_ids(trace_id, span_id, sampled)} : Result<&2, &2, TC.ContextError, TC.LocalContext>}
 
-def restart_accepts_step(previous, trace_id, span_id, same, view, distinct):
+def restart_accepts_step(previous, trace_id, span_id, sampled, same, view, distinct):
   match same:
     case False{}:
       {==}
     case True{}:
-      Empty.absurd({TC.Context.restart_from_ids.checked(trace_id, span_id, True{}) ==
-        Done{TC.Context.root_from_ids(trace_id, span_id)} : Result<&2, &2, TC.ContextError, TC.LocalContext>},
+      Empty.absurd({TC.Context.restart_from_ids.checked(trace_id, span_id, sampled, True{}) ==
+        Done{TC.Context.root_from_ids(trace_id, span_id, sampled)} : Result<&2, &2, TC.ContextError, TC.LocalContext>},
         distinct(view))
 
 # When the new trace ID's text differs from the received one's, the restart
-# succeeds with exactly Context.root_from_ids(trace_id, span_id).
+# succeeds with exactly Context.root_from_ids(trace_id, span_id, sampled).
 # Laws.restart_accepts (PROOF.bend) calls it. The proof passes the reuse
 # check and its view, from StringsProof.eq_view, to restart_accepts_step.
 law restart_accepts:
   for +previous: TC.RemoteContext
   for +trace_id: TC.TraceId
   for span_id: TC.SpanId
+  for -sampled: Bool
   for distinct: {TC.TraceId.to_string(trace_id) != TC.TraceId.to_string(TC.RemoteContext.trace_id(previous)) : String}
-  {TC.Context.restart_from_ids(previous, trace_id, span_id) == Done{TC.Context.root_from_ids(trace_id, span_id)} :
-    Result<&2, &2, TC.ContextError, TC.LocalContext>}
+  {TC.Context.restart_from_ids(previous, trace_id, span_id, sampled) ==
+    Done{TC.Context.root_from_ids(trace_id, span_id, sampled)} : Result<&2, &2, TC.ContextError, TC.LocalContext>}
 
-def restart_accepts(previous, trace_id, span_id, distinct):
-  restart_accepts_step(previous, trace_id, span_id,
+def restart_accepts(previous, trace_id, span_id, sampled, distinct):
+  restart_accepts_step(previous, trace_id, span_id, sampled,
     TC.TraceId.is_eq(trace_id, TC.RemoteContext.trace_id(previous)),
     StringsProof.eq_view(TC.TraceId.to_string(trace_id), TC.TraceId.to_string(TC.RemoteContext.trace_id(previous))),
     distinct)
