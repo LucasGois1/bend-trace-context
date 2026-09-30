@@ -54,6 +54,19 @@ invalid traceparent request: Fresh | Accept: application/json | traceparent: 00-
 boundary service: Restarted 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-02
 boundary request: Fresh | Accept: application/json | traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-53995c3f42cd8ad8-02
 strict service: refused after SourceFailure 3 no entropy
+sdk flags: local 0 emits 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-00
+sdk flags: local 1 emits 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01
+sdk flags: local 2 emits 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-02
+sdk flags: local 3 emits 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-03
+sdk flags: remote 1 received 00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01
+sdk flags: remote 2 received 00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-fe
+sdk flags: remote 3 received 00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-ff
+sdk field names: traceparent, tracestate
+sdk field names: setter wrote accept: application/json | traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-03 | tracestate: rojo=00f067aa0ba902b7,congo=t61rcWkgMzE
+sdk field names: inject wrote accept: application/json | traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-03 | tracestate: rojo=00f067aa0ba902b7,congo=t61rcWkgMzE
+sdk field names: extracted TraceParentAccepted, StateAccepted: parent 00f067aa0ba902b7, trace flags 3, state rojo=00f067aa0ba902b7,congo=t61rcWkgMzE
+sdk field names: setter wrote accept: application/json | traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-02
+sdk field names: extracted TraceParentAccepted, StateAbsent: parent 00f067aa0ba902b7, trace flags 2, state none
 sdk parts: remote context: 4bf92f3577b34da6a3ce929d0e0e4736 00f067aa0ba902b7 sampled: True random: False
 sdk parts: remote context of a random trace ID: 4bf92f3577b34da6a3ce929d0e0e4736 00f067aa0ba902b7 sampled: False random: True
 sdk parts: incoming context: 4bf92f3577b34da6a3ce929d0e0e4736 00f067aa0ba902b7 sampled: True random: False state: congo=t61rcWkgMzE received pair: none

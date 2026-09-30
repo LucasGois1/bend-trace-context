@@ -174,6 +174,42 @@ def Laws.received_flags(traceparent):
       Digits.DCon{high, Digits.DCon{low, Digits.DNil{}}}}:
       ({==}, {==})
 
+# By computation in each of the four combinations of sampled and random: the
+# package's bit operations give the literal number, and the emitted
+# traceparent's readers give back both flags.
+def Laws.local_flags(context):
+  match context:
+    case Trace.LocalContext{Trace.TraceId{trace_id, False{}}, Trace.SpanId{span_id}, False{}}:
+      ({==}, {==})
+    case Trace.LocalContext{Trace.TraceId{trace_id, False{}}, Trace.SpanId{span_id}, True{}}:
+      ({==}, {==})
+    case Trace.LocalContext{Trace.TraceId{trace_id, True{}}, Trace.SpanId{span_id}, False{}}:
+      ({==}, {==})
+    case Trace.LocalContext{Trace.TraceId{trace_id, True{}}, Trace.SpanId{span_id}, True{}}:
+      ({==}, {==})
+
+# By computation in each of the four combinations of sampled and random.
+def Laws.remote_flags(context):
+  match context:
+    case Trace.RemoteContext{Trace.TraceId{trace_id, False{}}, span_id, False{}}:
+      {==}
+    case Trace.RemoteContext{Trace.TraceId{trace_id, False{}}, span_id, True{}}:
+      {==}
+    case Trace.RemoteContext{Trace.TraceId{trace_id, True{}}, span_id, False{}}:
+      {==}
+    case Trace.RemoteContext{Trace.TraceId{trace_id, True{}}, span_id, True{}}:
+      {==}
+
+# Once the flag byte is split into its two digits, the received context's
+# flags are those of remote_flags, and its accessors compute to the value's
+# two flag readers (as in received_flags).
+def Laws.received_trace_flags(traceparent):
+  match traceparent:
+    case Trace.TraceParentV00{trace_id, parent_id,
+      Digits.DCon{high, Digits.DCon{low, Digits.DNil{}}}}:
+      Laws.remote_flags(Trace.RemoteContext.from_traceparent(Trace.TraceParentV00{trace_id, parent_id,
+        Digits.DCon{high, Digits.DCon{low, Digits.DNil{}}}}))
+
 # 4. Children and restarts
 # ========================
 
@@ -590,6 +626,11 @@ def Laws.clear_carrier(carrier):
 # The kept fields are followed by the emission's fields.
 def Laws.inject_carrier(limits, outgoing, carrier):
   InjectProof.inject_carrier(limits, outgoing, carrier)
+
+# The emission's fields are named by the published names (proofs/inject.bend,
+# from inject_carrier).
+def Laws.inject_names(limits, outgoing, carrier):
+  InjectProof.inject_names(limits, outgoing, carrier)
 
 # By computation once the emission is split into its fields.
 def Laws.inject_dropped(limits, outgoing, carrier):

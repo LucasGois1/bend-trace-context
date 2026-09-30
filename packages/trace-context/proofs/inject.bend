@@ -13,6 +13,9 @@
 #                        that they agree, which gives the cleanup and
 #                        injection carriers, and unrelated_again that a
 #                        written carrier keeps the same unrelated fields.
+#                        names_append and names_written give the names of
+#                        the injection carrier: the published field names
+#                        after those of the unrelated fields.
 #   Injection: what a    The values a receiver selects from a written carrier
 #   receiver extracts    are the written ones (carrier_named), its
 #                        traceparent value reads back under every limits
@@ -180,6 +183,72 @@ law inject_carrier:
 
 def inject_carrier(limits, outgoing, carrier):
   of_carrier(carrier, TC.OutgoingContext.emit(limits, outgoing))
+
+# The names of two carriers joined are those of each, joined. Induction on
+# the first carrier.
+law names_append:
+  for +carrier: List<&2, TC.Header>
+  for +after: List<&2, TC.Header>
+  {Laws.names(List.append(&2, TC.Header, carrier, after)) ==
+    List.append(&2, String, Laws.names(carrier), Laws.names(after)) : List<&2, String>}
+
+def names_append(carrier, after):
+  match carrier:
+    case Nil{}:
+      {==}
+    case Con{+header, +rest}:
+      %Equal.sym(List<&2, String>, Laws.names(List.append(&2, TC.Header, rest, after)),
+        List.append(&2, String, Laws.names(rest), Laws.names(after)), names_append(rest, after)) :
+        {Con{TC.Header.name(header), _} ==
+          Con{TC.Header.name(header), List.append(&2, String, Laws.names(rest), Laws.names(after))} : List<&2, String>}
+      {==}
+
+# The context fields written for a traceparent value and a tracestate value
+# are named by the published names written for that tracestate value: by
+# cases on whether it is empty; each case computes.
+law names_written:
+  for traceparent: String
+  for +tracestate: String
+  {Laws.names(Laws.written(traceparent, tracestate)) ==
+    Laws.written_names(TC.Context.field_names(), tracestate) : List<&2, String>}
+
+def names_written(traceparent, tracestate):
+  match tracestate:
+    case SNil{}:
+      {==}
+    case SCon{first, rest}:
+      {==}
+
+# Law inject_names: by inject_carrier, the names are those of the unrelated
+# fields followed by those of the written fields (names_append), which are
+# the published names written for the emitted tracestate (names_written).
+law inject_names:
+  for +limits: TC.Limits
+  for +outgoing: TC.OutgoingContext
+  for +carrier: List<&2, TC.Header>
+  {Laws.names(TC.Injection.carrier(TC.Context.inject(limits, outgoing, carrier))) ==
+    List.append(&2, String, Laws.names(Laws.unrelated(carrier)), Laws.written_names(TC.Context.field_names(),
+      TC.Emission.tracestate(TC.OutgoingContext.emit(limits, outgoing)))) : List<&2, String>}
+
+def inject_names(limits, outgoing, carrier):
+  +traceparent = TC.Emission.traceparent(TC.OutgoingContext.emit(limits, outgoing))
+  +tracestate = TC.Emission.tracestate(TC.OutgoingContext.emit(limits, outgoing))
+  %Equal.sym(List<&2, TC.Header>, TC.Injection.carrier(TC.Context.inject(limits, outgoing, carrier)),
+    List.append(&2, TC.Header, Laws.unrelated(carrier), Laws.written(traceparent, tracestate)),
+    inject_carrier(limits, outgoing, carrier)) :
+    {Laws.names(_) == List.append(&2, String, Laws.names(Laws.unrelated(carrier)),
+      Laws.written_names(TC.Context.field_names(), tracestate)) : List<&2, String>}
+  %Equal.sym(List<&2, String>,
+    Laws.names(List.append(&2, TC.Header, Laws.unrelated(carrier), Laws.written(traceparent, tracestate))),
+    List.append(&2, String, Laws.names(Laws.unrelated(carrier)), Laws.names(Laws.written(traceparent, tracestate))),
+    names_append(Laws.unrelated(carrier), Laws.written(traceparent, tracestate))) :
+    {_ == List.append(&2, String, Laws.names(Laws.unrelated(carrier)),
+      Laws.written_names(TC.Context.field_names(), tracestate)) : List<&2, String>}
+  %Equal.sym(List<&2, String>, Laws.names(Laws.written(traceparent, tracestate)),
+    Laws.written_names(TC.Context.field_names(), tracestate), names_written(traceparent, tracestate)) :
+    {List.append(&2, String, Laws.names(Laws.unrelated(carrier)), _) == List.append(&2, String,
+      Laws.names(Laws.unrelated(carrier)), Laws.written_names(TC.Context.field_names(), tracestate)) : List<&2, String>}
+  {==}
 
 # The keys an injection of an emission reports are the emission's.
 law of_dropped:

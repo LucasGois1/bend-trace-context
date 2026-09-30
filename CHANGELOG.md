@@ -2,6 +2,19 @@
 
 ## 0.1.3-dev — unreleased
 
+- Read the trace flags and the context field names
+  ([#44](https://github.com/LucasGois1/bend-trace-context/issues/44)), for an
+  OpenTelemetry SDK's exporter and propagator. `LocalContext.flags` and
+  `RemoteContext.flags` give a context's known trace flags as a `U32` from 0
+  to 3, bit 0 sampled and bit 1 random-trace-id: a local context's are the
+  flags of the traceparent that it emits, and a remote context's the known
+  flags that it was received or built with. The Booleans stay the canonical
+  form. `Context.field_names()` gives `traceparent`, then `tracestate`, the
+  names under which injection writes; extraction, cleanup and injection now
+  take them from one place in the code. Laws `local_flags`, `remote_flags`,
+  `received_trace_flags` and `inject_names` state them, and the independent
+  consumer and the guide's `guide-flags` recipe show them from outside the
+  package.
 - Build remote and incoming contexts from parts
   ([#45](https://github.com/LucasGois1/bend-trace-context/issues/45)), for
   the remote span contexts of an OpenTelemetry SDK.

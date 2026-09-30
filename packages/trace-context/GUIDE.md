@@ -884,12 +884,109 @@ describes.
 
 ## Building blocks for an OpenTelemetry SDK
 
-An OpenTelemetry SDK composes the package's pieces itself, where a service
-calls `continue_or_start` and `send`: its span contexts wrap the package's
-incoming and outgoing contexts, its W3C propagator extracts and injects with
-the package, and everything that OpenTelemetry defines stays in the SDK.
+An OpenTelemetry SDK written in Bend composes the package's pieces itself,
+where a service calls `continue_or_start` and `send`: its span contexts wrap
+the package's incoming and outgoing contexts, its exporter writes the trace
+flags of each span, and its W3C propagator stays thin: it builds a carrier
+from OpenTelemetry's getter and writes what an outgoing context emits
+through its setter. What OpenTelemetry itself defines, such as its span
+context, samplers and propagator interface, belongs to the SDK.
 [Spec #41](https://github.com/LucasGois1/bend-trace-context/issues/41) adds
 these pieces, and the [reference](README.md) lists their signatures.
+
+### Trace flags and field names
+
+- **Trace flags.** `TC.LocalContext.flags` and `TC.RemoteContext.flags` give
+  a context's trace flags as a number from 0 to 3, which an exporter writes
+  into OTLP's `Span.flags` field: bit 0 is sampled and bit 1 is
+  random-trace-id. A local context's value is the flag byte of the
+  traceparent that it emits, so an exported span agrees with what the service
+  propagates, and a remote context's value is the known flags that it was
+  received or built with. The Booleans, `is_sampled` and
+  `TC.TraceId.is_random`, stay the canonical form.
+- **Field names.** `TC.Context.field_names()` gives `traceparent`, then
+  `tracestate`: the names under which `TC.Context.inject` writes, and which
+  extraction and cleanup read. A propagator returns them as the fields that
+  it writes, and writes the values that `TC.OutgoingContext.emit` gives under
+  them through its setter, the tracestate only when it is not empty, as
+  injection does. To extract, it passes `TC.Context.extract` a carrier built
+  from what its getter reads.
+
+The service below continues a request whose caller sampled its trace and
+asserted its trace ID random, flags `03`. The exporter writes the trace flags
+of the caller's operation, the remote parent, and of the service's own; the
+propagator lists its fields and writes the service's operation with them.
+
+<!-- test:guide-flags:start -->
+```bend
+import Base
+import ./deps/bend-trace-context/packages/trace-context/trace_context.bend as TC
+
+def received() -> List<&2, TC.Header>:
+  [TC.Header{"traceparent", "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-03"},
+    TC.Header{"tracestate", "congo=t61rcWkgMzE"}]
+
+# What the propagator's setter writes: each published name with its emitted
+# value, in order, and no field for an empty value.
+def set(names: List<&2, String>, values: List<&2, String>) -> List<&2, TC.Header>:
+  match names values:
+    case Con{name, rest} Con{+value, more}:
+      List.append(&2, TC.Header, Bool.pick(List<&2, TC.Header>, String.is_empty(value), Nil{},
+        [TC.Header{name, value}]), set(rest, more))
+    case _ _:
+      Nil{}
+
+# The fields of a message, one per line.
+def fields(carrier: List<&2, TC.Header>) -> String:
+  match carrier:
+    case Nil{}:
+      ""
+    case Con{TC.Header{name, value}, Nil{}}:
+      name ++ ": " ++ value
+    case Con{TC.Header{name, value}, rest}:
+      name ++ ": " ++ value ++ "\n" ++ fields(rest)
+
+def exported(+incoming: TC.IncomingContext, result: Result<&2, &2, TC.ContextError, TC.LocalContext>) -> String:
+  match result:
+    case Fail{error}:
+      TC.ContextError.show(error)
+    case Done{+operation}:
+      +emission = TC.OutgoingContext.emit(TC.Limits.default(),
+        TC.OutgoingContext.with_state(operation, TC.IncomingContext.state(incoming)))
+      "parent trace flags: " ++ U32.show(TC.RemoteContext.flags(TC.IncomingContext.context(incoming))) ++
+        "\ntrace flags: " ++ U32.show(TC.LocalContext.flags(operation)) ++
+        "\nfields: " ++ String.join(TC.Context.field_names(), ", ") ++ "\n" ++
+        fields(set(TC.Context.field_names(), [TC.Emission.traceparent(emission), TC.Emission.tracestate(emission)]))
+
+def handled(incoming: Maybe<&2, TC.IncomingContext>, span: Result<&2, &2, TC.Error, TC.SpanId>) -> String:
+  match incoming span:
+    case Some{+context} Done{span_id}:
+      exported(context, TC.Context.child_from_id(TC.IncomingContext.parent(context), span_id, TC.InheritSampled{}))
+    case None{} _:
+      "no context"
+    case _ Fail{error}:
+      "invalid span ID: " ++ TC.Error.show(error)
+
+def main() -> IO(Unit):
+  IO.print(handled(TC.Extraction.incoming(TC.Context.extract(TC.Limits.default(), received(), None{})),
+    TC.SpanId.parse("53995c3f42cd8ad8")))
+```
+<!-- test:guide-flags:end -->
+
+<!-- test:guide-flags-output:start -->
+```text
+parent trace flags: 3
+trace flags: 3
+fields: traceparent, tracestate
+traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-53995c3f42cd8ad8-03
+tracestate: congo=t61rcWkgMzE
+```
+<!-- test:guide-flags-output:end -->
+
+`TC.Context.inject` writes the same fields, and it also removes a carrier's
+old context fields, whatever the case of their names. A propagator that
+writes through a setter leaves that to its caller, which clears the fields
+by these names before it reuses a carrier.
 
 ### Remote span contexts from parts
 
