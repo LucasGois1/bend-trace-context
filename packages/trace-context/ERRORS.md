@@ -32,21 +32,24 @@ The three names that a service usually logs are composed of the ones below:
 ## Traceparent and identifiers
 
 `TC.Error`, from `TC.TraceParentV00.parse`, `TC.TraceId.parse`,
-`TC.SpanId.parse` and, inside `InvalidTraceParent`, extraction. The first
-error in reading order is reported. An offset counts characters from the
-start of the value, after the optional whitespace that extraction removes.
+`TC.SpanId.parse`, `TC.TraceId.from_bytes`, `TC.SpanId.from_bytes` and,
+inside `InvalidTraceParent`, extraction. The first error in reading order is
+reported. An offset counts characters from the start of the value, after the
+optional whitespace that extraction removes, or, for an ID read from bytes,
+cells from the start of the list.
 
 | Constructor | `show` | Meaning |
 | --- | --- | --- |
-| `UnexpectedEnd{offset}` | `UnexpectedEnd at 12` | A required character is missing |
+| `UnexpectedEnd{offset}` | `UnexpectedEnd at 12` | A required character is missing, or a byte of an ID read from bytes: the list is too short |
 | `InvalidHex{offset}` | `InvalidHex at 3` | A character is not lowercase ASCII hexadecimal |
+| `InvalidByte{offset}` | `InvalidByte at 3` | A cell of the bytes of an ID is above 255, so it is not a byte |
 | `ExpectedSeparator{offset}` | `ExpectedSeparator at 2` | A required `-` is absent |
-| `TrailingInput{}` | `TrailingInput` | Characters follow the flags or a supplied ID |
+| `TrailingInput{}` | `TrailingInput` | Characters follow the flags or a supplied ID, or cells follow the bytes of an ID: the list is too long |
 | `ForbiddenVersion{}` | `ForbiddenVersion` | The version is `ff` |
 | `UnsupportedVersion{version}` | `UnsupportedVersion 01` | The strict codec reads only version `00`; extraction reads later versions by their known prefix instead |
-| `ZeroId{TraceIdField{}}` | `ZeroTraceId` | The trace ID is all zero |
+| `ZeroId{TraceIdField{}}` | `ZeroTraceId` | The trace ID is all zero, as text or as bytes |
 | `ZeroId{ParentIdField{}}` | `ZeroParentId` | The parent ID is all zero |
-| `ZeroId{SpanIdField{}}` | `ZeroSpanId` | A supplied span ID is all zero |
+| `ZeroId{SpanIdField{}}` | `ZeroSpanId` | A supplied span ID is all zero, as text or as bytes |
 | `ControlCharacter{offset}` | `ControlCharacter at 60` | A control character other than a tab in the unknown fields of a later version; only extraction reads those |
 
 ## Contexts from supplied identifiers
@@ -138,7 +141,7 @@ source practically never gives: in practice it points at a broken source.
 
 | Constructor | `show` | Meaning |
 | --- | --- | --- |
-| `NothingToForward{}` | `NothingToForward` | The context keeps no received pair: its tracestate was discarded at extraction |
+| `NothingToForward{}` | `NothingToForward` | The context keeps no received pair: its tracestate was discarded at extraction, or `TC.IncomingContext.from_remote` built it from parts |
 | `ForwardTooLarge{}` | `ForwardTooLarge` | The tracestate fields, joined by commas, exceed the tracestate output budget |
 | `InvalidForwardParent{error}` | `InvalidForwardParent TraceParentTooLarge` | The traceparent is not one that extraction accepts under these limits |
 | `InvalidForwardState{error}` | `InvalidForwardState InvalidEntry 0 MissingEquals` | The tracestate is not one that extraction accepts under these limits |

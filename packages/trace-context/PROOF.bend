@@ -70,6 +70,7 @@
 #   proofs/inject.bend              cleanup, injection and forwarding
 #   proofs/continue.bend            continuing or starting, and sending
 #   proofs/http.bend                native HTTP headers
+#   proofs/bytes.bend               identifiers as bytes
 
 import Base
 import ./LAWS.bend as Laws
@@ -95,6 +96,7 @@ import ./proofs/extract.bend as ExtractProof
 import ./proofs/inject.bend as InjectProof
 import ./proofs/continue.bend as ContinueProof
 import ./proofs/http.bend as HttpProof
+import ./proofs/bytes.bend as BytesProof
 
 # 1. Strict v00 codec
 # ===================
@@ -153,6 +155,10 @@ def Laws.from_ids(trace_id, span_id, sampled):
 def Laws.root(trace_id, span_id):
   {==}
 
+# By computation: the accessors read back the constructor's fields.
+def Laws.remote_from_ids(trace_id, span_id, sampled):
+  ({==}, ({==}, ({==}, {==})))
+
 # By computation in each of the four combinations of sampled and random.
 def Laws.emitted_traceparent(context):
   match context:
@@ -176,6 +182,42 @@ def Laws.received_flags(traceparent):
     case Trace.TraceParentV00{trace_id, parent_id,
       Digits.DCon{high, Digits.DCon{low, Digits.DNil{}}}}:
       ({==}, {==})
+
+# By computation in each of the four combinations of sampled and random: the
+# package's bit operations give the literal number, and the emitted
+# traceparent's readers give back both flags.
+def Laws.local_flags(context):
+  match context:
+    case Trace.LocalContext{Trace.TraceId{trace_id, False{}}, Trace.SpanId{span_id}, False{}}:
+      ({==}, {==})
+    case Trace.LocalContext{Trace.TraceId{trace_id, False{}}, Trace.SpanId{span_id}, True{}}:
+      ({==}, {==})
+    case Trace.LocalContext{Trace.TraceId{trace_id, True{}}, Trace.SpanId{span_id}, False{}}:
+      ({==}, {==})
+    case Trace.LocalContext{Trace.TraceId{trace_id, True{}}, Trace.SpanId{span_id}, True{}}:
+      ({==}, {==})
+
+# By computation in each of the four combinations of sampled and random.
+def Laws.remote_flags(context):
+  match context:
+    case Trace.RemoteContext{Trace.TraceId{trace_id, False{}}, span_id, False{}}:
+      {==}
+    case Trace.RemoteContext{Trace.TraceId{trace_id, False{}}, span_id, True{}}:
+      {==}
+    case Trace.RemoteContext{Trace.TraceId{trace_id, True{}}, span_id, False{}}:
+      {==}
+    case Trace.RemoteContext{Trace.TraceId{trace_id, True{}}, span_id, True{}}:
+      {==}
+
+# Once the flag byte is split into its two digits, the received context's
+# flags are those of remote_flags, and its accessors compute to the value's
+# two flag readers (as in received_flags).
+def Laws.received_trace_flags(traceparent):
+  match traceparent:
+    case Trace.TraceParentV00{trace_id, parent_id,
+      Digits.DCon{high, Digits.DCon{low, Digits.DNil{}}}}:
+      Laws.remote_flags(Trace.RemoteContext.from_traceparent(Trace.TraceParentV00{trace_id, parent_id,
+        Digits.DCon{high, Digits.DCon{low, Digits.DNil{}}}}))
 
 # 4. Children and restarts
 # ========================
@@ -654,6 +696,11 @@ def Laws.state_independent(limits, first, second, base, same):
 def Laws.received_bounds(limits, carrier, base, incoming, pair, extracted, kept):
   ExtractProof.received_bounds(limits, carrier, base, incoming, pair, extracted, kept)
 
+# By computation: the accessors read back the constructor's fields, and the
+# received pair is None{}.
+def Laws.incoming_from_remote(context, state):
+  ({==}, ({==}, {==}))
+
 # The value is measured, trimmed, found free of commas and read by the strict
 # codec, which reads its text back.
 def Laws.read_v00(limits, known, before, after, before_ows, after_ows, fits):
@@ -698,6 +745,11 @@ def Laws.clear_carrier(carrier):
 def Laws.inject_carrier(limits, outgoing, carrier):
   InjectProof.inject_carrier(limits, outgoing, carrier)
 
+# The emission's fields are named by the published names (proofs/inject.bend,
+# from inject_carrier).
+def Laws.inject_names(limits, outgoing, carrier):
+  InjectProof.inject_names(limits, outgoing, carrier)
+
 # By computation once the emission is split into its fields.
 def Laws.inject_dropped(limits, outgoing, carrier):
   InjectProof.inject_dropped(limits, outgoing, carrier)
@@ -718,6 +770,11 @@ def Laws.forward_carrier(limits, incoming, carrier, pair, forwarded, kept, done)
 # Without a received pair, forwarding refuses at once.
 def Laws.forward_nothing(limits, incoming, carrier, none):
   InjectProof.forward_nothing(limits, incoming, carrier, none)
+
+# forward_nothing, whose hypothesis holds by computation for a context built
+# from parts.
+def Laws.forward_from_parts(limits, context, state, carrier):
+  InjectProof.forward_nothing(limits, Trace.IncomingContext.from_remote(context, state), carrier, {==})
 
 # The budget check comes first and refuses the pair.
 def Laws.forward_too_large(limits, incoming, carrier, pair, kept, larger):
@@ -795,3 +852,87 @@ def Laws.http_continue(tape, limits, headers, base, reception, sampling, policy)
 # The adapter's send is the package's, then the map (proofs/http.bend).
 def Laws.http_send(tape, limits, service, sampling, policy, headers):
   HttpProof.http_send(tape, limits, service, sampling, policy, headers)
+
+# 16. Identifiers as bytes
+# ========================
+
+# Each byte's value is the value of its pair of digits (proofs/bytes.bend).
+def Laws.trace_bytes(id):
+  BytesProof.trace_bytes(id)
+
+# As trace_bytes.
+def Laws.span_bytes(id):
+  BytesProof.span_bytes(id)
+
+# The bytes of the trace ID's digits read back as those digits, without the
+# assertion (proofs/bytes.bend).
+def Laws.trace_bytes_roundtrip(value, random):
+  BytesProof.trace_bytes_roundtrip(value, random)
+
+# The bytes of the span ID's digits read back as those digits, with their
+# evidence (proofs/bytes.bend).
+def Laws.span_bytes_roundtrip(id):
+  BytesProof.span_bytes_roundtrip(id)
+
+# Rewrite the hypothesis into the view of the byte reader: an accepted list
+# is the bytes of the ID it gives (proofs/bytes.bend).
+def Laws.trace_bytes_inverse(bytes, id, read):
+  %read : BytesProof.TraceInverseView(bytes, _)
+  BytesProof.trace_inverse_view(bytes)
+
+# As trace_bytes_inverse.
+def Laws.span_bytes_inverse(bytes, id, read):
+  %read : BytesProof.SpanInverseView(bytes, _)
+  BytesProof.span_inverse_view(bytes)
+
+# Reading the common bytes gives both IDs' digits (proofs/bytes.bend).
+def Laws.trace_bytes_injective(left, right, same):
+  BytesProof.trace_bytes_injective(left, right, same)
+
+# Reading the common bytes gives both span IDs (proofs/bytes.bend).
+def Laws.span_bytes_injective(left, right, same):
+  BytesProof.span_bytes_injective(left, right, same)
+
+# Rewrite the hypothesis into the view of a trace ID read from bytes, whose
+# assertion is unset.
+def Laws.bytes_unasserted(bytes, id, read):
+  %read : BytesProof.UnassertedView(_)
+  BytesProof.unasserted_view(Trace.Parse.id_bytes(16n, bytes, Trace.TraceIdField{}))
+
+# Each cell is read as a byte until the list ends (proofs/bytes.bend).
+def Laws.trace_bytes_short(bytes, cells, short):
+  BytesProof.trace_bytes_short(bytes, cells, short)
+
+# As trace_bytes_short.
+def Laws.span_bytes_short(bytes, cells, short):
+  BytesProof.span_bytes_short(bytes, cells, short)
+
+# The bytes are read, and the cell after them is refused (proofs/bytes.bend).
+def Laws.trace_bytes_long(bytes, extra, more, cells, sixteen):
+  BytesProof.trace_bytes_long(bytes, extra, more, cells, sixteen)
+
+# As trace_bytes_long.
+def Laws.span_bytes_long(bytes, extra, more, cells, eight):
+  BytesProof.span_bytes_long(bytes, extra, more, cells, eight)
+
+# The cells before are read as bytes, and the check refuses the cell
+# (proofs/bytes.bend).
+def Laws.trace_bytes_above(before, cell, after, cells, short, above):
+  BytesProof.trace_bytes_above(before, cell, after, cells, short, above)
+
+# As trace_bytes_above.
+def Laws.span_bytes_above(before, cell, after, cells, short, above):
+  BytesProof.span_bytes_above(before, cell, after, cells, short, above)
+
+# The bytes are read with no cell left, and their digits are not all zero
+# (proofs/bytes.bend).
+def Laws.trace_bytes_accepts(bytes, cells, sixteen, nonzero):
+  BytesProof.trace_bytes_accepts(bytes, cells, sixteen, nonzero)
+
+# As trace_bytes_accepts.
+def Laws.span_bytes_accepts(bytes, cells, eight, nonzero):
+  BytesProof.span_bytes_accepts(bytes, cells, eight, nonzero)
+
+# By computation on the concrete lists of zero cells.
+def Laws.zero_bytes():
+  ({==}, {==})

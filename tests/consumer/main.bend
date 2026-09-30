@@ -619,6 +619,184 @@ def sdk_generation() -> IO(Unit):
     IO.print("sdk generation: new trace ID " ++ TC.TraceId.to_string(new_trace) ++ ", not the replaced " ++
       TC.TraceId.to_string(trace_id))
 
+# The trace flags that an OpenTelemetry SDK's exporter writes, from outside
+# the package: this participant's operations and remote parents.
+#
+# An operation of this participant with the W3C example's IDs, with its
+# sampled indication and its trace ID's randomness assertion.
+def sdk_flags.operation(sampled: Bool, random: Bool) -> IO(TC.LocalContext):
+  do IO<TC.LocalContext>:
+    +trace : TC.TraceId <- trace_id("4bf92f3577b34da6a3ce929d0e0e4736")
+    span : TC.SpanId <- span_id("00f067aa0ba902b7")
+    return TC.Context.from_ids(Bool.pick(TC.TraceId, random, TC.TraceId.assert_random(trace), trace), span, sampled)
+
+# Its trace flags beside the traceparent that it emits.
+def sdk_flags.local(sampled: Bool, random: Bool) -> IO(Unit):
+  do IO<Unit>:
+    +context : TC.LocalContext <- sdk_flags.operation(sampled, random)
+    IO.print("sdk flags: local " ++ U32.show(TC.LocalContext.flags(context)) ++ " emits " ++
+      TC.TraceParentV00.format(TC.LocalContext.to_traceparent(context)))
+
+# A remote parent received from another service, and its trace flags: the
+# known flags of the value received, never its reserved bits.
+def sdk_flags.remote(+text: String) -> IO(Unit):
+  do IO<Unit>:
+    context : TC.RemoteContext <- received(text)
+    IO.print("sdk flags: remote " ++ U32.show(TC.RemoteContext.flags(context)) ++ " received " ++ text)
+
+def sdk_flags() -> IO(Unit):
+  do IO<Unit>:
+    # The four operations that the two known flags make.
+    Unit <- sdk_flags.local(False{}, False{})
+    Unit <- sdk_flags.local(True{}, False{})
+    Unit <- sdk_flags.local(False{}, True{})
+    Unit <- sdk_flags.local(True{}, True{})
+    # Remote parents: the W3C example, and two with every reserved bit set.
+    Unit <- sdk_flags.remote("00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01")
+    Unit <- sdk_flags.remote("00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-fe")
+    sdk_flags.remote("00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-ff")
+
+# An SDK's identifiers as bytes and as hexadecimal text: an exporter writes
+# bytes to protobuf and the text to JSON, and IDs that another tracer hands
+# over as bytes are validated as parsed ones are. The cells below are the
+# bytes of the W3C example IDs.
+def sdk_bytes.cells.rest(cells: List<&2, U32>) -> String:
+  match cells:
+    case Nil{}:
+      ""
+    case Con{cell, rest}:
+      " " ++ U32.show(cell) ++ sdk_bytes.cells.rest(rest)
+
+def sdk_bytes.cells(cells: List<&2, U32>) -> String:
+  match cells:
+    case Nil{}:
+      "none"
+    case Con{cell, rest}:
+      U32.show(cell) ++ sdk_bytes.cells.rest(rest)
+
+def sdk_bytes.refused(-A: Data, label: String, result: Result<&2, &2, TC.Error, A>) -> IO(Unit):
+  match result:
+    case Done{_}:
+      IO.die(Unit, 1, "FAIL: accepted " ++ label)
+    case Fail{error}:
+      IO.print("sdk bytes: " ++ label ++ " refused: " ++ TC.Error.show(error))
+
+def sdk_bytes() -> IO(Unit):
+  do IO<Unit>:
+    +trace : TC.TraceId <- valid(TC.TraceId, "trace ID bytes", TC.TraceId.from_bytes(
+      [75, 249, 47, 53, 119, 179, 77, 166, 163, 206, 146, 157, 14, 14, 71, 54]))
+    +span : TC.SpanId <- valid(TC.SpanId, "span ID bytes", TC.SpanId.from_bytes([0, 240, 103, 170, 11, 169, 2, 183]))
+    Unit <- IO.print("sdk bytes: trace ID " ++ TC.TraceId.to_string(trace) ++ " from bytes, random: " ++
+      Bool.show(TC.TraceId.is_random(trace)))
+    Unit <- IO.print("sdk bytes: span ID " ++ TC.SpanId.to_string(span) ++ " from bytes")
+    # The operation that the other tracer created. Bytes do not say how its
+    # IDs were made, so the trace ID makes no randomness assertion, and the
+    # operation is sent without random-trace-id.
+    +operation : TC.LocalContext = TC.Context.from_ids(trace, span, True{})
+    Unit <- emit("sdk bytes: operation", operation)
+    Unit <- IO.print("sdk bytes: trace ID as bytes " ++ sdk_bytes.cells(TC.TraceId.to_bytes(
+      TC.LocalContext.trace_id(operation))) ++ ", as hex " ++ TC.TraceId.to_string(TC.LocalContext.trace_id(operation)))
+    Unit <- IO.print("sdk bytes: span ID as bytes " ++ sdk_bytes.cells(TC.SpanId.to_bytes(
+      TC.LocalContext.span_id(operation))) ++ ", as hex " ++ TC.SpanId.to_string(TC.LocalContext.span_id(operation)))
+    +parent : TC.RemoteContext <- received("00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01")
+    Unit <- IO.print("sdk bytes: received trace ID as bytes " ++
+      sdk_bytes.cells(TC.TraceId.to_bytes(TC.RemoteContext.trace_id(parent))))
+    Unit <- IO.print("sdk bytes: received span ID as bytes " ++
+      sdk_bytes.cells(TC.SpanId.to_bytes(TC.RemoteContext.span_id(parent))))
+    Unit <- sdk_bytes.refused(TC.TraceId, "15 bytes", TC.TraceId.from_bytes(
+      [75, 249, 47, 53, 119, 179, 77, 166, 163, 206, 146, 157, 14, 14, 71]))
+    Unit <- sdk_bytes.refused(TC.TraceId, "17 bytes", TC.TraceId.from_bytes(
+      [75, 249, 47, 53, 119, 179, 77, 166, 163, 206, 146, 157, 14, 14, 71, 54, 0]))
+    Unit <- sdk_bytes.refused(TC.SpanId, "a cell of 256", TC.SpanId.from_bytes([0, 256, 103, 170, 11, 169, 2, 183]))
+    Unit <- sdk_bytes.refused(TC.TraceId, "16 zero bytes", TC.TraceId.from_bytes(
+      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]))
+    sdk_bytes.refused(TC.SpanId, "8 zero bytes", TC.SpanId.from_bytes([0, 0, 0, 0, 0, 0, 0, 0]))
+
+# The published field names, as an OpenTelemetry SDK's W3C propagator uses
+# them: it writes the values that an outgoing context emits under them
+# through OpenTelemetry's setter, simulated here on a message's fields, and a
+# receiver extracts the fields written.
+#
+# The fields that the setter writes: each name with its value, in order, and
+# no field for an empty value, as injection leaves out an empty tracestate.
+def sdk_field_names.fields(names: List<&2, String>, values: List<&2, String>) -> List<&2, TC.Header>:
+  match names values:
+    case Con{name, rest} Con{+value, more}:
+      List.append(&2, TC.Header, Bool.pick(List<&2, TC.Header>, String.is_empty(value), Nil{},
+        [TC.Header{name, value}]), sdk_field_names.fields(rest, more))
+    case _ _:
+      Nil{}
+
+# The message's fields followed by those that the setter writes for the
+# outgoing context.
+def sdk_field_names.set(limits: TC.Limits, outgoing: TC.OutgoingContext, message: List<&2, TC.Header>) ->
+  List<&2, TC.Header>:
+  +emission = TC.OutgoingContext.emit(limits, outgoing)
+  List.append(&2, TC.Header, message, sdk_field_names.fields(TC.Context.field_names(),
+    [TC.Emission.traceparent(emission), TC.Emission.tracestate(emission)]))
+
+# The receiver's parent, extracted from the fields that the setter wrote.
+def sdk_field_names.extracted(+extraction: TC.Extraction) -> IO(Unit):
+  do IO<Unit>:
+    +found : TC.IncomingContext <- incoming(TC.IncomingContext, "extracted context", TC.Extraction.incoming(extraction))
+    +received_state : TC.TraceState = TC.IncomingContext.state(found)
+    IO.print("sdk field names: extracted " ++ TC.Extraction.show(extraction) ++ ": parent " ++
+      TC.SpanId.to_string(TC.RemoteContext.span_id(TC.IncomingContext.context(found))) ++ ", trace flags " ++
+      U32.show(TC.RemoteContext.flags(TC.IncomingContext.context(found))) ++ ", state " ++
+      Bool.pick(String, TC.TraceState.is_empty(received_state), "none", TC.TraceState.format(received_state)))
+
+def sdk_field_names() -> IO(Unit):
+  +limits = TC.Limits.default()
+  do IO<Unit>:
+    Unit <- IO.print("sdk field names: " ++ String.join(TC.Context.field_names(), ", "))
+    # A sampled operation with a state: the setter writes what injection writes.
+    sampled : TC.LocalContext <- sdk_flags.operation(True{}, True{})
+    vendors : TC.TraceState <- state("sdk state", TC.TraceState.parse(limits, "rojo=00f067aa0ba902b7,congo=t61rcWkgMzE"))
+    +outgoing : TC.OutgoingContext = TC.OutgoingContext.with_state(sampled, vendors)
+    +written : List<&2, TC.Header> = sdk_field_names.set(limits, outgoing, [TC.Header{"accept", "application/json"}])
+    Unit <- IO.print("sdk field names: setter wrote " ++ carrier(written))
+    Unit <- IO.print("sdk field names: inject wrote " ++ carrier(TC.Injection.carrier(TC.Context.inject(limits,
+      outgoing, [TC.Header{"accept", "application/json"}]))))
+    Unit <- sdk_field_names.extracted(TC.Context.extract(limits, written, None{}))
+    # An operation without a state: the setter writes no tracestate field.
+    unsampled : TC.LocalContext <- sdk_flags.operation(False{}, True{})
+    +bare : List<&2, TC.Header> = sdk_field_names.set(limits, TC.OutgoingContext.new(unsampled),
+      [TC.Header{"accept", "application/json"}])
+    Unit <- IO.print("sdk field names: setter wrote " ++ carrier(bare))
+    sdk_field_names.extracted(TC.Context.extract(limits, bare, None{}))
+
+# An OpenTelemetry SDK's remote span context from its parts, as a link or a
+# propagator of another format gives them: a remote context from its IDs and
+# sampled indication, whose random-trace-id bit is its trace ID's own
+# assertion, and an incoming context from it and a tracestate. It has no
+# received pair to forward, so the SDK's relay clears the stale context
+# fields of the message it sends.
+def sdk_parts.show(+context: TC.RemoteContext) -> String:
+  TC.TraceId.to_string(TC.RemoteContext.trace_id(context)) ++ " " ++
+    TC.SpanId.to_string(TC.RemoteContext.span_id(context)) ++ " sampled: " ++
+    Bool.show(TC.RemoteContext.is_sampled(context)) ++ " random: " ++
+    Bool.show(TC.TraceId.is_random(TC.RemoteContext.trace_id(context)))
+
+def sdk_parts() -> IO(Unit):
+  +limits = TC.Limits.default()
+  do IO<Unit>:
+    +trace : TC.TraceId <- trace_id("4bf92f3577b34da6a3ce929d0e0e4736")
+    +span : TC.SpanId <- span_id("00f067aa0ba902b7")
+    +remote : TC.RemoteContext = TC.RemoteContext.from_ids(trace, span, True{})
+    Unit <- IO.print("sdk parts: remote context: " ++ sdk_parts.show(remote))
+    Unit <- IO.print("sdk parts: remote context of a random trace ID: " ++ sdk_parts.show(
+      TC.RemoteContext.from_ids(TC.TraceId.assert_random(trace), span, False{})))
+    vendor : TC.TraceState <- state("sdk parts state", TC.TraceState.parse(limits, "congo=t61rcWkgMzE"))
+    +incoming : TC.IncomingContext = TC.IncomingContext.from_remote(remote, vendor)
+    Unit <- IO.print("sdk parts: incoming context: " ++ sdk_parts.show(TC.IncomingContext.context(incoming)) ++
+      " state: " ++ TC.TraceState.format(TC.IncomingContext.state(incoming)) ++ " received pair: " ++
+      forwardable(TC.IncomingContext.received(incoming)))
+    +message : List<&2, TC.Header> = [TC.Header{"Accept", "application/json"},
+      TC.Header{"TraceParent", "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"},
+      TC.Header{"X-Request-Id", "42"}, TC.Header{"tracestate", "rojo=00f067aa0ba902b7"}]
+    Unit <- IO.print("sdk parts: forwarded: " ++ forwarded(TC.Context.forward(limits, incoming, message)))
+    IO.print("sdk parts: cleared: " ++ carrier(TC.Context.clear(message)))
+
 def main() -> IO(Unit):
   do IO<Unit>:
     Unit <- show(TC.TraceParentV00.parse(
@@ -633,4 +811,8 @@ def main() -> IO(Unit):
     Unit <- injection()
     Unit <- continuation()
     Unit <- sdk_generation()
+    Unit <- sdk_flags()
+    Unit <- sdk_bytes()
+    Unit <- sdk_field_names()
+    Unit <- sdk_parts()
     http_adapter()

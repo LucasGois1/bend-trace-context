@@ -60,5 +60,35 @@ sdk generation: span ID 00f067aa0ba902b7
 sdk generation: local context: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-03
 sdk generation: child span ID 53995c3f42cd8ad8, not the parent's 00f067aa0ba902b7
 sdk generation: new trace ID 0af7651916cd43dd8448eb211c80319c, not the replaced 4bf92f3577b34da6a3ce929d0e0e4736
+sdk flags: local 0 emits 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-00
+sdk flags: local 1 emits 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01
+sdk flags: local 2 emits 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-02
+sdk flags: local 3 emits 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-03
+sdk flags: remote 1 received 00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01
+sdk flags: remote 2 received 00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-fe
+sdk flags: remote 3 received 00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-ff
+sdk bytes: trace ID 4bf92f3577b34da6a3ce929d0e0e4736 from bytes, random: False
+sdk bytes: span ID 00f067aa0ba902b7 from bytes
+sdk bytes: operation: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01
+sdk bytes: trace ID as bytes 75 249 47 53 119 179 77 166 163 206 146 157 14 14 71 54, as hex 4bf92f3577b34da6a3ce929d0e0e4736
+sdk bytes: span ID as bytes 0 240 103 170 11 169 2 183, as hex 00f067aa0ba902b7
+sdk bytes: received trace ID as bytes 10 247 101 25 22 205 67 221 132 72 235 33 28 128 49 156
+sdk bytes: received span ID as bytes 183 173 107 113 105 32 51 49
+sdk bytes: 15 bytes refused: UnexpectedEnd at 15
+sdk bytes: 17 bytes refused: TrailingInput
+sdk bytes: a cell of 256 refused: InvalidByte at 1
+sdk bytes: 16 zero bytes refused: ZeroTraceId
+sdk bytes: 8 zero bytes refused: ZeroSpanId
+sdk field names: traceparent, tracestate
+sdk field names: setter wrote accept: application/json | traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-03 | tracestate: rojo=00f067aa0ba902b7,congo=t61rcWkgMzE
+sdk field names: inject wrote accept: application/json | traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-03 | tracestate: rojo=00f067aa0ba902b7,congo=t61rcWkgMzE
+sdk field names: extracted TraceParentAccepted, StateAccepted: parent 00f067aa0ba902b7, trace flags 3, state rojo=00f067aa0ba902b7,congo=t61rcWkgMzE
+sdk field names: setter wrote accept: application/json | traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-02
+sdk field names: extracted TraceParentAccepted, StateAbsent: parent 00f067aa0ba902b7, trace flags 2, state none
+sdk parts: remote context: 4bf92f3577b34da6a3ce929d0e0e4736 00f067aa0ba902b7 sampled: True random: False
+sdk parts: remote context of a random trace ID: 4bf92f3577b34da6a3ce929d0e0e4736 00f067aa0ba902b7 sampled: False random: True
+sdk parts: incoming context: 4bf92f3577b34da6a3ce929d0e0e4736 00f067aa0ba902b7 sampled: True random: False state: congo=t61rcWkgMzE received pair: none
+sdk parts: forwarded: refused: NothingToForward
+sdk parts: cleared: Accept: application/json | X-Request-Id: 42
 http service: Continued 00-0af7651916cd43dd8448eb211c80319c-00f067aa0ba902b7-01
 http request: Fresh | traceparent 00-0af7651916cd43dd8448eb211c80319c-53995c3f42cd8ad8-01 | tracestate rojo=00f067aa0ba902b7,congo=t61rcWkgMzE | TraceParent none | accept application/json

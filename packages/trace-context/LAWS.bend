@@ -19,8 +19,9 @@
 #   Claim        what the law says, in plain words.
 #   Requirement  the rule it enforces: a section of the pinned W3C Trace
 #                Context Level 2 publication (Candidate Recommendation Draft
-#                of 2024-03-28), or a decision of the approved specification
-#                (issue #1) or of a ticket.
+#                of 2024-03-28), or a decision of an approved specification
+#                (issue #1, and issue #41 for the building blocks of an
+#                OpenTelemetry SDK) or of a ticket.
 #   Why          what would go wrong for an application without it.
 #   Reading      how the Bend statement expresses the claim, when the
 #                notation is not obvious.
@@ -73,7 +74,7 @@
 #
 #    1. Strict v00 codec               formatted_length, roundtrip, inverse
 #    2. Supplied identifiers           trace_id_parse ... assert_random
-#    3. Local contexts and flags       from_ids ... received_flags
+#    3. Local contexts and flags       from_ids ... received_trace_flags
 #    4. Children and restarts          sampling ... restart_accepts
 #    5. Identifiers from source words  trace_words ... words_unasserted
 #    6. Generation from a source       feed_failure ... generation_drive,
@@ -89,6 +90,7 @@
 #   14. Continuing or starting, and    continue_usable ... hosted_send
 #       sending
 #   15. Native HTTP headers            http_carrier ... http_send
+#   16. Identifiers as bytes           trace_bytes ... zero_bytes
 
 import Base
 import ./trace_context.bend as Trace
@@ -248,12 +250,15 @@ law assert_random:
 # ===========================
 #
 # A LocalContext identifies an operation of this participant, the one that
-# sends a header. A RemoteContext identifies the sender's operation in a
-# received header. They are separate types, so a received context cannot be
-# sent as if it were the participant's own operation (spec #1, "Distinguish
-# remote context, local context and the accepted original header pair"). The
-# flags of W3C Level 2, section 3.2.2.5, are bit 0 (sampled) and bit 1
-# (random-trace-id); the other six bits are reserved.
+# sends a header. A RemoteContext identifies the sender's operation, read
+# from a received header or built from its parts (spec #41). They are
+# separate types, so a received context cannot be sent as if it were the
+# participant's own operation (spec #1, "Distinguish remote context, local
+# context and the accepted original header pair"). The flags of W3C Level 2,
+# section 3.2.2.5, are bit 0 (sampled) and bit 1 (random-trace-id); the other
+# six bits are reserved. Both context types give their known flags as a
+# number too, for an exporter (spec #41, "Trace flags"): the last three laws
+# state it.
 
 # LAW from_ids
 #   Claim: Context.from_ids keeps exactly the trace ID, the span ID and the
@@ -284,6 +289,34 @@ law root:
   for trace_id: Trace.TraceId
   for span_id: Trace.SpanId
   {Trace.Context.root_from_ids(trace_id, span_id) == Trace.Context.from_ids(trace_id, span_id, False{}) : Trace.LocalContext}
+
+# LAW remote_from_ids
+#   Claim: RemoteContext.from_ids keeps exactly the trace ID, the span ID and
+#     the sampled indication it is given, so the context asserts
+#     random-trace-id exactly when its trace ID does.
+#   Requirement: spec #41, "Contexts from parts": RemoteContext.from_ids
+#     builds a remote context; it is total, and its randomness comes from the
+#     trace ID (user story 18).
+#   Why: an OpenTelemetry SDK builds the remote span contexts of links and of
+#     propagators of other formats from their parts. A constructor that
+#     rewrote them would name another operation than the sender's, and one
+#     that set random-trace-id by itself would assert what nobody asserted.
+#   Reading: the last conjunct follows from the first, and states the
+#     randomness claim on its own.
+#   Scope: the result is a RemoteContext, so it still cannot be sent as this
+#     participant's operation (tests/reject/remote_as_local.bend).
+#   Proof: Laws.remote_from_ids, by computation.
+law remote_from_ids:
+  for trace_id: Trace.TraceId
+  for span_id: Trace.SpanId
+  for sampled: Bool
+  {Trace.RemoteContext.trace_id(Trace.RemoteContext.from_ids(trace_id, span_id, sampled)) == trace_id :
+    Trace.TraceId} &
+  {Trace.RemoteContext.span_id(Trace.RemoteContext.from_ids(trace_id, span_id, sampled)) == span_id :
+    Trace.SpanId} &
+  {Trace.RemoteContext.is_sampled(Trace.RemoteContext.from_ids(trace_id, span_id, sampled)) == sampled : Bool} &
+  {Trace.TraceId.is_random(Trace.RemoteContext.trace_id(Trace.RemoteContext.from_ids(trace_id, span_id, sampled))) ==
+    Trace.TraceId.is_random(trace_id) : Bool}
 
 # The flag byte a participant emits for a sampled indication and a randomness
 # assertion: "00", "01" (sampled), "02" (random) or "03" (both). It is written
@@ -360,6 +393,88 @@ law received_flags:
     Trace.TraceParentV00.is_sampled(traceparent) : Bool} &
   {Trace.TraceId.is_random(Trace.RemoteContext.trace_id(Trace.RemoteContext.from_traceparent(traceparent))) ==
     Trace.TraceParentV00.is_random(traceparent) : Bool}
+
+# The trace flags of a sampled indication and a randomness assertion, as a
+# number: 0, 1 (sampled), 2 (random) or 3 (both), the values of the flag
+# bytes "00" to "03" that emitted_flags gives. It is written out literally,
+# so the laws below compare the package's number with these four values
+# rather than with the package's own bit operations.
+def known_flags(sampled: Bool, random: Bool) -> U32:
+  match sampled random:
+    case False{} False{}:
+      0
+    case True{} False{}:
+      1
+    case False{} True{}:
+      2
+    case True{} True{}:
+      3
+
+# LAW local_flags
+#   Claim: a local context's trace flags are its known flags as a number from
+#     0 to 3, its sampled indication in bit 0 and its trace ID's randomness
+#     assertion in bit 1, and they are the flags of the traceparent that it
+#     emits.
+#   Requirement: spec #41, "Trace flags": LocalContext.flags gives "the known
+#     trace flags as a number from 0 to 3: bit 0 is sampled, and bit 1 is
+#     random-trace-id, from the trace ID's assertion", and "A local context's
+#     value equals the flags of the traceparent it emits" (user stories 15
+#     and 16).
+#   Why: an exporter writes these flags into the span that it exports, into
+#     OTLP's Span.flags field for example, while the traceparent carries the
+#     same operation to the next service. If they differed, the exported span
+#     and the propagated context would disagree.
+#   Reading: known_flags, above, gives the number of each pair of flags
+#     literally. The second equation reads the two known flags back from the
+#     emitted traceparent with the codec's readers. Its reserved bits are zero
+#     (emitted_traceparent), so the number is the value of its whole flag
+#     byte.
+#   Proof: Laws.local_flags, by case analysis on both flags.
+law local_flags:
+  for context: Trace.LocalContext
+  {Trace.LocalContext.flags(context) ==
+    known_flags(Trace.LocalContext.is_sampled(context), Trace.TraceId.is_random(Trace.LocalContext.trace_id(context))) :
+    U32} &
+  {Trace.LocalContext.flags(context) ==
+    known_flags(Trace.TraceParentV00.is_sampled(Trace.LocalContext.to_traceparent(context)),
+      Trace.TraceParentV00.is_random(Trace.LocalContext.to_traceparent(context))) : U32}
+
+# LAW remote_flags
+#   Claim: a remote context's trace flags are the known flags that it keeps,
+#     as a number from 0 to 3: its sampled indication in bit 0 and its trace
+#     ID's randomness assertion in bit 1, however the context was made.
+#   Requirement: spec #41, "Trace flags", as for local_flags: a remote
+#     context's value is the known flags that it was received or built with
+#     (user stories 15 and 17).
+#   Why: an SDK exports a remote parent as it exports a local operation. The
+#     Booleans stay the canonical form, and the number says no more than they
+#     do.
+#   Scope: received_trace_flags states the value of a received context in
+#     terms of the value received.
+#   Proof: Laws.remote_flags, by case analysis on both flags.
+law remote_flags:
+  for context: Trace.RemoteContext
+  {Trace.RemoteContext.flags(context) ==
+    known_flags(Trace.RemoteContext.is_sampled(context), Trace.TraceId.is_random(Trace.RemoteContext.trace_id(context))) :
+    U32}
+
+# LAW received_trace_flags
+#   Claim: the trace flags of a context received from a strict v00 value are
+#     that value's known flags: its sampled bit as bit 0 and its
+#     random-trace-id bit as bit 1. Its reserved bits are not among them.
+#   Requirement: spec #41, "Trace flags" (user story 17); W3C Level 2,
+#     sections 3.2.2.5.1 and 3.2.2.5.2.
+#   Why: an SDK exports a remote parent with the flags that its sender sent,
+#     and never passes on a reserved bit, whose meaning the package does not
+#     know, as a known flag.
+#   Scope: the corpus checks the codec's two flag readers on all 256 flag
+#     bytes (see received_flags).
+#   Proof: Laws.received_trace_flags, by remote_flags once the flag byte is
+#     split into its two digits.
+law received_trace_flags:
+  for traceparent: Trace.TraceParentV00
+  {Trace.RemoteContext.flags(Trace.RemoteContext.from_traceparent(traceparent)) ==
+    known_flags(Trace.TraceParentV00.is_sampled(traceparent), Trace.TraceParentV00.is_random(traceparent)) : U32}
 
 # 4. Children and restarts
 # ========================
@@ -2120,10 +2235,11 @@ law emit_accepted:
 # accepted, the message gives an incoming context with the state of its
 # tracestate fields; otherwise the base context the caller passed is kept and
 # the tracestate is not read. These laws state that policy for every carrier,
-# value, state and limits. The corpus, tests/EXTRACT.bend, covers the pinned
-# W3C harness's inputs, the offsets in diagnostics, exact budget boundaries,
-# whitespace inside unknown fields and names that differ from the field names
-# by other than ASCII case.
+# value, state and limits, and what an incoming context built from parts
+# with IncomingContext.from_remote keeps (spec #41). The corpus,
+# tests/EXTRACT.bend, covers the pinned W3C harness's inputs, the offsets in
+# diagnostics, exact budget boundaries, whitespace inside unknown fields and
+# names that differ from the field names by other than ASCII case.
 
 # The values of the fields of `carrier` whose name, with its ASCII letters in
 # lowercase (Base's String.to_lower), is `name`, in their order. This is the
@@ -2367,6 +2483,25 @@ law received_bounds:
   {Nat.is_le(Trace.Utf8.length(String.join(Trace.ReceivedPair.tracestate(pair), ",")),
     Trace.Limits.tracestate_input(limits)) == True{} : Bool}
 
+# LAW incoming_from_remote
+#   Claim: IncomingContext.from_remote keeps exactly the remote context and
+#     the tracestate it is given, and keeps no received pair.
+#   Requirement: spec #41, "Contexts from parts": IncomingContext.from_remote
+#     builds an incoming context with no received pair (user stories 19 and
+#     20).
+#   Why: an OpenTelemetry SDK gives its remote span contexts one shape,
+#     whatever format they came from. A context built from parts arrived in
+#     no message, so a received pair would claim fields that nobody sent.
+#   Proof: Laws.incoming_from_remote, by computation.
+law incoming_from_remote:
+  for context: Trace.RemoteContext
+  for state: Trace.TraceState
+  {Trace.IncomingContext.context(Trace.IncomingContext.from_remote(context, state)) == context :
+    Trace.RemoteContext} &
+  {Trace.IncomingContext.state(Trace.IncomingContext.from_remote(context, state)) == state : Trace.TraceState} &
+  {Trace.IncomingContext.received(Trace.IncomingContext.from_remote(context, state)) == None{} :
+    Maybe<&2, Trace.ReceivedPair>}
+
 # Whether the text has no comma, space or horizontal tab.
 def plain(+text: String) -> Bool:
   Bool.and(lacks(',', text), Bool.and(lacks(' ', text), lacks('\t', text)))
@@ -2577,11 +2712,12 @@ law read_within_budgets:
 # Level 2, section 3.4, "Unmodified header propagation"). All three remove
 # every old traceparent and tracestate field, whatever the ASCII case of its
 # name, and keep the other fields in their order. These laws state the
-# carriers written, the diagnostics apart from them, and what a receiver
-# extracts from them. The corpus, tests/INJECT.bend, covers names in every
-# case, empty and truncated states, all flags, a later version with unknown
-# fields, spec #1's 600-octet state, pairs built directly and carriers of
-# 100000 fields.
+# carriers written, the names that injection writes, which Context.field_names
+# publishes (spec #41, "Context field names"), the diagnostics apart from the
+# carriers, and what a receiver extracts from them. The corpus,
+# tests/INJECT.bend, covers names in every case, empty and truncated states,
+# all flags, a later version with unknown fields, spec #1's 600-octet state,
+# pairs built directly and carriers of 100000 fields.
 
 # Whether a field name, with its ASCII letters in lowercase, is "traceparent"
 # or "tracestate".
@@ -2643,6 +2779,50 @@ law inject_carrier:
     List.append(&2, Trace.Header, unrelated(carrier),
       written(Trace.Emission.traceparent(Trace.OutgoingContext.emit(limits, outgoing)),
         Trace.Emission.tracestate(Trace.OutgoingContext.emit(limits, outgoing)))) : List<&2, Trace.Header>}
+
+# The names of the fields of a carrier, in their order.
+def names(carrier: List<&2, Trace.Header>) -> List<&2, String>:
+  match carrier:
+    case Nil{}:
+      Nil{}
+    case Con{header, rest}:
+      Con{Trace.Header.name(header), names(rest)}
+
+# The names, among `published`, of the fields that injection writes for an
+# emitted tracestate value: all of them, or only the first when the value is
+# empty, since an empty tracestate is not written.
+def written_names(published: List<&2, String>, tracestate: String) -> List<&2, String>:
+  match tracestate:
+    case SNil{}:
+      List.take(&2, String, published, 1n)
+    case SCon{first, rest}:
+      published
+
+# LAW inject_names
+#   Claim: injection writes its fields under the published names of the
+#     context fields, in their order: after the carrier's other fields, a
+#     field named by the first published name, then one named by the second
+#     unless the emitted tracestate is empty.
+#   Requirement: spec #41, "Context field names": "A public list gives the
+#     names of the context fields as injection writes them: traceparent, then
+#     tracestate" (user stories 22 and 23).
+#   Why: a propagator lists the fields that it writes, as OpenTelemetry's
+#     propagators do, so that a carrier can be cleared of them before it is
+#     reused, and an SDK's propagator that writes the emitted values through
+#     OpenTelemetry's setter writes them under these names. Both must be the
+#     names that injection writes.
+#   Reading: names and written_names are defined just above, and unrelated at
+#     the start of this section. inject_carrier gives the names themselves,
+#     traceparent and tracestate in lowercase, so the published list is
+#     exactly those two names.
+#   Proof: Laws.inject_names, via proofs/inject.bend, from inject_carrier.
+law inject_names:
+  for +limits: Trace.Limits
+  for +outgoing: Trace.OutgoingContext
+  for +carrier: List<&2, Trace.Header>
+  {names(Trace.Injection.carrier(Trace.Context.inject(limits, outgoing, carrier))) ==
+    List.append(&2, String, names(unrelated(carrier)), written_names(Trace.Context.field_names(),
+      Trace.Emission.tracestate(Trace.OutgoingContext.emit(limits, outgoing)))) : List<&2, String>}
 
 # LAW inject_dropped
 #   Claim: the keys an injection reports dropped are those of the emission:
@@ -2775,6 +2955,27 @@ law forward_nothing:
   for none: {Trace.IncomingContext.received(incoming) == None{} : Maybe<&2, Trace.ReceivedPair>}
   {Trace.Context.forward(limits, incoming, carrier) == Fail{Trace.NothingToForward{}} :
     Result<&2, &2, Trace.ForwardError, List<&2, Trace.Header>>}
+
+# LAW forward_from_parts
+#   Claim: an incoming context built from parts is not forwarded: forwarding
+#     fails with NothingToForward, whatever its remote context, its
+#     tracestate, the limits and the carrier.
+#   Requirement: spec #41, "Forwarding a remote context": without a received
+#     pair nothing is written (user stories 20 and 24); W3C Level 2, section
+#     3.4.
+#   Why: a relay must never send a traceparent written again from parts,
+#     with a tracestate of its choosing; it learns that there is nothing to
+#     forward.
+#   Reading: with incoming_from_remote (section 12), this is forward_nothing
+#     for the contexts that IncomingContext.from_remote builds.
+#   Proof: Laws.forward_from_parts, via proofs/inject.bend.
+law forward_from_parts:
+  for +limits: Trace.Limits
+  for context: Trace.RemoteContext
+  for state: Trace.TraceState
+  for +carrier: List<&2, Trace.Header>
+  {Trace.Context.forward(limits, Trace.IncomingContext.from_remote(context, state), carrier) ==
+    Fail{Trace.NothingToForward{}} : Result<&2, &2, Trace.ForwardError, List<&2, Trace.Header>>}
 
 # LAW forward_too_large
 #   Claim: a received pair whose tracestate fields, joined by commas, exceed
@@ -3521,3 +3722,330 @@ law http_send:
       Trace.Context.send_with(~Tape(), ~Trace.Source.tape, tape, limits, service, sampling, policy,
         NativeHttp.carrier(headers)), done => IO.pure(TapeOutbound(policy), http_written.done(policy, done)))) :
     IO.OP<TapeOutbound(policy)>}
+
+# 16. Identifiers as bytes
+# ========================
+#
+# An exporter writes a trace ID as its 16 bytes and a span ID as its 8 in
+# OTLP's protobuf encoding, and as their lowercase hexadecimal text in OTLP's
+# JSON encoding. Spec #41 specifies both forms ("Identifier forms"), and
+# ticket #43 the bytes. The text is TraceId.to_string and SpanId.to_string,
+# whose laws are in section 2; the bytes are a List of U32 cells, one per
+# byte, which TraceId.from_bytes and SpanId.from_bytes read back as the text
+# readers read text.
+
+# The values that Base gives the cells of a list, in order.
+def cell_values(cells: List<&2, U32>) -> List<&2, Nat>:
+  match cells:
+    case Nil{}:
+      Nil{}
+    case Con{cell, rest}:
+      Con{U32.to_nat(cell), cell_values(rest)}
+
+# The value of each pair of hexadecimal digits of a text, in order, read with
+# hex_numeral of section 5, the first digit of a pair the high one. A last
+# digit without a pair would be dropped; the text of an ID has an even
+# number of digits.
+def hex_pairs(text: String) -> List<&2, Nat>:
+  match text:
+    case SNil{}:
+      Nil{}
+    case SCon{high, SNil{}}:
+      Nil{}
+    case SCon{high, SCon{low, rest}}:
+      Con{hex_numeral(SCon{high, SCon{low, SNil{}}}, 0n), hex_pairs(rest)}
+
+# LAW trace_bytes
+#   Claim: the bytes of a trace ID are, in order, the numbers that the pairs
+#     of digits of its text denote in hexadecimal: 16 bytes from 0 to 255,
+#     the first byte made of the first two digits, the first digit high.
+#   Requirement: spec #41, user story 11: "I want a trace ID as its 16 bytes
+#     and a span ID as its 8 bytes, most significant first, so that I can
+#     write OTLP protobuf fields"; Base's byte convention.
+#   Why: a collector that reads the bytes must find the ID that traceparent
+#     and OTLP's JSON text carry. A converter that swapped two bytes, or the
+#     two digits of a byte, would pass the round trips below but fail this
+#     law.
+#   Reading: cell_values is Base's U32.to_nat of each cell, and hex_pairs,
+#     above, reads the text two digits at a time with hex_numeral of section
+#     5, independently of the package.
+#   Proof: Laws.trace_bytes, via proofs/bytes.bend.
+law trace_bytes:
+  for id: Trace.TraceId
+  {cell_values(Trace.TraceId.to_bytes(id)) == hex_pairs(Trace.TraceId.to_string(id)) : List<&2, Nat>}
+
+# LAW span_bytes
+#   Claim: as trace_bytes, for the 8 bytes of a span ID and its 16 digits.
+#   Requirement and Why: as for trace_bytes.
+#   Proof: Laws.span_bytes, via proofs/bytes.bend.
+law span_bytes:
+  for id: Trace.SpanId
+  {cell_values(Trace.SpanId.to_bytes(id)) == hex_pairs(Trace.SpanId.to_string(id)) : List<&2, Nat>}
+
+# LAW trace_bytes_roundtrip
+#   Claim: reading back the bytes of any trace ID gives the same 32 digits,
+#     with no randomness assertion.
+#   Requirement: spec #41, user story 14: "I want the byte conversions to
+#     round-trip in both directions, so that exporting and reading back an ID
+#     never changes it"; and user story 10, which asks that an ID converted
+#     from bytes carry no randomness assertion.
+#   Why: a trace ID that an exporter writes and a collector or another SDK
+#     reads back must name the same trace. The bytes do not carry the
+#     assertion, so whoever reads them makes it again, or not.
+#   Reading: `Trace.TraceId{value, random}` ranges over every trace ID: its
+#     32 digits, with the proof that they are not all zero, and its
+#     randomness assertion. The ID read back has the same `value`, proof
+#     included, and `False{}`, whatever `random` was.
+#   Proof: Laws.trace_bytes_roundtrip, via proofs/bytes.bend.
+law trace_bytes_roundtrip:
+  for value: Digits.NonZero<32n>
+  for random: Bool
+  {Trace.TraceId.from_bytes(Trace.TraceId.to_bytes(Trace.TraceId{value, random})) ==
+    Done{Trace.TraceId{value, False{}}} : Result<&2, &2, Trace.Error, Trace.TraceId>}
+
+# LAW span_bytes_roundtrip
+#   Claim: reading back the bytes of any span ID gives that span ID.
+#   Requirement and Why: as for trace_bytes_roundtrip. A span ID carries
+#     nothing besides its digits, so it comes back whole.
+#   Proof: Laws.span_bytes_roundtrip, via proofs/bytes.bend.
+law span_bytes_roundtrip:
+  for id: Trace.SpanId
+  {Trace.SpanId.from_bytes(Trace.SpanId.to_bytes(id)) == Done{id} : Result<&2, &2, Trace.Error, Trace.SpanId>}
+
+# LAW trace_bytes_inverse
+#   Claim: whenever TraceId.from_bytes accepts a list of cells, the bytes of
+#     the trace ID it returns are exactly that list.
+#   Requirement: spec #41, user story 14, the direction from bytes; and user
+#     story 13, which asks that IDs from other systems be validated as parsed
+#     ones are: like the codec's reader (law inverse), the byte reader accepts
+#     no variant of an ID's bytes.
+#   Why: with trace_bytes_roundtrip, it makes reading bytes and writing them
+#     exact inverses, so an ID that an SDK reads from another system's bytes
+#     is written back with the same bytes.
+#   Reading: `for bytes: List<&2, U32>` ranges over every list of cells,
+#     valid or not; the hypothesis `read` restricts the claim to the lists
+#     that are accepted, and `id` is the trace ID read.
+#   Proof: Laws.trace_bytes_inverse, via proofs/bytes.bend.
+law trace_bytes_inverse:
+  for bytes: List<&2, U32>
+  for id: Trace.TraceId
+  for read: {Trace.TraceId.from_bytes(bytes) == Done{id} : Result<&2, &2, Trace.Error, Trace.TraceId>}
+  {Trace.TraceId.to_bytes(id) == bytes : List<&2, U32>}
+
+# LAW span_bytes_inverse
+#   Claim: as trace_bytes_inverse, for SpanId.from_bytes.
+#   Requirement and Why: as for trace_bytes_inverse.
+#   Proof: Laws.span_bytes_inverse, via proofs/bytes.bend.
+law span_bytes_inverse:
+  for bytes: List<&2, U32>
+  for id: Trace.SpanId
+  for read: {Trace.SpanId.from_bytes(bytes) == Done{id} : Result<&2, &2, Trace.Error, Trace.SpanId>}
+  {Trace.SpanId.to_bytes(id) == bytes : List<&2, U32>}
+
+# LAW trace_bytes_injective
+#   Claim: two trace IDs with the same bytes have the same digits.
+#   Requirement: spec #41, "Identifier forms": the bytes are a form of the
+#     ID, as its text is. This law shows that the conversion loses no
+#     information, as hex_injective shows for source words.
+#   Why: if two trace IDs had the same bytes, a collector could not tell
+#     their traces apart.
+#   Reading: the conclusion compares texts, which name the trace; the
+#     randomness assertion is not part of the bytes, and TraceId.is_eq
+#     ignores it too.
+#   Proof: Laws.trace_bytes_injective, via proofs/bytes.bend.
+law trace_bytes_injective:
+  for left: Trace.TraceId
+  for right: Trace.TraceId
+  for same: {Trace.TraceId.to_bytes(left) == Trace.TraceId.to_bytes(right) : List<&2, U32>}
+  {Trace.TraceId.to_string(left) == Trace.TraceId.to_string(right) : String}
+
+# LAW span_bytes_injective
+#   Claim: two span IDs with the same bytes are the same span ID.
+#   Requirement and Why: as for trace_bytes_injective; a span ID has nothing
+#     besides its digits, so the IDs themselves are equal.
+#   Proof: Laws.span_bytes_injective, via proofs/bytes.bend.
+law span_bytes_injective:
+  for left: Trace.SpanId
+  for right: Trace.SpanId
+  for same: {Trace.SpanId.to_bytes(left) == Trace.SpanId.to_bytes(right) : List<&2, U32>}
+  {left == right : Trace.SpanId}
+
+# LAW bytes_unasserted
+#   Claim: a trace ID read from bytes makes no randomness assertion.
+#   Requirement: spec #41, user story 10: "I want IDs converted from bytes or
+#     hex to carry no randomness assertion, so that my SDK asserts
+#     random-trace-id only when my generator declares it"; and "An ID
+#     converted from words, hex or bytes makes no assertion, and a caller who
+#     knows it is random uses TraceId.assert_random".
+#   Why: bytes say nothing about how the ID was made. An SDK that read an ID
+#     from another system and emitted random-trace-id with it would assert a
+#     randomness that nobody established.
+#   Scope: trace_id_parse states the same of hex text, and words_unasserted
+#     of source words.
+#   Proof: Laws.bytes_unasserted, via proofs/bytes.bend.
+law bytes_unasserted:
+  for bytes: List<&2, U32>
+  for id: Trace.TraceId
+  for read: {Trace.TraceId.from_bytes(bytes) == Done{id} : Result<&2, &2, Trace.Error, Trace.TraceId>}
+  {Trace.TraceId.is_random(id) == False{} : Bool}
+
+# The laws below state the error of each refusal, in reading order, and that
+# every other list is accepted.
+
+# Whether every cell is a byte: at most 255, as Base's TCP.send_bytes
+# requires.
+def all_bytes(cells: List<&2, U32>) -> Bool:
+  match cells:
+    case Nil{}:
+      True{}
+    case Con{cell, rest}:
+      Bool.and(U32.is_le(cell, 255), all_bytes(rest))
+
+# LAW trace_bytes_short
+#   Claim: a list of fewer than 16 bytes is refused with UnexpectedEnd at its
+#     length, the offset where the next byte is missing.
+#   Requirement: spec #41, user story 13: "I want to build a trace ID from 16
+#     bytes and a span ID from 8 bytes, refusing a wrong length, a value above
+#     255 and all zeros, so that IDs from other systems are validated as
+#     parsed ones are"; TraceId.parse reports a short text the same way.
+#   Why: a truncated ID must not be completed with invented bytes, and the
+#     error tells where the list stopped.
+#   Reading: `cells` says that every cell is a byte, so that no earlier cell
+#     is refused first (trace_bytes_above covers those).
+#   Proof: Laws.trace_bytes_short, via proofs/bytes.bend.
+law trace_bytes_short:
+  for bytes: List<&2, U32>
+  for cells: {all_bytes(bytes) == True{} : Bool}
+  for short: {Nat.is_lt(List.length(&2, U32, bytes), 16n) == True{} : Bool}
+  {Trace.TraceId.from_bytes(bytes) == Fail{Trace.UnexpectedEnd{List.length(&2, U32, bytes)}} :
+    Result<&2, &2, Trace.Error, Trace.TraceId>}
+
+# LAW span_bytes_short
+#   Claim: as trace_bytes_short, for fewer than 8 bytes and SpanId.from_bytes.
+#   Requirement and Why: as for trace_bytes_short.
+#   Proof: Laws.span_bytes_short, via proofs/bytes.bend.
+law span_bytes_short:
+  for bytes: List<&2, U32>
+  for cells: {all_bytes(bytes) == True{} : Bool}
+  for short: {Nat.is_lt(List.length(&2, U32, bytes), 8n) == True{} : Bool}
+  {Trace.SpanId.from_bytes(bytes) == Fail{Trace.UnexpectedEnd{List.length(&2, U32, bytes)}} :
+    Result<&2, &2, Trace.Error, Trace.SpanId>}
+
+# LAW trace_bytes_long
+#   Claim: 16 bytes followed by any cell are refused with TrailingInput,
+#     whatever that cell and the cells after it are.
+#   Requirement: spec #41, user story 13, as for trace_bytes_short;
+#     TraceId.parse refuses characters after 32 digits the same way.
+#   Why: a longer list is not an ID, and taking its first 16 bytes would
+#     accept a value that another system meant otherwise.
+#   Reading: `extra` is the first cell after the 16 bytes and `more` the
+#     cells after it.
+#   Proof: Laws.trace_bytes_long, via proofs/bytes.bend.
+law trace_bytes_long:
+  for bytes: List<&2, U32>
+  for extra: U32
+  for more: List<&2, U32>
+  for cells: {all_bytes(bytes) == True{} : Bool}
+  for sixteen: {List.length(&2, U32, bytes) == 16n : Nat}
+  {Trace.TraceId.from_bytes(List.append(&2, U32, bytes, Con{extra, more})) == Fail{Trace.TrailingInput{}} :
+    Result<&2, &2, Trace.Error, Trace.TraceId>}
+
+# LAW span_bytes_long
+#   Claim: as trace_bytes_long, for 8 bytes and SpanId.from_bytes.
+#   Requirement and Why: as for trace_bytes_long.
+#   Proof: Laws.span_bytes_long, via proofs/bytes.bend.
+law span_bytes_long:
+  for bytes: List<&2, U32>
+  for extra: U32
+  for more: List<&2, U32>
+  for cells: {all_bytes(bytes) == True{} : Bool}
+  for eight: {List.length(&2, U32, bytes) == 8n : Nat}
+  {Trace.SpanId.from_bytes(List.append(&2, U32, bytes, Con{extra, more})) == Fail{Trace.TrailingInput{}} :
+    Result<&2, &2, Trace.Error, Trace.SpanId>}
+
+# LAW trace_bytes_above
+#   Claim: a cell above 255 among the first 16 is refused with InvalidByte at
+#     its offset, when the cells before it are bytes.
+#   Requirement: spec #41, user story 13, as for trace_bytes_short; Base's
+#     TCP.send_bytes refuses such a cell too.
+#   Why: such a cell is not a byte, so the list is not an ID's bytes;
+#     keeping only its low eight bits would read another ID than the one
+#     meant.
+#   Reading: `before` holds the cells before the refused `cell`, fewer than
+#     16 and each a byte, and `after` the cells after it, which are not read.
+#   Proof: Laws.trace_bytes_above, via proofs/bytes.bend.
+law trace_bytes_above:
+  for before: List<&2, U32>
+  for cell: U32
+  for after: List<&2, U32>
+  for cells: {all_bytes(before) == True{} : Bool}
+  for short: {Nat.is_lt(List.length(&2, U32, before), 16n) == True{} : Bool}
+  for above: {U32.is_gt(cell, 255) == True{} : Bool}
+  {Trace.TraceId.from_bytes(List.append(&2, U32, before, Con{cell, after})) ==
+    Fail{Trace.InvalidByte{List.length(&2, U32, before)}} : Result<&2, &2, Trace.Error, Trace.TraceId>}
+
+# LAW span_bytes_above
+#   Claim: as trace_bytes_above, among the first 8 cells and for
+#     SpanId.from_bytes.
+#   Requirement and Why: as for trace_bytes_above.
+#   Proof: Laws.span_bytes_above, via proofs/bytes.bend.
+law span_bytes_above:
+  for before: List<&2, U32>
+  for cell: U32
+  for after: List<&2, U32>
+  for cells: {all_bytes(before) == True{} : Bool}
+  for short: {Nat.is_lt(List.length(&2, U32, before), 8n) == True{} : Bool}
+  for above: {U32.is_gt(cell, 255) == True{} : Bool}
+  {Trace.SpanId.from_bytes(List.append(&2, U32, before, Con{cell, after})) ==
+    Fail{Trace.InvalidByte{List.length(&2, U32, before)}} : Result<&2, &2, Trace.Error, Trace.SpanId>}
+
+# Whether every cell is zero.
+def all_zero(cells: List<&2, U32>) -> Bool:
+  match cells:
+    case Nil{}:
+      True{}
+    case Con{cell, rest}:
+      Bool.and(U32.is_zero(cell), all_zero(rest))
+
+# LAW trace_bytes_accepts
+#   Claim: every list of exactly 16 bytes that are not all zero is accepted
+#     as a trace ID.
+#   Requirement: spec #41, user story 13: the refusals above are the only
+#     ones, so bytes from another system are refused exactly when their text
+#     would be.
+#   Why: with the refusals, it says which lists TraceId.from_bytes accepts:
+#     an SDK that checks the length and the cells itself agrees with it.
+#   Proof: Laws.trace_bytes_accepts, via proofs/bytes.bend.
+law trace_bytes_accepts:
+  for bytes: List<&2, U32>
+  for cells: {all_bytes(bytes) == True{} : Bool}
+  for sixteen: {List.length(&2, U32, bytes) == 16n : Nat}
+  for nonzero: {all_zero(bytes) == False{} : Bool}
+  {Result.is_done(&2, &2, Trace.Error, Trace.TraceId, Trace.TraceId.from_bytes(bytes)) == True{} : Bool}
+
+# LAW span_bytes_accepts
+#   Claim: as trace_bytes_accepts, for exactly 8 bytes and SpanId.from_bytes.
+#   Requirement and Why: as for trace_bytes_accepts.
+#   Proof: Laws.span_bytes_accepts, via proofs/bytes.bend.
+law span_bytes_accepts:
+  for bytes: List<&2, U32>
+  for cells: {all_bytes(bytes) == True{} : Bool}
+  for eight: {List.length(&2, U32, bytes) == 8n : Nat}
+  for nonzero: {all_zero(bytes) == False{} : Bool}
+  {Result.is_done(&2, &2, Trace.Error, Trace.SpanId, Trace.SpanId.from_bytes(bytes)) == True{} : Bool}
+
+# LAW zero_bytes
+#   Claim: 16 zero bytes are refused as a trace ID with
+#     ZeroId{TraceIdField{}}, and 8 zero bytes as a span ID with
+#     ZeroId{SpanIdField{}}.
+#   Requirement: spec #41, user story 13; W3C Level 2, sections 3.2.2.3 and
+#     3.2.2.4: an all-zero trace ID or parent ID is invalid.
+#   Why: an all-zero ID is not an ID, whatever form it arrives in.
+#   Reading: List.replicate(U32, n, 0) is Base's list of n zero cells, the
+#     only all-zero list of the right length.
+#   Proof: Laws.zero_bytes, by computation.
+law zero_bytes:
+  {Trace.TraceId.from_bytes(List.replicate(U32, 16n, 0)) == Fail{Trace.ZeroId{Trace.TraceIdField{}}} :
+    Result<&2, &2, Trace.Error, Trace.TraceId>} &
+  {Trace.SpanId.from_bytes(List.replicate(U32, 8n, 0)) == Fail{Trace.ZeroId{Trace.SpanIdField{}}} :
+    Result<&2, &2, Trace.Error, Trace.SpanId>}
