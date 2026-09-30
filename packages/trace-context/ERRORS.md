@@ -138,7 +138,7 @@ source practically never gives: in practice it points at a broken source.
 
 | Constructor | `show` | Meaning |
 | --- | --- | --- |
-| `NothingToForward{}` | `NothingToForward` | The context keeps no received pair: its tracestate was discarded at extraction |
+| `NothingToForward{}` | `NothingToForward` | The context keeps no received pair: its tracestate was discarded at extraction, or `IncomingContext.from_remote` built it from parts. A pass-through then sends no context fields, removing them with `TC.Context.clear`; a participant continues the context with a child instead |
 | `ForwardTooLarge{}` | `ForwardTooLarge` | The tracestate fields, joined by commas, exceed the tracestate output budget |
 | `InvalidForwardParent{error}` | `InvalidForwardParent TraceParentTooLarge` | The traceparent is not one that extraction accepts under these limits |
 | `InvalidForwardState{error}` | `InvalidForwardState InvalidEntry 0 MissingEquals` | The tracestate is not one that extraction accepts under these limits |

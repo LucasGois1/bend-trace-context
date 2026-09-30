@@ -2,7 +2,22 @@
 
 ## 0.1.3-dev — unreleased
 
-No change since 0.1.2 yet.
+- Build remote and incoming contexts from parts
+  ([#45](https://github.com/LucasGois1/bend-trace-context/issues/45)), for
+  the remote span contexts of an OpenTelemetry SDK.
+  `RemoteContext.from_ids(trace_id, span_id, sampled)` builds a remote
+  context for a link or a propagator of another format; it is total, and
+  its random-trace-id bit is its trace ID's assertion.
+  `IncomingContext.from_remote(context, state)` pairs a remote context with
+  a tracestate and keeps no received pair, so `Context.forward` refuses it
+  with `NothingToForward` and writes nothing. The reference and the guide
+  state that a remote context leaves the participant only by forwarding its
+  received pair unchanged (W3C 3.4), and that a pass-through then clears the
+  context fields, where OpenTelemetry JavaScript's
+  `W3CTraceContextPropagator` writes a new traceparent instead. Laws
+  `remote_from_ids`, `incoming_from_remote` and `forward_from_parts` prove
+  that both constructors keep their parts and that such a context is not
+  forwarded; the consumer and a guide program show them.
 
 ## 0.1.2 — 2026-09-29
 

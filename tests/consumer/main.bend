@@ -570,6 +570,39 @@ def continuation() -> IO(Unit):
       TC.Context.extract(limits, received_request(), Some{base}), TC.Restart{})
     strict_service([Fail{(3, "no entropy")}], TC.Context.extract(limits, received_request(), None{}))
 
+# An OpenTelemetry SDK's remote span context from its parts, as a link or a
+# propagator of another format gives them: a remote context from its IDs and
+# sampled indication, whose random-trace-id bit is its trace ID's own
+# assertion, and an incoming context from it and a tracestate. Built from
+# parts, the incoming context keeps no received pair, so forwarding refuses
+# it and writes nothing, and the SDK's pass-through clears the stale context
+# fields of the message it sends instead.
+def sdk_parts.remote(+context: TC.RemoteContext) -> String:
+  TC.TraceId.to_string(TC.RemoteContext.trace_id(context)) ++ " " ++
+    TC.SpanId.to_string(TC.RemoteContext.span_id(context)) ++ " sampled: " ++
+    Bool.show(TC.RemoteContext.is_sampled(context)) ++ " random: " ++
+    Bool.show(TC.TraceId.is_random(TC.RemoteContext.trace_id(context)))
+
+def sdk_parts() -> IO(Unit):
+  +limits = TC.Limits.default()
+  do IO<Unit>:
+    +trace : TC.TraceId <- trace_id("4bf92f3577b34da6a3ce929d0e0e4736")
+    +span : TC.SpanId <- span_id("00f067aa0ba902b7")
+    +remote : TC.RemoteContext = TC.RemoteContext.from_ids(trace, span, True{})
+    Unit <- IO.print("sdk parts: remote context: " ++ sdk_parts.remote(remote))
+    Unit <- IO.print("sdk parts: remote context of a random trace ID: " ++ sdk_parts.remote(
+      TC.RemoteContext.from_ids(TC.TraceId.assert_random(trace), span, False{})))
+    vendor : TC.TraceState <- state("sdk parts state", TC.TraceState.parse(limits, "congo=t61rcWkgMzE"))
+    +incoming : TC.IncomingContext = TC.IncomingContext.from_remote(remote, vendor)
+    Unit <- IO.print("sdk parts: incoming context: " ++ sdk_parts.remote(TC.IncomingContext.context(incoming)) ++
+      " state: " ++ TC.TraceState.format(TC.IncomingContext.state(incoming)) ++ " received pair: " ++
+      forwardable(TC.IncomingContext.received(incoming)))
+    +message : List<&2, TC.Header> = [TC.Header{"Accept", "application/json"},
+      TC.Header{"TraceParent", "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"},
+      TC.Header{"X-Request-Id", "42"}, TC.Header{"tracestate", "rojo=00f067aa0ba902b7"}]
+    Unit <- IO.print("sdk parts: forwarded: " ++ forwarded(TC.Context.forward(limits, incoming, message)))
+    IO.print("sdk parts: cleared: " ++ carrier(TC.Context.clear(message)))
+
 def main() -> IO(Unit):
   do IO<Unit>:
     Unit <- show(TC.TraceParentV00.parse(
@@ -583,4 +616,5 @@ def main() -> IO(Unit):
     Unit <- extraction()
     Unit <- injection()
     Unit <- continuation()
+    Unit <- sdk_parts()
     http_adapter()

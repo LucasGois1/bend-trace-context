@@ -114,7 +114,7 @@ A traceparent or tracestate field of a carrier, whatever the ASCII case of its n
 Removing the context fields of a carrier for a message sent without trace context.
 
 **Incoming context**:
-A remote context extracted from a message, together with the tracestate received with it and, unless that tracestate was refused, the received pair.
+A remote context together with the tracestate that goes with it: one extracted from a message, which also keeps the received pair unless that tracestate was refused, or one built from its parts, which keeps none.
 _Avoid_: Local context
 
 **Received pair**:

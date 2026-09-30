@@ -18,7 +18,9 @@
 #
 # The normative reference is W3C Trace Context Level 2, Candidate
 # Recommendation Draft of 2024-03-28 ("W3C" below, with section numbers). The
-# approved specification is issue #1 of the repository ("spec #1").
+# approved specification is issue #1 of the repository ("spec #1"), and issue
+# #41 ("spec #41") adds the building blocks that an OpenTelemetry SDK
+# composes.
 #
 # Contents
 #
@@ -182,8 +184,9 @@ type Sampling is Data:
 
 # A context received from another participant. It identifies the sender's
 # operation and keeps only the known flags: sampled and random-trace-id. It is
-# built from a received value (RemoteContext.from_traceparent) and has its own
-# type, so it cannot be sent as if it were this participant's operation.
+# built from a received value (RemoteContext.from_traceparent) or from its
+# parts (RemoteContext.from_ids), and has its own type, so it cannot be sent
+# as if it were this participant's operation.
 type RemoteContext is Data:
   RemoteContext{trace_id: TraceId, span_id: SpanId, sampled: Bool}
 
@@ -529,6 +532,16 @@ def RemoteContext.from_traceparent(value: TraceParentV00) -> RemoteContext:
       Digits.DCon{high, Digits.DCon{+low, Digits.DNil{}}}}:
       RemoteContext{TraceId{trace_id, Hex.Digit.has_bit1(low)}, SpanId{parent_id},
         Hex.Digit.is_odd(low)}
+
+# Build the sender's context from its parts, as an OpenTelemetry SDK does for
+# a link or for a propagator of another format: its trace ID, its span ID and
+# its sampled indication. It is total, since the IDs are valid by
+# construction, and its random-trace-id bit is the trace ID's own assertion:
+# none for a parsed ID, unless TraceId.assert_random adds it. The result is
+# still a received context, which a child continues and which cannot be sent
+# as this participant's operation (law remote_from_ids).
+def RemoteContext.from_ids(trace_id: TraceId, span_id: SpanId, sampled: Bool) -> RemoteContext:
+  RemoteContext{trace_id, span_id, sampled}
 
 # The trace the received context belongs to.
 def RemoteContext.trace_id(context: RemoteContext) -> TraceId:
@@ -2093,7 +2106,8 @@ type ReceivedPair is Data:
 # came with it, and the received pair when the whole pair was accepted. It is
 # not this participant's operation: a service continues it with a child
 # (Context.child_from_id with IncomingContext.parent), or forwards the
-# received pair unchanged (Context.forward).
+# received pair unchanged (Context.forward). IncomingContext.from_remote
+# builds one from parts, with no received pair.
 type IncomingContext is Data:
   IncomingContext{context: RemoteContext, state: TraceState, received: Maybe<&2, ReceivedPair>}
 
@@ -2540,7 +2554,7 @@ def IncomingContext.state(incoming: IncomingContext) -> TraceState:
       state
 
 # The received pair, when the whole pair was accepted: None{} when the
-# tracestate was discarded.
+# tracestate was discarded, and for a context built from parts.
 def IncomingContext.received(incoming: IncomingContext) -> Maybe<&2, ReceivedPair>:
   match incoming:
     case IncomingContext{context, state, received}:
@@ -2549,6 +2563,15 @@ def IncomingContext.received(incoming: IncomingContext) -> Maybe<&2, ReceivedPai
 # The received context as the parent of a child operation.
 def IncomingContext.parent(incoming: IncomingContext) -> Parent:
   RemoteParent{IncomingContext.context(incoming)}
+
+# An incoming context from its parts: a remote context and the tracestate
+# that goes with it, so that an OpenTelemetry SDK's remote span contexts have
+# one shape whatever format they came from. No message's fields were
+# accepted, so it keeps no received pair: Context.forward refuses it with
+# NothingToForward and writes nothing (laws incoming_from_remote and
+# forward_from_parts). A child continues it as any incoming context.
+def IncomingContext.from_remote(context: RemoteContext, state: TraceState) -> IncomingContext:
+  IncomingContext{context, state, None{}}
 
 # The received traceparent value, without the whitespace around it.
 def ReceivedPair.traceparent(pair: ReceivedPair) -> String:
@@ -2723,10 +2746,15 @@ def Injection.dropped(injection: Injection) -> List<&2, StateKey>:
 # injection. When the pair cannot be sent whole within the limits, forwarding
 # refuses it: the caller may continue the trace with a child operation
 # instead, whose own traceparent lets its state be truncated (spec #1).
+# Forwarding is the only way a remote context leaves the participant: no
+# operation writes a traceparent again from a remote context, so nothing is
+# sent for a context without a received pair, one built from parts among
+# them, and a pass-through clears the context fields instead (spec #41).
 
 # Why a received context could not be forwarded unchanged:
 #   NothingToForward{}            it keeps no received pair: its tracestate was
-#                                 discarded when it was extracted
+#                                 discarded when it was extracted, or it was
+#                                 built from parts (IncomingContext.from_remote)
 #   ForwardTooLarge{}             its tracestate fields, joined by commas,
 #                                 exceed the tracestate output budget
 #   InvalidForwardParent{error}   its traceparent value is not one that
@@ -2812,8 +2840,10 @@ def Forward.pair(+limits: Limits, received: Maybe<&2, ReceivedPair>, carrier: Li
 # forwarding fails with a ForwardError and writes nothing, so a received
 # traceparent never travels with an edited or truncated tracestate (W3C 3.4).
 # The pair of a context that extraction accepted is refused only when its
-# tracestate exceeds the output budget, and forwarding again into the carrier
-# written gives that carrier again. Laws: forward_carrier, forward_nothing,
+# tracestate exceeds the output budget, a context built from parts has no
+# pair to forward, and forwarding again into the carrier written gives that
+# carrier again.
+# Laws: forward_carrier, forward_nothing, forward_from_parts,
 # forward_too_large, forward_extracted and forward_idempotent.
 def Context.forward(+limits: Limits, incoming: IncomingContext, carrier: List<&2, Header>) ->
   Result<&2, &2, ForwardError, List<&2, Header>>:

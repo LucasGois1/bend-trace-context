@@ -18,6 +18,7 @@ need to use it, and how to do common tasks in Bend. The
 - [Questions](#questions)
 - [Troubleshooting](#troubleshooting)
 - [OpenTelemetry](#opentelemetry)
+- [Building blocks for an OpenTelemetry SDK](#building-blocks-for-an-opentelemetry-sdk)
 
 ## What the package does
 
@@ -877,3 +878,109 @@ It records no spans. To record them:
 - in Bend, log the trace and span IDs of the service's operation with your
   log lines, so that a log backend can correlate them, as
   [Log correlation](#log-correlation) shows.
+
+An OpenTelemetry SDK for Bend builds on the pieces that the next section
+describes.
+
+## Building blocks for an OpenTelemetry SDK
+
+An OpenTelemetry SDK composes the package's pieces itself, where a service
+calls `continue_or_start` and `send`: its span contexts wrap the package's
+incoming and outgoing contexts, its W3C propagator extracts and injects with
+the package, and everything that OpenTelemetry defines stays in the SDK.
+[Spec #41](https://github.com/LucasGois1/bend-trace-context/issues/41) adds
+these pieces, and the [reference](README.md) lists their signatures.
+
+### Remote span contexts from parts
+
+A remote span context does not always come from a `traceparent`: a link
+names an operation of another trace, and a propagator of another format
+reads other fields. `TC.RemoteContext.from_ids` builds the sender's context
+from its trace ID, span ID and sampled flag, and
+`TC.IncomingContext.from_remote` pairs it with a tracestate, such as
+`TC.TraceState.empty()`, so that every remote span context has the shape
+that extraction gives. Its random-trace-id flag is the trace ID's own
+assertion: a parsed trace ID makes none, and `TC.TraceId.assert_random` adds
+it when the sender asserted it.
+
+A child continues such a context as any incoming context. A remote context
+leaves the service in one way only: `TC.Context.forward`, which sends the
+pair that the context was received with, unchanged, since W3C forbids
+changing the `tracestate` of a `traceparent` sent unchanged (section 3.4).
+A context built from parts arrived in no message, so it has no pair:
+`forward` answers `NothingToForward` and writes nothing, and a pass-through
+without a span of its own sends the message without context, removing the
+context fields that it still holds with `TC.Context.clear`.
+
+<!-- test:guide-remote-parts:start -->
+```bend
+import Base
+import ./deps/bend-trace-context/packages/trace-context/trace_context.bend as TC
+
+# The message that the service sends on: a reused container, which still
+# holds the context field of an earlier request.
+def message() -> List<&2, TC.Header>:
+  [TC.Header{"Host", "orders.internal"},
+    TC.Header{"traceparent", "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"}]
+
+# The fields of a message, one per line.
+def fields(carrier: List<&2, TC.Header>) -> String:
+  match carrier:
+    case Nil{}:
+      ""
+    case Con{TC.Header{name, value}, Nil{}}:
+      name ++ ": " ++ value
+    case Con{TC.Header{name, value}, rest}:
+      name ++ ": " ++ value ++ "\n" ++ fields(rest)
+
+# The service's own operation, a child of the remote span context.
+def operation(result: Result<&2, &2, TC.ContextError, TC.LocalContext>) -> String:
+  match result:
+    case Done{context}:
+      "operation: " ++ TC.TraceParentV00.format(TC.LocalContext.to_traceparent(context))
+    case Fail{error}:
+      "no operation: " ++ TC.ContextError.show(error)
+
+# A pass-through forwards the received pair, or, when there is none, sends
+# the message without context fields.
+def passed(result: Result<&2, &2, TC.ForwardError, List<&2, TC.Header>>) -> String:
+  match result:
+    case Done{carrier}:
+      fields(carrier)
+    case Fail{error}:
+      "not forwarded: " ++ TC.ForwardError.show(error) ++ "\n" ++ fields(TC.Context.clear(message()))
+
+# A remote span context from the parts that a propagator of another format
+# gives: the sender's IDs and sampled flag, without a tracestate.
+def remote(trace: Result<&2, &2, TC.Error, TC.TraceId>, span: Result<&2, &2, TC.Error, TC.SpanId>,
+  own: Result<&2, &2, TC.Error, TC.SpanId>) -> String:
+  match trace span own:
+    case Done{trace_id} Done{span_id} Done{own_id}:
+      +incoming = TC.IncomingContext.from_remote(TC.RemoteContext.from_ids(trace_id, span_id, True{}),
+        TC.TraceState.empty())
+      operation(TC.Context.child_from_id(TC.IncomingContext.parent(incoming), own_id, TC.InheritSampled{})) ++
+        "\n" ++ passed(TC.Context.forward(TC.Limits.default(), incoming, message()))
+    case _ _ _:
+      "invalid IDs"
+
+def main() -> IO(Unit):
+  IO.print(remote(TC.TraceId.parse("4bf92f3577b34da6a3ce929d0e0e4736"), TC.SpanId.parse("00f067aa0ba902b7"),
+    TC.SpanId.parse("53995c3f42cd8ad8")))
+```
+<!-- test:guide-remote-parts:end -->
+
+<!-- test:guide-remote-parts-output:start -->
+```text
+operation: 00-4bf92f3577b34da6a3ce929d0e0e4736-53995c3f42cd8ad8-01
+not forwarded: NothingToForward
+Host: orders.internal
+```
+<!-- test:guide-remote-parts-output:end -->
+
+The operation is sent with flags `01`: sampled, as the sender said, and no
+random-trace-id, since the parsed trace ID asserts none. OpenTelemetry
+JavaScript's W3C propagator does otherwise: it writes a new `traceparent`
+from a remote span context's IDs and flags, with the tracestate that the
+context holds, so a pass-through built on it sends a context where one built
+on this package sends none. The
+[reference](README.md#sending-a-remote-context) describes the difference.

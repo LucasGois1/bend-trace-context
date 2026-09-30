@@ -19,8 +19,9 @@
 #   Claim        what the law says, in plain words.
 #   Requirement  the rule it enforces: a section of the pinned W3C Trace
 #                Context Level 2 publication (Candidate Recommendation Draft
-#                of 2024-03-28), or a decision of the approved specification
-#                (issue #1) or of a ticket.
+#                of 2024-03-28), or a decision of an approved specification
+#                (issue #1, or issue #41 for the building blocks of an
+#                OpenTelemetry SDK) or of a ticket.
 #   Why          what would go wrong for an application without it.
 #   Reading      how the Bend statement expresses the claim, when the
 #                notation is not obvious.
@@ -247,10 +248,11 @@ law assert_random:
 # ===========================
 #
 # A LocalContext identifies an operation of this participant, the one that
-# sends a header. A RemoteContext identifies the sender's operation in a
-# received header. They are separate types, so a received context cannot be
-# sent as if it were the participant's own operation (spec #1, "Distinguish
-# remote context, local context and the accepted original header pair"). The
+# sends a header. A RemoteContext identifies the sender's operation, read
+# from a received header or built from its parts (spec #41). They are
+# separate types, so a received context cannot be sent as if it were the
+# participant's own operation (spec #1, "Distinguish remote context, local
+# context and the accepted original header pair"). The
 # flags of W3C Level 2, section 3.2.2.5, are bit 0 (sampled) and bit 1
 # (random-trace-id); the other six bits are reserved.
 
@@ -283,6 +285,34 @@ law root:
   for trace_id: Trace.TraceId
   for span_id: Trace.SpanId
   {Trace.Context.root_from_ids(trace_id, span_id) == Trace.Context.from_ids(trace_id, span_id, False{}) : Trace.LocalContext}
+
+# LAW remote_from_ids
+#   Claim: RemoteContext.from_ids keeps exactly the trace ID, the span ID and
+#     the sampled indication it is given, so the context asserts
+#     random-trace-id exactly when its trace ID does.
+#   Requirement: spec #41, "Contexts from parts": RemoteContext.from_ids
+#     builds a remote context; it is total, and its randomness comes from the
+#     trace ID (user story 18).
+#   Why: an OpenTelemetry SDK builds the remote span contexts of links and of
+#     propagators of other formats from their parts. A constructor that
+#     rewrote them would name another operation than the sender's, and one
+#     that set random-trace-id by itself would assert what nobody asserted.
+#   Reading: the last conjunct follows from the first, and states the
+#     randomness claim on its own.
+#   Scope: the result is a RemoteContext, so it still cannot be sent as this
+#     participant's operation (tests/reject/remote_as_local.bend).
+#   Proof: Laws.remote_from_ids, by computation.
+law remote_from_ids:
+  for trace_id: Trace.TraceId
+  for span_id: Trace.SpanId
+  for sampled: Bool
+  {Trace.RemoteContext.trace_id(Trace.RemoteContext.from_ids(trace_id, span_id, sampled)) == trace_id :
+    Trace.TraceId} &
+  {Trace.RemoteContext.span_id(Trace.RemoteContext.from_ids(trace_id, span_id, sampled)) == span_id :
+    Trace.SpanId} &
+  {Trace.RemoteContext.is_sampled(Trace.RemoteContext.from_ids(trace_id, span_id, sampled)) == sampled : Bool} &
+  {Trace.TraceId.is_random(Trace.RemoteContext.trace_id(Trace.RemoteContext.from_ids(trace_id, span_id, sampled))) ==
+    Trace.TraceId.is_random(trace_id) : Bool}
 
 # The flag byte a participant emits for a sampled indication and a randomness
 # assertion: "00", "01" (sampled), "02" (random) or "03" (both). It is written
@@ -2217,14 +2247,16 @@ law read_within_budgets:
 # the carrier of an outgoing message, and Context.clear removes the context
 # fields of a message sent without context (spec #1, "Participant
 # injection"). Context.forward sends a received context on unchanged (W3C
-# Level 2, section 3.4, "Unmodified header propagation"). All three remove
-# every old traceparent and tracestate field, whatever the ASCII case of its
-# name, and keep the other fields in their order. These laws state the
-# carriers written, the diagnostics apart from them, and what a receiver
-# extracts from them. The corpus, tests/INJECT.bend, covers names in every
-# case, empty and truncated states, all flags, a later version with unknown
-# fields, spec #1's 600-octet state, pairs built directly and carriers of
-# 100000 fields.
+# Level 2, section 3.4, "Unmodified header propagation"), and it is the only
+# way a remote context leaves the participant: an incoming context built from
+# parts keeps no received pair, so nothing is written for it (spec #41). All
+# three remove every old traceparent and tracestate field, whatever the ASCII
+# case of its name, and keep the other fields in their order. These laws
+# state the carriers written, the diagnostics apart from them, and what a
+# receiver extracts from them. The corpus, tests/INJECT.bend, covers names in
+# every case, empty and truncated states, all flags, a later version with
+# unknown fields, spec #1's 600-octet state, pairs built directly and
+# carriers of 100000 fields.
 
 # Whether a field name, with its ASCII letters in lowercase, is "traceparent"
 # or "tracestate".
@@ -2418,6 +2450,49 @@ law forward_nothing:
   for none: {Trace.IncomingContext.received(incoming) == None{} : Maybe<&2, Trace.ReceivedPair>}
   {Trace.Context.forward(limits, incoming, carrier) == Fail{Trace.NothingToForward{}} :
     Result<&2, &2, Trace.ForwardError, List<&2, Trace.Header>>}
+
+# LAW incoming_from_remote
+#   Claim: IncomingContext.from_remote keeps exactly the remote context and
+#     the tracestate it is given, and keeps no received pair.
+#   Requirement: spec #41, "Contexts from parts": IncomingContext.from_remote
+#     builds an incoming context with no received pair (user stories 19 and
+#     20).
+#   Why: an OpenTelemetry SDK gives its remote span contexts one shape,
+#     whatever format they came from. A context built from parts arrived in
+#     no message, so a received pair would claim fields that nobody sent.
+#   Proof: Laws.incoming_from_remote, by computation.
+law incoming_from_remote:
+  for context: Trace.RemoteContext
+  for state: Trace.TraceState
+  {Trace.IncomingContext.context(Trace.IncomingContext.from_remote(context, state)) == context :
+    Trace.RemoteContext} &
+  {Trace.IncomingContext.state(Trace.IncomingContext.from_remote(context, state)) == state : Trace.TraceState} &
+  {Trace.IncomingContext.received(Trace.IncomingContext.from_remote(context, state)) == None{} :
+    Maybe<&2, Trace.ReceivedPair>}
+
+# LAW forward_from_parts
+#   Claim: an incoming context built from parts is not forwarded: forwarding
+#     fails with NothingToForward, whatever its remote context, its
+#     tracestate, the limits and the carrier, and writes nothing.
+#   Requirement: spec #41, "Forwarding a remote context": a remote context
+#     leaves the participant only through Context.forward, with its received
+#     pair unchanged, and without a received pair nothing is written (user
+#     stories 20 and 24); W3C Level 2, section 3.4: a traceparent sent
+#     unchanged keeps its tracestate unchanged.
+#   Why: a pass-through service must never send a traceparent that it
+#     re-serialized from parts, with a tracestate it chose. It learns that
+#     there is nothing to forward, and clears the context fields instead
+#     (clear_carrier).
+#   Reading: with incoming_from_remote, this is forward_nothing for the
+#     contexts that IncomingContext.from_remote builds.
+#   Proof: Laws.forward_from_parts, via proofs/inject.bend.
+law forward_from_parts:
+  for +limits: Trace.Limits
+  for context: Trace.RemoteContext
+  for state: Trace.TraceState
+  for +carrier: List<&2, Trace.Header>
+  {Trace.Context.forward(limits, Trace.IncomingContext.from_remote(context, state), carrier) ==
+    Fail{Trace.NothingToForward{}} : Result<&2, &2, Trace.ForwardError, List<&2, Trace.Header>>}
 
 # LAW forward_too_large
 #   Claim: a received pair whose tracestate fields, joined by commas, exceed
