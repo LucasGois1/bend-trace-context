@@ -146,6 +146,10 @@ def Laws.from_ids(trace_id, span_id, sampled):
 def Laws.root(trace_id, span_id):
   {==}
 
+# By computation: the accessors read back the constructor's fields.
+def Laws.remote_from_ids(trace_id, span_id, sampled):
+  ({==}, ({==}, ({==}, {==})))
+
 # By computation in each of the four combinations of sampled and random.
 def Laws.emitted_traceparent(context):
   match context:
@@ -574,6 +578,11 @@ def Laws.state_independent(limits, first, second, base, same):
 def Laws.received_bounds(limits, carrier, base, incoming, pair, extracted, kept):
   ExtractProof.received_bounds(limits, carrier, base, incoming, pair, extracted, kept)
 
+# By computation: the accessors read back the constructor's fields, and the
+# received pair is None{}.
+def Laws.incoming_from_remote(context, state):
+  ({==}, ({==}, {==}))
+
 # The value is measured, trimmed, found free of commas and read by the strict
 # codec, which reads its text back.
 def Laws.read_v00(limits, known, before, after, before_ows, after_ows, fits):
@@ -643,6 +652,11 @@ def Laws.forward_carrier(limits, incoming, carrier, pair, forwarded, kept, done)
 # Without a received pair, forwarding refuses at once.
 def Laws.forward_nothing(limits, incoming, carrier, none):
   InjectProof.forward_nothing(limits, incoming, carrier, none)
+
+# forward_nothing, whose hypothesis holds by computation for a context built
+# from parts.
+def Laws.forward_from_parts(limits, context, state, carrier):
+  InjectProof.forward_nothing(limits, Trace.IncomingContext.from_remote(context, state), carrier, {==})
 
 # The budget check comes first and refuses the pair.
 def Laws.forward_too_large(limits, incoming, carrier, pair, kept, larger):

@@ -904,6 +904,10 @@ function $RemoteContext$from_traceparent$(_value_0) {
   return {$: "RemoteContext", "trace_id": {$: "TraceId", "value": _trace_id_0, "random": ($src$047hex$Digit$has_bit1$(_low_0))}, "span_id": {$: "SpanId", "value": _parent_id_0}, "sampled": ($src$047hex$Digit$is_odd$(_low_0))};
 }
 
+function $RemoteContext$from_ids$(_trace_id_0, _span_id_0, _sampled_0) {
+  return {$: "RemoteContext", "trace_id": _trace_id_0, "span_id": _span_id_0, "sampled": _sampled_0};
+}
+
 function $RemoteContext$trace_id$(_context_0) {
   const _trace_id_0 = _context_0["trace_id"];
   return _trace_id_0;
@@ -2717,6 +2721,10 @@ function $IncomingContext$received$(_incoming_0) {
 
 function $IncomingContext$parent$(_incoming_0) {
   return {$: "RemoteParent", "context": ($IncomingContext$context$(_incoming_0))};
+}
+
+function $IncomingContext$from_remote$(_context_0, _state_0) {
+  return {$: "IncomingContext", "context": _context_0, "state": _state_0, "received": {$: "None"}};
 }
 
 function $ReceivedPair$traceparent$(_pair_0) {
@@ -4591,6 +4599,7 @@ export default {
   "SpanId.is_eq": run_lib((a0, a1) => { const r = (run_loop($SpanId$is_eq$((a0), (a1)))); (a0); (a1); return r; }, 2),
   "Sampling.resolve": run_lib((a0, a1) => { const r = (run_loop($Sampling$resolve$((a0), (a1)))); (a0); (a1); return r; }, 2),
   "RemoteContext.from_traceparent": run_lib((a0) => { const r = (run_loop($RemoteContext$from_traceparent$((a0)))); (a0); return r; }, 1),
+  "RemoteContext.from_ids": run_lib((a0, a1, a2) => { const r = (run_loop($RemoteContext$from_ids$((a0), (a1), (a2)))); (a0); (a1); (a2); return r; }, 3),
   "RemoteContext.trace_id": run_lib((a0) => { const r = (run_loop($RemoteContext$trace_id$((a0)))); (a0); return r; }, 1),
   "RemoteContext.span_id": run_lib((a0) => { const r = (run_loop($RemoteContext$span_id$((a0)))); (a0); return r; }, 1),
   "RemoteContext.is_sampled": run_lib((a0) => { const r = (run_loop($RemoteContext$is_sampled$((a0)))); (a0); return r; }, 1),
@@ -4797,6 +4806,7 @@ export default {
   "IncomingContext.state": run_lib((a0) => { const r = (run_loop($IncomingContext$state$((a0)))); (a0); return r; }, 1),
   "IncomingContext.received": run_lib((a0) => { const r = (run_loop($IncomingContext$received$((a0)))); (a0); return r; }, 1),
   "IncomingContext.parent": run_lib((a0) => { const r = (run_loop($IncomingContext$parent$((a0)))); (a0); return r; }, 1),
+  "IncomingContext.from_remote": run_lib((a0, a1) => { const r = (run_loop($IncomingContext$from_remote$((a0), (a1)))); (a0); (a1); return r; }, 2),
   "ReceivedPair.traceparent": run_lib((a0) => { const r = (run_loop($ReceivedPair$traceparent$((a0)))); (a0); return r; }, 1),
   "ReceivedPair.tracestate": run_lib((a0) => { const r = (run_loop($ReceivedPair$tracestate$((a0)))); (a0); return r; }, 1),
   "BaseContext.parent": run_lib((a0) => { const r = (run_loop($BaseContext$parent$((a0)))); (a0); return r; }, 1),

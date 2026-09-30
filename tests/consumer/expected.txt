@@ -67,5 +67,10 @@ sdk field names: inject wrote accept: application/json | traceparent: 00-4bf92f3
 sdk field names: extracted TraceParentAccepted, StateAccepted: parent 00f067aa0ba902b7, trace flags 3, state rojo=00f067aa0ba902b7,congo=t61rcWkgMzE
 sdk field names: setter wrote accept: application/json | traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-02
 sdk field names: extracted TraceParentAccepted, StateAbsent: parent 00f067aa0ba902b7, trace flags 2, state none
+sdk parts: remote context: 4bf92f3577b34da6a3ce929d0e0e4736 00f067aa0ba902b7 sampled: True random: False
+sdk parts: remote context of a random trace ID: 4bf92f3577b34da6a3ce929d0e0e4736 00f067aa0ba902b7 sampled: False random: True
+sdk parts: incoming context: 4bf92f3577b34da6a3ce929d0e0e4736 00f067aa0ba902b7 sampled: True random: False state: congo=t61rcWkgMzE received pair: none
+sdk parts: forwarded: refused: NothingToForward
+sdk parts: cleared: Accept: application/json | X-Request-Id: 42
 http service: Continued 00-0af7651916cd43dd8448eb211c80319c-00f067aa0ba902b7-01
 http request: Fresh | traceparent 00-0af7651916cd43dd8448eb211c80319c-53995c3f42cd8ad8-01 | tracestate rojo=00f067aa0ba902b7,congo=t61rcWkgMzE | TraceParent none | accept application/json

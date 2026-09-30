@@ -6,8 +6,11 @@ to run its gates; the [README](README.md) and the
 
 ## How work is organized
 
-- The approved specification is
-  [issue #1](https://github.com/LucasGois1/bend-trace-context/issues/1).
+- The approved specifications are
+  [issue #1](https://github.com/LucasGois1/bend-trace-context/issues/1), the
+  package's, and
+  [issue #41](https://github.com/LucasGois1/bend-trace-context/issues/41),
+  the building blocks that an OpenTelemetry SDK composes.
   Each change starts from an issue with its acceptance criteria, and the
   decisions taken while doing it are recorded on that issue.
 - A pull request is complete when it is opened: it fixes every problem that
