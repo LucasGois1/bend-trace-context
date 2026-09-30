@@ -18,6 +18,7 @@ need to use it, and how to do common tasks in Bend. The
 - [Questions](#questions)
 - [Troubleshooting](#troubleshooting)
 - [OpenTelemetry](#opentelemetry)
+- [Building blocks for an OpenTelemetry SDK](#building-blocks-for-an-opentelemetry-sdk)
 
 ## What the package does
 
@@ -876,4 +877,91 @@ It records no spans. To record them:
   the [JavaScript guide](JAVASCRIPT.md#opentelemetry) shows both;
 - in Bend, log the trace and span IDs of the service's operation with your
   log lines, so that a log backend can correlate them, as
-  [Log correlation](#log-correlation) shows.
+  [Log correlation](#log-correlation) shows;
+- in an OpenTelemetry SDK written in Bend, compose the
+  [building blocks](#building-blocks-for-an-opentelemetry-sdk) below.
+
+## Building blocks for an OpenTelemetry SDK
+
+An OpenTelemetry SDK records spans and exports them. One written in Bend
+can leave its W3C part to this package, which gives it the pieces that
+[spec #41](https://github.com/LucasGois1/bend-trace-context/issues/41)
+lists; the recipes above follow the same rules.
+
+### Identifiers as bytes and as hex
+
+OTLP, the protocol that exporters speak, writes a trace ID and a span ID as
+bytes in its protobuf encoding and as lowercase hexadecimal text in its JSON
+encoding. `TC.TraceId.to_bytes` gives a trace ID's 16 bytes and
+`TC.SpanId.to_bytes` a span ID's 8, most significant first, as a
+`List<&2, U32>` of cells from 0 to 255, the form of Base's
+`TCP.send_bytes`; `to_string` gives the text. `TC.TraceId.from_bytes` and
+`TC.SpanId.from_bytes` read bytes with the checks of `parse`, for IDs that
+come as bytes from another system or from an ID generator of your own. A
+trace ID read from bytes makes no randomness assertion: when your generator
+is random, say so with `TC.TraceId.assert_random`, and the operation is
+sent with the random-trace-id flag.
+
+<!-- test:guide-bytes:start -->
+```bend
+import Base
+import ./deps/bend-trace-context/packages/trace-context/trace_context.bend as TC
+
+# The cells of a list of bytes, separated by spaces.
+def cells(bytes: List<&2, U32>) -> String:
+  match bytes:
+    case Nil{}:
+      ""
+    case Con{byte, Nil{}}:
+      U32.show(byte)
+    case Con{byte, rest}:
+      U32.show(byte) ++ " " ++ cells(rest)
+
+# What an exporter writes for an operation: its IDs as bytes in OTLP's
+# protobuf encoding, and as hexadecimal text in its JSON encoding.
+def exported(+operation: TC.LocalContext) -> String:
+  "protobuf trace_id: " ++ cells(TC.TraceId.to_bytes(TC.LocalContext.trace_id(operation))) ++
+    "\nprotobuf span_id: " ++ cells(TC.SpanId.to_bytes(TC.LocalContext.span_id(operation))) ++
+    "\nJSON traceId: " ++ TC.TraceId.to_string(TC.LocalContext.trace_id(operation)) ++
+    ", spanId: " ++ TC.SpanId.to_string(TC.LocalContext.span_id(operation))
+
+# An operation whose IDs the application's own generator made as bytes,
+# checked as parsed IDs are. Bytes make no randomness assertion; this
+# generator is random, so the trace ID asserts it.
+def generated(trace: Result<&2, &2, TC.Error, TC.TraceId>, span: Result<&2, &2, TC.Error, TC.SpanId>) -> String:
+  match trace span:
+    case Done{trace_id} Done{span_id}:
+      +operation = TC.Context.from_ids(TC.TraceId.assert_random(trace_id), span_id, True{})
+      "traceparent: " ++ TC.TraceParentV00.format(TC.LocalContext.to_traceparent(operation)) ++ "\n" ++
+        exported(operation)
+    case Fail{error} _:
+      "invalid trace ID: " ++ TC.Error.show(error)
+    case _ Fail{error}:
+      "invalid span ID: " ++ TC.Error.show(error)
+
+def main() -> IO(Unit):
+  do IO<Unit>:
+    Unit <- IO.print(generated(
+      TC.TraceId.from_bytes([75, 249, 47, 53, 119, 179, 77, 166, 163, 206, 146, 157, 14, 14, 71, 54]),
+      TC.SpanId.from_bytes([0, 240, 103, 170, 11, 169, 2, 183])))
+    # One byte short.
+    IO.print(generated(TC.TraceId.from_bytes([75, 249, 47, 53, 119, 179, 77, 166, 163, 206, 146, 157, 14, 14, 71]),
+      TC.SpanId.from_bytes([0, 240, 103, 170, 11, 169, 2, 183])))
+```
+<!-- test:guide-bytes:end -->
+
+<!-- test:guide-bytes-output:start -->
+```text
+traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-03
+protobuf trace_id: 75 249 47 53 119 179 77 166 163 206 146 157 14 14 71 54
+protobuf span_id: 0 240 103 170 11 169 2 183
+JSON traceId: 4bf92f3577b34da6a3ce929d0e0e4736, spanId: 00f067aa0ba902b7
+invalid trace ID: UnexpectedEnd at 15
+```
+<!-- test:guide-bytes-output:end -->
+
+A list of the wrong length, a cell above 255 and all-zero bytes are refused
+with the errors that [Errors and diagnostics](ERRORS.md#traceparent-and-identifiers)
+lists, the first problem in the order of the cells, and every other list of
+16 or 8 bytes is accepted. The [reference](README.md#identifiers-as-bytes)
+describes both forms.

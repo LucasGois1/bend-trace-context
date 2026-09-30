@@ -2,7 +2,23 @@
 
 ## 0.1.3-dev — unreleased
 
-No change since 0.1.2 yet.
+- Convert trace and span IDs to and from bytes
+  ([#43](https://github.com/LucasGois1/bend-trace-context/issues/43)), the
+  form of OTLP's protobuf encoding, as the hexadecimal text of `to_string`
+  is that of its JSON encoding. `TraceId.to_bytes` gives a trace ID's 16
+  bytes and `SpanId.to_bytes` a span ID's 8, most significant first, in
+  Base's byte convention: a `List<&2, U32>` of cells from 0 to 255.
+  `TraceId.from_bytes` and `SpanId.from_bytes` read them back with the
+  checks of `parse`, and refuse a list that is too short with
+  `UnexpectedEnd`, a cell above 255 with the new `Error` constructor
+  `InvalidByte`, a cell after the last byte with `TrailingInput` and
+  all-zero bytes with `ZeroId`. A trace ID read from bytes makes no
+  randomness assertion. Eighteen new laws, proved in `proofs/bytes.bend`,
+  state the byte order, the round trips in both directions, injectivity,
+  each refusal, the acceptance of every other list and the absence of an
+  assertion; the guide's new "Building blocks for an OpenTelemetry SDK"
+  section shows both forms in an exporter. A caller that matches every
+  constructor of `Error` adds a case for `InvalidByte`.
 
 ## 0.1.2 — 2026-09-29
 

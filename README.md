@@ -312,10 +312,11 @@ explains.
 
 - **Proofs.** The laws of [LAWS.bend](packages/trace-context/LAWS.bend)
   quantify over every input, and `./bend packages/trace-context/PROOF.bend`
-  prints `ALL PROOFS CHECK`. They cover the codec's round trip, the
-  contexts, generation, `tracestate`, extraction, injection, forwarding and
-  the service operations; the [reference](packages/trace-context/README.md#proofs)
-  states each law and its limits.
+  prints `ALL PROOFS CHECK`. They cover the codec's round trip, the IDs and
+  their bytes, the contexts, generation, `tracestate`, extraction,
+  injection, forwarding and the service operations; the
+  [reference](packages/trace-context/README.md#proofs) states each law and
+  its limits.
 - **Tests.** Independent protocol vectors, all 256 flag bytes, compile-time
   rejections, deterministic generation, the examples, and a consumer that
   installs the package from a fresh clone, natively, in Node and in
