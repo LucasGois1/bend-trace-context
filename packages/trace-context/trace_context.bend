@@ -20,7 +20,7 @@
 # The normative reference is W3C Trace Context Level 2, Candidate
 # Recommendation Draft of 2024-03-28 ("W3C" below, with section numbers). The
 # approved specification is issue #1 of the repository ("spec #1"), and issue
-# #41 ("spec #41") specifies the building blocks that an OpenTelemetry SDK
+# #41 ("spec #41") adds the building blocks that an OpenTelemetry SDK
 # composes.
 #
 # Contents
@@ -28,8 +28,8 @@
 #   Types                            every data type of the codec, contexts and
 #                                    generation, declared first
 #   Strict v00 codec                 Parse.*, TraceParentV00.*
-#   Identifiers and contexts         TraceId, SpanId, contexts, children,
-#                                    restarts
+#   Identifiers and contexts         TraceId, SpanId, contexts and their
+#                                    trace flags, children, restarts
 #   Identifiers from source words    U32.to_hex, TraceId.from_words, ...
 #   Identifiers as bytes             TraceId.to_bytes, TraceId.from_bytes,
 #                                    SpanId.to_bytes, SpanId.from_bytes
@@ -47,7 +47,8 @@
 #   Extraction                       Context.extract, TraceParent.read,
 #                                    incoming and base contexts, diagnostics
 #   Injection                        Context.inject and the Injection it
-#                                    writes, Context.clear
+#                                    writes, Context.field_names,
+#                                    Context.clear
 #   Forwarding                       Context.forward, ForwardError
 #   Continuing or starting           Context.continue_or_start_with,
 #                                    Reception, FailurePolicy, Service,
@@ -55,10 +56,10 @@
 #   Sending                          Context.send_with, Sent, SendPlan
 #
 # The public names are documented in packages/trace-context/README.md. Names in
-# the Parse, Parsed, ParsedBytes, Draw, Step, Tape, Scan, Member, Value,
-# Budget, Utf8, Entries, StateChar, Carrier, Text, Read, Extract, Forward,
-# Policy, Serve and Send namespaces are internal: Bend lets any module import
-# them, but they are not a compatibility contract.
+# the Parse, Parsed, ParsedBytes, Flags, Draw, Step, Tape, Scan, Member,
+# Value, Budget, Utf8, Entries, StateChar, Carrier, Text, Read, Extract,
+# Forward, Policy, Serve and Send namespaces are internal: Bend lets any module
+# import them, but they are not a compatibility contract.
 #
 # Notes for readers new to Bend
 # -----------------------------
@@ -197,8 +198,9 @@ type Sampling is Data:
 
 # A context received from another participant. It identifies the sender's
 # operation and keeps only the known flags: sampled and random-trace-id. It is
-# built from a received value (RemoteContext.from_traceparent) and has its own
-# type, so it cannot be sent as if it were this participant's operation.
+# built from a received value (RemoteContext.from_traceparent) or from its
+# parts (RemoteContext.from_ids), and has its own type, so it cannot be sent
+# as if it were this participant's operation.
 type RemoteContext is Data:
   RemoteContext{trace_id: TraceId, span_id: SpanId, sampled: Bool}
 
@@ -458,7 +460,9 @@ def TraceParentV00.is_random(context: TraceParentV00) -> Bool:
 # Supplied IDs are parsed with the same digit reader as the codec. Contexts are
 # created from validated IDs: a root, a child continuing a parent, a restart
 # replacing a received trace, or the explicit construction of an operation the
-# caller owns.
+# caller owns. A context also gives its known trace flags as a number, for an
+# exporter; its sampled indication and its trace ID's randomness assertion
+# stay their canonical form, and there is no trace flags type.
 
 # The digits of a supplied ID must be the whole text, and not all zero.
 def Parse.id.finish(n: Nat, parsed: Parsed<n>, field: Field) ->
@@ -545,6 +549,17 @@ def RemoteContext.from_traceparent(value: TraceParentV00) -> RemoteContext:
       RemoteContext{TraceId{trace_id, Hex.Digit.has_bit1(low)}, SpanId{parent_id},
         Hex.Digit.is_odd(low)}
 
+# Build the sender's context from its parts, as an OpenTelemetry SDK does for
+# a link or for a propagator of another format: its trace ID, its span ID and
+# its sampled indication, kept as they are. It is total, since the IDs are
+# valid by construction, and its random-trace-id bit is the trace ID's own
+# assertion: none for a parsed ID, unless TraceId.assert_random adds it (law
+# remote_from_ids). The result is still a received context, which a child
+# continues: it cannot be sent as this participant's operation
+# (tests/reject/remote_as_local.bend).
+def RemoteContext.from_ids(trace_id: TraceId, span_id: SpanId, sampled: Bool) -> RemoteContext:
+  RemoteContext{trace_id, span_id, sampled}
+
 # The trace the received context belongs to.
 def RemoteContext.trace_id(context: RemoteContext) -> TraceId:
   match context:
@@ -562,6 +577,22 @@ def RemoteContext.is_sampled(context: RemoteContext) -> Bool:
   match context:
     case RemoteContext{trace_id, span_id, sampled}:
       sampled
+
+# The known trace flags as a number: `sampled` in bit 0 and `random` in bit 1
+# (W3C 3.2.2.5), with the six reserved bits zero.
+def Flags.known(sampled: Bool, random: Bool) -> U32:
+  U32.or(Bool.to_u32(sampled), U32.shl(Bool.to_u32(random)))
+
+# The trace flags that the context keeps, as a number from 0 to 3: bit 0 is
+# its sampled indication and bit 1 its trace ID's randomness assertion, the
+# known flags that it was received or built with. Reserved bits are never
+# among them. The Booleans stay the canonical form; the number is for an
+# exporter, such as one that writes OTLP's Span.flags field. Laws:
+# remote_flags and received_trace_flags.
+def RemoteContext.flags(context: RemoteContext) -> U32:
+  match context:
+    case RemoteContext{trace_id, span_id, sampled}:
+      Flags.known(sampled, TraceId.is_random(trace_id))
 
 # The trace this participant's operation belongs to.
 def LocalContext.trace_id(context: LocalContext) -> TraceId:
@@ -589,6 +620,17 @@ def LocalContext.to_traceparent(context: LocalContext) -> TraceParentV00:
     case LocalContext{TraceId{trace_id, random}, SpanId{span_id}, sampled}:
       TraceParentV00{trace_id, span_id,
         Digits.DCon{Hex.H0{}, Digits.DCon{Hex.Digit.from_bits(sampled, random, False{}, False{}), Digits.DNil{}}}}
+
+# The trace flags of the context as a number from 0 to 3: bit 0 is its sampled
+# indication and bit 1 its trace ID's randomness assertion. It is the flag
+# byte of the traceparent that the context emits, 00 to 03, so an exporter
+# that writes it, into OTLP's Span.flags field for example, agrees with what
+# the context propagates. The Booleans stay the canonical form. Law:
+# local_flags.
+def LocalContext.flags(context: LocalContext) -> U32:
+  match context:
+    case LocalContext{trace_id, span_id, sampled}:
+      Flags.known(sampled, TraceId.is_random(trace_id))
 
 # The trace a child continues.
 def Parent.trace_id(parent: Parent) -> TraceId:
@@ -2217,11 +2259,13 @@ type TraceParentError is Data:
 type ReceivedPair is Data:
   ReceivedPair{traceparent: String, tracestate: List<&2, String>}
 
-# A context extracted from a message: the sender's operation, the state that
-# came with it, and the received pair when the whole pair was accepted. It is
-# not this participant's operation: a service continues it with a child
-# (Context.child_from_id with IncomingContext.parent), or forwards the
-# received pair unchanged (Context.forward).
+# The sender's operation together with the tracestate that goes with it: one
+# extracted from a message, which also keeps the received pair when the whole
+# pair was accepted, or one built from its parts (IncomingContext.from_remote),
+# which keeps none. It is not this participant's operation: a service
+# continues it with a child (Context.child_from_id with
+# IncomingContext.parent), or forwards the received pair unchanged
+# (Context.forward).
 type IncomingContext is Data:
   IncomingContext{context: RemoteContext, state: TraceState, received: Maybe<&2, ReceivedPair>}
 
@@ -2277,6 +2321,16 @@ def Header.value(header: Header) -> String:
   match header:
     case Header{name, value}:
       value
+
+# The names of the two context fields, in lowercase (W3C 3.2.1 and 3.3.1),
+# written in this one place: extraction selects the fields by them, whatever
+# the case of the names received; cleanup, injection and forwarding remove
+# and write the fields under them; and Context.field_names publishes them.
+def Carrier.traceparent_name() -> String:
+  "traceparent"
+
+def Carrier.tracestate_name() -> String:
+  "tracestate"
 
 # Whether `text` is `name` without regard to ASCII case (W3C 3.2.1 and
 # 3.3.1): each character of `text`, with the letters A to Z lowered, is the
@@ -2603,7 +2657,8 @@ def Extract.parents(+limits: Limits, parents: List<&2, String>, +states: List<&2
 # Laws: extract_absent, extract_repeated, extract_refused, extract_read,
 # state_independent and received_bounds.
 def Context.extract(+limits: Limits, +carrier: List<&2, Header>, base: Maybe<&2, BaseContext>) -> Extraction:
-  Extract.parents(limits, Carrier.values(carrier, "traceparent"), Carrier.values(carrier, "tracestate"), base)
+  Extract.parents(limits, Carrier.values(carrier, Carrier.traceparent_name()),
+    Carrier.values(carrier, Carrier.tracestate_name()), base)
 
 # Extraction: results and diagnostics
 # ===================================
@@ -2668,7 +2723,7 @@ def IncomingContext.state(incoming: IncomingContext) -> TraceState:
       state
 
 # The received pair, when the whole pair was accepted: None{} when the
-# tracestate was discarded.
+# tracestate was discarded, and for a context built from parts.
 def IncomingContext.received(incoming: IncomingContext) -> Maybe<&2, ReceivedPair>:
   match incoming:
     case IncomingContext{context, state, received}:
@@ -2677,6 +2732,15 @@ def IncomingContext.received(incoming: IncomingContext) -> Maybe<&2, ReceivedPai
 # The received context as the parent of a child operation.
 def IncomingContext.parent(incoming: IncomingContext) -> Parent:
   RemoteParent{IncomingContext.context(incoming)}
+
+# An incoming context from its parts: a remote context and the tracestate
+# that goes with it, so that an OpenTelemetry SDK's remote span contexts have
+# one shape whatever format they came from. No message's fields were
+# accepted, so it keeps no received pair, and Context.forward refuses it with
+# NothingToForward (laws incoming_from_remote and forward_from_parts). A
+# child continues it as any incoming context.
+def IncomingContext.from_remote(context: RemoteContext, state: TraceState) -> IncomingContext:
+  IncomingContext{context, state, None{}}
 
 # The received traceparent value, without the whitespace around it.
 def ReceivedPair.traceparent(pair: ReceivedPair) -> String:
@@ -2768,7 +2832,7 @@ type Injection is Data:
 # Whether a field name is traceparent or tracestate, without regard to ASCII
 # case.
 def Carrier.is_context(+name: String) -> Bool:
-  Bool.or(Carrier.named("traceparent", name), Carrier.named("tracestate", name))
+  Bool.or(Carrier.named(Carrier.traceparent_name(), name), Carrier.named(Carrier.tracestate_name(), name))
 
 # `header` before `kept` unless it is a context field (`context_field`): one
 # step of Carrier.unrelated.go.
@@ -2794,11 +2858,20 @@ def Carrier.unrelated.go(carrier: List<&2, Header>, kept: List<&2, Header>) -> L
 def Carrier.replace(carrier: List<&2, Header>, fields: List<&2, Header>) -> List<&2, Header>:
   List.reverse.go(&2, Header, Carrier.unrelated.go(carrier, Nil{}), fields)
 
+# The names of the context fields as injection writes them: traceparent, then
+# tracestate, in lowercase (W3C 3.2.1 and 3.3.1), the names that extraction
+# and cleanup read too. A propagator lists them as the fields it writes, and
+# one that writes the values of OutgoingContext.emit through a setter of its
+# own writes them under these names, the tracestate field only when its value
+# is not empty, as injection does. Law: inject_names.
+def Context.field_names() -> List<&2, String>:
+  [Carrier.traceparent_name(), Carrier.tracestate_name()]
+
 # The context fields of a traceparent value and a tracestate value, with
 # lowercase names; the tracestate field is left out when its value is empty.
 def Carrier.context_fields(traceparent: String, +tracestate: String) -> List<&2, Header>:
-  Con{Header{"traceparent", traceparent}, Bool.pick(List<&2, Header>, String.is_empty(tracestate), Nil{},
-    Con{Header{"tracestate", tracestate}, Nil{}})}
+  Con{Header{Carrier.traceparent_name(), traceparent}, Bool.pick(List<&2, Header>, String.is_empty(tracestate),
+    Nil{}, Con{Header{Carrier.tracestate_name(), tracestate}, Nil{}})}
 
 # Remove every traceparent and tracestate field, whatever the case of its
 # name, and keep the other fields in their order: the carrier of a message
@@ -2850,11 +2923,13 @@ def Injection.dropped(injection: Injection) -> List<&2, StateKey>:
 # possible"), and the old context fields of the carrier are replaced, as by
 # injection. When the pair cannot be sent whole within the limits, forwarding
 # refuses it: the caller may continue the trace with a child operation
-# instead, whose own traceparent lets its state be truncated (spec #1).
+# instead, whose own traceparent lets its state be truncated (spec #1). An
+# incoming context built from parts has no pair to send (spec #41).
 
 # Why a received context could not be forwarded unchanged:
 #   NothingToForward{}            it keeps no received pair: its tracestate was
-#                                 discarded when it was extracted
+#                                 discarded when it was extracted, or it was
+#                                 built from parts (IncomingContext.from_remote)
 #   ForwardTooLarge{}             its tracestate fields, joined by commas,
 #                                 exceed the tracestate output budget
 #   InvalidForwardParent{error}   its traceparent value is not one that
@@ -2940,8 +3015,10 @@ def Forward.pair(+limits: Limits, received: Maybe<&2, ReceivedPair>, carrier: Li
 # forwarding fails with a ForwardError and writes nothing, so a received
 # traceparent never travels with an edited or truncated tracestate (W3C 3.4).
 # The pair of a context that extraction accepted is refused only when its
-# tracestate exceeds the output budget, and forwarding again into the carrier
-# written gives that carrier again. Laws: forward_carrier, forward_nothing,
+# tracestate exceeds the output budget, a context built from parts has no
+# pair to forward, and forwarding again into the carrier written gives that
+# carrier again.
+# Laws: forward_carrier, forward_nothing, forward_from_parts,
 # forward_too_large, forward_extracted and forward_idempotent.
 def Context.forward(+limits: Limits, incoming: IncomingContext, carrier: List<&2, Header>) ->
   Result<&2, &2, ForwardError, List<&2, Header>>:

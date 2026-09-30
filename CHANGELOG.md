@@ -2,6 +2,33 @@
 
 ## 0.1.3-dev — unreleased
 
+- Read the trace flags and the context field names
+  ([#44](https://github.com/LucasGois1/bend-trace-context/issues/44)), for an
+  OpenTelemetry SDK's exporter and propagator. `LocalContext.flags` and
+  `RemoteContext.flags` give a context's known trace flags as a `U32` from 0
+  to 3, bit 0 sampled and bit 1 random-trace-id: a local context's are the
+  flags of the traceparent that it emits, and a remote context's the known
+  flags that it was received or built with. The Booleans stay the canonical
+  form. `Context.field_names()` gives `traceparent`, then `tracestate`, the
+  names under which injection writes; extraction, cleanup and injection now
+  take them from one place in the code. Laws `local_flags`, `remote_flags`,
+  `received_trace_flags` and `inject_names` state them, and the independent
+  consumer and the guide's `guide-flags` recipe show them from outside the
+  package.
+- Build remote and incoming contexts from parts
+  ([#45](https://github.com/LucasGois1/bend-trace-context/issues/45)), for
+  the remote span contexts of an OpenTelemetry SDK.
+  `RemoteContext.from_ids(trace_id, span_id, sampled)` builds a remote
+  context for a link or a propagator of another format; it is total, and
+  its random-trace-id bit is its trace ID's assertion.
+  `IncomingContext.from_remote(context, state)` pairs a remote context with
+  a tracestate and keeps no received pair, so `Context.forward` refuses it
+  with `NothingToForward`. The reference's "Sending a remote context" says
+  how a remote context leaves the participant, and how OpenTelemetry
+  JavaScript differs. Laws `remote_from_ids`, `incoming_from_remote` and
+  `forward_from_parts` prove that both constructors keep their parts and
+  that such a context is not forwarded; the consumer and a guide program
+  show them.
 - Convert trace and span IDs to and from bytes
   ([#43](https://github.com/LucasGois1/bend-trace-context/issues/43)), the
   form of OTLP's protobuf encoding, as the hexadecimal text of `to_string`
@@ -14,7 +41,7 @@
   describes both forms and every refusal. Eighteen new laws, proved in
   `proofs/bytes.bend`, state the byte order, the round trips in both
   directions, injectivity, each refusal, the acceptance of every other list
-  and the absence of an assertion; the guide's new "Building blocks for an
+  and the absence of an assertion; the guide's "Building blocks for an
   OpenTelemetry SDK" section shows both forms in an exporter.
 
 **Migration from 0.1.2:** a `match` on `TC.Error` that lists every

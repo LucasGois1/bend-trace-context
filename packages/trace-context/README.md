@@ -24,8 +24,12 @@ Most services need three operations: `TC.Context.extract`,
 `Generate.Context.continue_or_start` and `Generate.Context.send`, in
 [Extracting context](#extracting-context) and
 [Continuing or starting a trace](#continuing-or-starting-a-trace). The
-sections below build up to them from the codec. "Spec #1" is the package's
-approved [specification](https://github.com/LucasGois1/bend-trace-context/issues/1).
+sections below build up to them from the codec. The package has two approved
+specifications: "spec #1", its
+[specification](https://github.com/LucasGois1/bend-trace-context/issues/1),
+and "spec #41", which adds the
+[building blocks](https://github.com/LucasGois1/bend-trace-context/issues/41)
+that an OpenTelemetry SDK composes.
 
 - [Codec API](#codec-api)
 - [Supplied IDs and contexts](#supplied-ids-and-contexts)
@@ -85,7 +89,10 @@ Context.restart_from_ids(previous: RemoteContext, trace_id: TraceId, span_id: Sp
 ContextError.show(error: ContextError) -> String
 
 RemoteContext.from_traceparent(value: TraceParentV00) -> RemoteContext
+RemoteContext.from_ids(trace_id: TraceId, span_id: SpanId, sampled: Bool) -> RemoteContext
 LocalContext.to_traceparent(context: LocalContext) -> TraceParentV00
+RemoteContext.flags(context: RemoteContext) -> U32
+LocalContext.flags(context: LocalContext) -> U32
 ```
 
 The `_from_ids` operations take identifiers the caller already has. The
@@ -137,14 +144,32 @@ assertion does not change which trace an ID names.
 the trace ID, the sender's span ID, sampled and random-trace-id; reserved flag
 bits are not part of a remote context. The strict codec rejects versions `01`
 to `fe`, which [extraction](#extracting-context) reads by their known prefix.
+`RemoteContext.from_ids` builds the sender's context from its parts instead,
+as an OpenTelemetry SDK does for a link or for a propagator of another
+format ([spec #41](https://github.com/LucasGois1/bend-trace-context/issues/41)).
+It is total, since the IDs are valid by construction, and it keeps them and
+the sampled indication as they are. Its random-trace-id bit is its trace
+ID's assertion: a parsed trace ID makes none, and `TraceId.assert_random`
+adds one when the sender asserted it. It is still a received context, with
+no received pair to forward: it never leaves the participant as itself, and
+only a child of it does ([Sending a remote context](#sending-a-remote-context)).
 `LocalContext.to_traceparent` gives the participating
 representation: version `00` and flags `00` to `03`, with every reserved bit
 zero. [Injection](#injecting-and-forwarding-context) writes that
 representation into a message, and forwarding sends a received value
 unchanged.
 
-`RemoteContext` and `LocalContext` are separate types, so a received context
-cannot be passed where a local one is expected (the
+`RemoteContext.flags` and `LocalContext.flags` give a context's trace flags
+as a number from 0 to 3, which an exporter writes into OTLP's `Span.flags`
+field, for example: bit 0 is sampled, and bit 1 is random-trace-id, from the
+trace ID's assertion. A local context's value is the flag byte of the
+traceparent that it emits, `00` to `03`, and a remote context's is the known
+flags that it was received or built with, never its reserved bits. The
+Booleans stay the canonical form, `is_sampled` and `TraceId.is_random`:
+there is no trace flags type.
+
+`RemoteContext` and `LocalContext` are separate types, so a received context,
+parsed or built from parts, cannot be passed where a local one is expected (the
 [negative fixture](tests/reject/remote_as_local.bend) checks this). Bend
 constructors are not private, however: code that builds a `LocalContext{...}`
 value directly bypasses these operations, and no type can reject that.
@@ -536,6 +561,7 @@ TC.IncomingContext.context(incoming: TC.IncomingContext) -> TC.RemoteContext
 TC.IncomingContext.state(incoming: TC.IncomingContext) -> TC.TraceState
 TC.IncomingContext.received(incoming: TC.IncomingContext) -> Maybe<&2, TC.ReceivedPair>
 TC.IncomingContext.parent(incoming: TC.IncomingContext) -> TC.Parent
+TC.IncomingContext.from_remote(context: TC.RemoteContext, state: TC.TraceState) -> TC.IncomingContext
 TC.ReceivedPair.traceparent(pair: TC.ReceivedPair) -> String
 TC.ReceivedPair.tracestate(pair: TC.ReceivedPair) -> List<&2, String>
 TC.BaseContext.parent(base: TC.BaseContext) -> TC.Parent
@@ -548,7 +574,7 @@ TC.StateOutcome.show(outcome: TC.StateOutcome) -> String
 | Type | Meaning |
 | --- | --- |
 | `Header` | `Header{name, value}`: one field of a message. A carrier is a `List<&2, Header>` in the message's order |
-| `IncomingContext` | A context extracted from a message: the sender's `RemoteContext`, the state received with it, and the received pair when the whole pair was accepted |
+| `IncomingContext` | The sender's `RemoteContext` together with the state that goes with it: one extracted from a message, which also keeps the received pair when the whole pair was accepted, or one built from parts, which keeps none |
 | `ReceivedPair` | The accepted traceparent value, without the whitespace around it, and the tracestate field values as they came |
 | `BaseContext` | `IncomingBase{incoming}` or `OutgoingBase{outgoing}`: the context to continue from when a message has no usable traceparent |
 | `Extraction` | The context to continue from, if any, with a `TraceParentOutcome` and a `StateOutcome` |
@@ -624,6 +650,16 @@ with the contexts, Bend constructors are not private, and an
 `IncomingContext` or `ReceivedPair` built directly carries no such
 guarantee, so forwarding checks what it sends.
 
+`IncomingContext.from_remote` builds an incoming context from its parts: a
+remote context, such as one of `RemoteContext.from_ids`, and the tracestate
+that goes with it, which may be `TraceState.empty()`. An OpenTelemetry SDK
+gives its remote span contexts this one shape, whatever format they came
+from ([spec #41](https://github.com/LucasGois1/bend-trace-context/issues/41)).
+It keeps both parts as they are and no received pair, since no message's
+fields were accepted: a child continues it as any incoming context, and
+forwarding refuses it with `NothingToForward{}`, as
+[Sending a remote context](#sending-a-remote-context) describes.
+
 The carrier holds what the host hands over. A host that joins repeated fields
 into one value turns a repeated traceparent into a value with a comma, which
 is refused, and a joined tracestate reads as its separate fields would. What a
@@ -664,6 +700,7 @@ TC.Context.forward(limits: TC.Limits, incoming: TC.IncomingContext, carrier: Lis
 TC.Injection.carrier(injection: TC.Injection) -> List<&2, TC.Header>
 TC.Injection.dropped(injection: TC.Injection) -> List<&2, TC.StateKey>
 TC.ForwardError.show(error: TC.ForwardError) -> String
+TC.Context.field_names() -> List<&2, String>
 ```
 
 All three remove every `traceparent` and `tracestate` field of the carrier,
@@ -690,6 +727,15 @@ does not accumulate fields.
   It never normalizes flags, downgrades a version or edits the tracestate
   (section 3.4). When the pair cannot be sent whole, it fails and writes
   nothing.
+
+`Context.field_names()` gives the names of the context fields as `inject`
+writes them, and as extraction and cleanup read them: `traceparent`, then
+`tracestate`. A propagator that lists the fields it writes, as
+OpenTelemetry's propagators do, returns them. An OpenTelemetry SDK's W3C
+propagator stays thin: it passes `Context.extract` a carrier built from what
+OpenTelemetry's getter reads, and writes the values of `OutgoingContext.emit`
+under these names through OpenTelemetry's setter, the tracestate only when it
+is not empty, as `inject` does.
 
 `forward` fails with a `ForwardError`: `NothingToForward{}` when the
 context keeps no received pair, `ForwardTooLarge{}` over the output budget,
@@ -720,6 +766,41 @@ without context: Host: metrics.internal
 not forwarded: ForwardTooLarge
 continued instead: 00-4bf92f3577b34da6a3ce929d0e0e4736-b7ad6b7169203331-01, dropped b
 ```
+
+### Sending a remote context
+
+A remote context, however it was built, leaves the participant in one way
+only: `forward` sends the received pair of the incoming context that holds
+it, unchanged
+([spec #41](https://github.com/LucasGois1/bend-trace-context/issues/41)).
+W3C Level 2, section 3.4, lets a traceparent go out unchanged only with its
+tracestate unchanged. A traceparent written again from a remote context's
+IDs names the sender's operation as the received one did, but it is not the
+received pair: its version and flags may be normalized, and its tracestate
+dropped or rewritten. No operation of the package writes one.
+
+An incoming context without a received pair, one that
+[`IncomingContext.from_remote`](#extracting-context) builds from parts or
+one whose tracestate extraction discarded, has nothing to forward: `forward`
+fails with `NothingToForward{}` and nothing is written. A relay, which
+forwards transparently, then sends the message without context, and `clear`
+removes the context fields that it still holds, such as those of a reused
+container. A service that takes part in the trace continues the context with
+a child and injects the child instead. The
+[consumer example](../../tests/consumer/main.bend) builds a remote and an
+incoming context from parts, and shows forwarding refused with
+`NothingToForward` and the message's context fields cleared.
+
+OpenTelemetry JavaScript does otherwise. The code of its
+`W3CTraceContextPropagator.inject` in `@opentelemetry/core` 2.11.0, the
+version that `package-lock.json` pins
+(`build/src/trace/W3CTraceContextPropagator.js`), writes a new traceparent
+from any valid span context, remote ones included: version `00`, the span
+context's trace ID, span ID and trace flags, with the tracestate that it
+holds. A relay built on it therefore sends a context where one built on this
+package sends none, and a traceparent received with a later version goes out
+as version `00`. This description comes from reading that code: no test of
+this repository injects a remote span context with it.
 
 ## Continuing or starting a trace
 
@@ -1160,7 +1241,8 @@ section describes, and the kernel needs Lean 4.34.
   every trace ID's text is accepted and every span ID's text parses back to
   that span ID. `assert_random` changes only the assertion.
 - **Construction:** `from_ids` keeps its IDs and sampled indication, and a root
-  is `from_ids` with sampled `0`.
+  is `from_ids` with sampled `0`. `RemoteContext.from_ids` keeps its IDs and
+  sampled indication too, so its randomness assertion is its trace ID's.
 - **Children:** a successful child keeps the parent's trace ID and randomness
   assertion, uses the supplied span ID, whose text differs from the parent's,
   and takes sampled from `Sampling.resolve`: the parent's indication for
@@ -1175,7 +1257,11 @@ section describes, and the kernel needs Lean 4.34.
   randomness assertion, span ID and sampled indication; and a received context
   keeps the bits that `TraceParentV00.is_sampled` and `is_random` read. The
   corpus checks those two readers on all 256 flag bytes; no law restates them
-  for the reserved bit patterns.
+  for the reserved bit patterns. A context's trace flags are the number of
+  its sampled indication and randomness assertion, from 0 to 3: a local
+  context's are those of the traceparent that it emits, and a remote
+  context's the known flags that it was received or built with, those of the
+  value received for a received one.
 - **Conversion:** a candidate trace ID's text is `U32.to_hex` of its four words
   in reading order and a span ID's of its two. Read as a base-16 numeral,
   `U32.to_hex(word)` is the number Base's `U32.to_nat` assigns to the word, so
@@ -1244,7 +1330,9 @@ section describes, and the kernel needs Lean 4.34.
   there are none or they are refused, and the received pair unless the state
   was refused. Two messages with the same traceparent fields give the same
   outcome and the same sender's operation whatever their tracestate, and a
-  kept pair fits the input budgets. `TraceParent.read` reads every strict v00
+  kept pair fits the input budgets. An incoming context built with
+  `IncomingContext.from_remote` keeps its remote context and tracestate, and
+  no received pair. `TraceParent.read` reads every strict v00
   text, with any optional whitespace around it, as its value, refuses a
   strict v00 text followed by more characters, reads versions `01` to `fe` by
   their known prefix, refuses `ff` and any value with a comma, and refuses a
@@ -1253,19 +1341,21 @@ section describes, and the kernel needs Lean 4.34.
   independently of the package's comparison.
 - **Injection:** cleanup keeps exactly the fields that are not context fields,
   in their order. Injection writes those fields followed by the emitted
-  traceparent and, unless it is empty, the emitted tracestate; it reports the
-  emission's dropped keys apart and gives the same carrier when repeated. A
-  receiver that extracts an injected carrier with the same limits accepts its
-  traceparent, finds the injected local context's trace ID with its
-  randomness assertion, span ID and sampled indication as the sender's
-  operation, and receives the entries of the truncated state.
+  traceparent and, unless it is empty, the emitted tracestate, named by
+  `Context.field_names` in its order; it reports the emission's dropped keys
+  apart and gives the same carrier when repeated. A receiver that extracts
+  an injected carrier with the same limits accepts its traceparent, finds the
+  injected local context's trace ID with its randomness assertion, span ID
+  and sampled indication as the sender's operation, and receives the entries
+  of the truncated state.
 - **Forwarding:** a successful forwarding writes the other fields followed by
   the received traceparent value and the received tracestate fields joined by
-  commas, left out when empty. A context without a received pair is refused
-  with `NothingToForward{}`, and a pair whose joined tracestate exceeds the
-  output budget with `ForwardTooLarge{}`. The pair of a context that
-  extraction accepted is forwarded whenever it fits, and forwarding into the
-  carrier written gives that carrier again.
+  commas, left out when empty. A context without a received pair, every
+  context built from parts among them, is refused with `NothingToForward{}`,
+  and a pair whose joined tracestate exceeds the output budget with
+  `ForwardTooLarge{}`. The pair of a context that extraction accepted is
+  forwarded whenever it fits, and forwarding into the carrier written gives
+  that carrier again.
 - **Continuing or starting:** for every tape of words, extraction and
   sampling, and under both policies, `continue_or_start_with` generates one
   context and returns what that generation's outcome gives. With
@@ -1347,7 +1437,8 @@ randomness assertion, the quality of a source or global uniqueness.
 The sources are written to be read by developers new to Bend. Each law in
 [LAWS.bend](LAWS.bend) is preceded by a comment that states its claim in
 words, the requirement it verifies (a section of W3C Trace Context Level 2 or
-of the approved specification), why it matters and how to read its statement.
+of an approved specification, spec #1 or spec #41), why it matters and how to
+read its statement.
 [PROOF.bend](PROOF.bend) opens with a guide to reading Bend proofs and a map of
 the modules under [proofs](proofs), each of which starts with a summary of what
 it proves. [trace_context.bend](trace_context.bend) opens with notes on the

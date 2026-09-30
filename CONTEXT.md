@@ -66,6 +66,10 @@ The most UTF-8 octets of a received traceparent value or combined tracestate val
 **Output budget**:
 The most UTF-8 octets of tracestate the package emits. It is a capacity policy of the package, not a limit set by the standard.
 
+**Trace flags**:
+The traceparent byte that carries the sampling indication and the randomness assertion. A context keeps only those two known flags, so its trace flags are 00, 01, 02 or 03.
+_Avoid_: Span flags
+
 **Sampling indication (sampled)**:
 The trace-flags bit used to communicate the sampling indication between participants. Its value does not guarantee that operations have been or will be recorded.
 _Avoid_: Proof of collection, exporter activation
@@ -114,7 +118,7 @@ A traceparent or tracestate field of a carrier, whatever the ASCII case of its n
 Removing the context fields of a carrier for a message sent without trace context.
 
 **Incoming context**:
-A remote context extracted from a message, together with the tracestate received with it and, unless that tracestate was refused, the received pair.
+A remote context together with the tracestate that goes with it: one extracted from a message, which also keeps the received pair unless that tracestate was refused, or one built from its parts, which keeps none.
 _Avoid_: Local context
 
 **Received pair**:
