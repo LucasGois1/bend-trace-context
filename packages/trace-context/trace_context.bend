@@ -25,8 +25,8 @@
 #   Types                            every data type of the codec, contexts and
 #                                    generation, declared first
 #   Strict v00 codec                 Parse.*, TraceParentV00.*
-#   Identifiers and contexts         TraceId, SpanId, contexts, children,
-#                                    restarts
+#   Identifiers and contexts         TraceId, SpanId, contexts and their
+#                                    trace flags, children, restarts
 #   Identifiers from source words    U32.to_hex, TraceId.from_words, ...
 #   Generation machine               Draw.*, Step.*, Generation.*,
 #                                    Context.*_with, Source.tape
@@ -42,7 +42,8 @@
 #   Extraction                       Context.extract, TraceParent.read,
 #                                    incoming and base contexts, diagnostics
 #   Injection                        Context.inject and the Injection it
-#                                    writes, Context.clear
+#                                    writes, Context.field_names,
+#                                    Context.clear
 #   Forwarding                       Context.forward, ForwardError
 #   Continuing or starting           Context.continue_or_start_with,
 #                                    Reception, FailurePolicy, Service,
@@ -50,10 +51,10 @@
 #   Sending                          Context.send_with, Sent, SendPlan
 #
 # The public names are documented in packages/trace-context/README.md. Names in
-# the Parse, Draw, Step, Tape, Scan, Member, Value, Budget, Utf8, Entries,
-# StateChar, Carrier, Text, Read, Extract, Forward, Policy, Serve and Send
-# namespaces are internal: Bend lets any module import them, but they are not
-# a compatibility contract.
+# the Parse, Flags, Draw, Step, Tape, Scan, Member, Value, Budget, Utf8,
+# Entries, StateChar, Carrier, Text, Read, Extract, Forward, Policy, Serve and
+# Send namespaces are internal: Bend lets any module import them, but they are
+# not a compatibility contract.
 #
 # Notes for readers new to Bend
 # -----------------------------
@@ -443,7 +444,9 @@ def TraceParentV00.is_random(context: TraceParentV00) -> Bool:
 # Supplied IDs are parsed with the same digit reader as the codec. Contexts are
 # created from validated IDs: a root, a child continuing a parent, a restart
 # replacing a received trace, or the explicit construction of an operation the
-# caller owns.
+# caller owns. A context also gives its known trace flags as a number, for an
+# exporter; its sampled indication and its trace ID's randomness assertion
+# stay their canonical form, and there is no trace flags type.
 
 # The digits of a supplied ID must be the whole text, and not all zero.
 def Parse.id.finish(n: Nat, parsed: Parsed<n>, field: Field) ->
@@ -548,6 +551,22 @@ def RemoteContext.is_sampled(context: RemoteContext) -> Bool:
     case RemoteContext{trace_id, span_id, sampled}:
       sampled
 
+# The known trace flags as a number: `sampled` in bit 0 and `random` in bit 1
+# (W3C 3.2.2.5), with the six reserved bits zero.
+def Flags.known(sampled: Bool, random: Bool) -> U32:
+  U32.or(Bool.to_u32(sampled), U32.shl(Bool.to_u32(random)))
+
+# The trace flags that the context keeps, as a number from 0 to 3: bit 0 is
+# its sampled indication and bit 1 its trace ID's randomness assertion, the
+# known flags that it was received or built with. Reserved bits are never
+# among them. The Booleans stay the canonical form; the number is for an
+# exporter, such as one that writes OTLP's span flags. Laws: remote_flags and
+# received_trace_flags.
+def RemoteContext.flags(context: RemoteContext) -> U32:
+  match context:
+    case RemoteContext{trace_id, span_id, sampled}:
+      Flags.known(sampled, TraceId.is_random(trace_id))
+
 # The trace this participant's operation belongs to.
 def LocalContext.trace_id(context: LocalContext) -> TraceId:
   match context:
@@ -574,6 +593,16 @@ def LocalContext.to_traceparent(context: LocalContext) -> TraceParentV00:
     case LocalContext{TraceId{trace_id, random}, SpanId{span_id}, sampled}:
       TraceParentV00{trace_id, span_id,
         Digits.DCon{Hex.H0{}, Digits.DCon{Hex.Digit.from_bits(sampled, random, False{}, False{}), Digits.DNil{}}}}
+
+# The trace flags of the context as a number from 0 to 3: bit 0 is its sampled
+# indication and bit 1 its trace ID's randomness assertion. It is the flag
+# byte of the traceparent that the context emits, 00 to 03, so an exporter
+# that writes it, as OTLP's span flags for example, agrees with what the
+# context propagates. The Booleans stay the canonical form. Law: local_flags.
+def LocalContext.flags(context: LocalContext) -> U32:
+  match context:
+    case LocalContext{trace_id, span_id, sampled}:
+      Flags.known(sampled, TraceId.is_random(trace_id))
 
 # The trace a child continues.
 def Parent.trace_id(parent: Parent) -> TraceId:
@@ -2665,6 +2694,15 @@ def Carrier.unrelated.go(carrier: List<&2, Header>, kept: List<&2, Header>) -> L
 # result onto `fields`, also a loop, puts them back in order.
 def Carrier.replace(carrier: List<&2, Header>, fields: List<&2, Header>) -> List<&2, Header>:
   List.reverse.go(&2, Header, Carrier.unrelated.go(carrier, Nil{}), fields)
+
+# The names of the context fields as injection writes them: traceparent, then
+# tracestate, in lowercase (W3C 3.2.1 and 3.3.1). A propagator lists them as
+# the fields it writes, and an adapter that writes the values of
+# OutgoingContext.emit through its own setter writes them under these names,
+# the tracestate field only when its value is not empty, as injection does.
+# Law: inject_names.
+def Context.field_names() -> List<&2, String>:
+  ["traceparent", "tracestate"]
 
 # The context fields of a traceparent value and a tracestate value, with
 # lowercase names; the tracestate field is left out when its value is empty.

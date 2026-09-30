@@ -919,6 +919,19 @@ function $RemoteContext$is_sampled$(_context_0) {
   return _sampled_0;
 }
 
+function $Flags$known$(_sampled_0, _random_0) {
+  const _x_0 = ($Bool$to_u32$(_random_0));
+  const _x_1 = ($Bool$to_u32$(_sampled_0));
+  const _x_2 = ((_x_0 << 1) >>> 0);
+  return ((_x_1 | _x_2) >>> 0);
+}
+
+function $RemoteContext$flags$(_context_0) {
+  const _trace_id_0 = _context_0["trace_id"];
+  const _sampled_0 = _context_0["sampled"];
+  return $Flags$known$(_sampled_0, ($TraceId$is_random$(_trace_id_0)));
+}
+
 function $LocalContext$trace_id$(_context_0) {
   const _trace_id_0 = _context_0["trace_id"];
   return _trace_id_0;
@@ -942,6 +955,12 @@ function $LocalContext$to_traceparent$(_context_0) {
   const _span_id_0 = _t_1["value"];
   const _sampled_0 = _context_0["sampled"];
   return {$: "TraceParentV00", "trace_id": _trace_id_0, "parent_id": _span_id_0, "flags": {$: "src/digits.DCon", "head": {$: "src/hex.H0"}, "tail": {$: "src/digits.DCon", "head": ($src$047hex$Digit$from_bits$(_sampled_0, _random_0, false, false)), "tail": {$: "src/digits.DNil"}}}};
+}
+
+function $LocalContext$flags$(_context_0) {
+  const _trace_id_0 = _context_0["trace_id"];
+  const _sampled_0 = _context_0["sampled"];
+  return $Flags$known$(_sampled_0, ($TraceId$is_random$(_trace_id_0)));
 }
 
 function $Parent$trace_id$(_parent_0) {
@@ -2805,6 +2824,10 @@ function $Carrier$replace$(_carrier_0, _fields_0) {
   return $List$reverse$go$(($Carrier$unrelated$go$(_carrier_0, {$: "Nil"})), _fields_0);
 }
 
+function $Context$field_names$() {
+  return {$: "Con", "head": "traceparent", "tail": {$: "Con", "head": "tracestate", "tail": {$: "Nil"}}};
+}
+
 function $Carrier$context_fields$(_traceparent_0, _tracestate_0) {
   return {$: "Con", "head": {$: "Header", "name": "traceparent", "value": _traceparent_0}, "tail": ($Bool$pick$(($String$is_empty$(_tracestate_0)), {$: "Nil"}, {$: "Con", "head": {$: "Header", "name": "tracestate", "value": _tracestate_0}, "tail": {$: "Nil"}}))};
 }
@@ -3324,6 +3347,14 @@ function $String$eq$(_a_0, _b_0) {
   return $Cmp$is_eq$(($String$order$(_a_0, _b_0)));
 }
 
+function $Bool$to_u32$(_b_0) {
+  if (!_b_0) {
+    return 0;
+  } else {
+    return 1;
+  }
+}
+
 function $IO$pure$(_x_0, _k_0) {
   return run_tail(_k_0, _x_0);
 }
@@ -3581,14 +3612,6 @@ function $Cmp$is_gt$(_c_0) {
     return true;
   } else {
     return false;
-  }
-}
-
-function $Bool$to_u32$(_b_0) {
-  if (!_b_0) {
-    return 0;
-  } else {
-    return 1;
   }
 }
 
@@ -4563,10 +4586,13 @@ export default {
   "RemoteContext.trace_id": run_lib((a0) => { const r = (run_loop($RemoteContext$trace_id$((a0)))); (a0); return r; }, 1),
   "RemoteContext.span_id": run_lib((a0) => { const r = (run_loop($RemoteContext$span_id$((a0)))); (a0); return r; }, 1),
   "RemoteContext.is_sampled": run_lib((a0) => { const r = (run_loop($RemoteContext$is_sampled$((a0)))); (a0); return r; }, 1),
+  "Flags.known": run_lib((a0, a1) => { const r = (run_loop($Flags$known$((a0), (a1)))); (a0); (a1); return r; }, 2),
+  "RemoteContext.flags": run_lib((a0) => { const r = (run_loop($RemoteContext$flags$((a0)))); (a0); return r; }, 1),
   "LocalContext.trace_id": run_lib((a0) => { const r = (run_loop($LocalContext$trace_id$((a0)))); (a0); return r; }, 1),
   "LocalContext.span_id": run_lib((a0) => { const r = (run_loop($LocalContext$span_id$((a0)))); (a0); return r; }, 1),
   "LocalContext.is_sampled": run_lib((a0) => { const r = (run_loop($LocalContext$is_sampled$((a0)))); (a0); return r; }, 1),
   "LocalContext.to_traceparent": run_lib((a0) => { const r = (run_loop($LocalContext$to_traceparent$((a0)))); (a0); return r; }, 1),
+  "LocalContext.flags": run_lib((a0) => { const r = (run_loop($LocalContext$flags$((a0)))); (a0); return r; }, 1),
   "Parent.trace_id": run_lib((a0) => { const r = (run_loop($Parent$trace_id$((a0)))); (a0); return r; }, 1),
   "Parent.span_id": run_lib((a0) => { const r = (run_loop($Parent$span_id$((a0)))); (a0); return r; }, 1),
   "Parent.is_sampled": run_lib((a0) => { const r = (run_loop($Parent$is_sampled$((a0)))); (a0); return r; }, 1),
@@ -4773,6 +4799,7 @@ export default {
   "Carrier.keep_unrelated": run_lib((a0, a1, a2) => { const r = (run_loop($Carrier$keep_unrelated$((a0), (a1), (a2)))); (a0); (a1); (a2); return r; }, 3),
   "Carrier.unrelated.go": run_lib((a0, a1) => { const r = (run_loop($Carrier$unrelated$go$((a0), (a1)))); (a0); (a1); return r; }, 2),
   "Carrier.replace": run_lib((a0, a1) => { const r = (run_loop($Carrier$replace$((a0), (a1)))); (a0); (a1); return r; }, 2),
+  "Context.field_names": run_lib(() => { const r = (run_loop($Context$field_names$()));  return r; }, 0),
   "Carrier.context_fields": run_lib((a0, a1) => { const r = (run_loop($Carrier$context_fields$((a0), (a1)))); (a0); (a1); return r; }, 2),
   "Context.clear": run_lib((a0) => { const r = (run_loop($Context$clear$((a0)))); (a0); return r; }, 1),
   "Injection.of": run_lib((a0, a1) => { const r = (run_loop($Injection$of$((a0), (a1)))); (a0); (a1); return r; }, 2),

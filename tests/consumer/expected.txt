@@ -54,5 +54,18 @@ invalid traceparent request: Fresh | Accept: application/json | traceparent: 00-
 boundary service: Restarted 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-02
 boundary request: Fresh | Accept: application/json | traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-53995c3f42cd8ad8-02
 strict service: refused after SourceFailure 3 no entropy
+sdk flags: local 0 emits 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-00
+sdk flags: local 1 emits 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01
+sdk flags: local 2 emits 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-02
+sdk flags: local 3 emits 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-03
+sdk flags: remote 1 received 00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01
+sdk flags: remote 2 received 00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-fe
+sdk flags: remote 3 received 00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-ff
+sdk flags: field names traceparent, tracestate
+sdk flags: setter wrote accept: application/json | traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-03 | tracestate: rojo=00f067aa0ba902b7,congo=t61rcWkgMzE
+sdk flags: inject wrote accept: application/json | traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-03 | tracestate: rojo=00f067aa0ba902b7,congo=t61rcWkgMzE
+sdk flags: extracted TraceParentAccepted, StateAccepted: remote 3, parent 00f067aa0ba902b7, state rojo=00f067aa0ba902b7,congo=t61rcWkgMzE
+sdk flags: setter wrote accept: application/json | traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-02
+sdk flags: extracted TraceParentAccepted, StateAbsent: remote 2, parent 00f067aa0ba902b7, state none
 http service: Continued 00-0af7651916cd43dd8448eb211c80319c-00f067aa0ba902b7-01
 http request: Fresh | traceparent 00-0af7651916cd43dd8448eb211c80319c-53995c3f42cd8ad8-01 | tracestate rojo=00f067aa0ba902b7,congo=t61rcWkgMzE | TraceParent none | accept application/json

@@ -66,6 +66,10 @@ The most UTF-8 octets of a received traceparent value or combined tracestate val
 **Output budget**:
 The most UTF-8 octets of tracestate the package emits. It is a capacity policy of the package, not a limit set by the standard.
 
+**Trace flags**:
+The traceparent byte that carries the sampling indication and the randomness assertion. A context keeps only those two known flags, so its trace flags are 00, 01, 02 or 03.
+_Avoid_: Span flags
+
 **Sampling indication (sampled)**:
 The trace-flags bit used to communicate the sampling indication between participants. Its value does not guarantee that operations have been or will be recorded.
 _Avoid_: Proof of collection, exporter activation

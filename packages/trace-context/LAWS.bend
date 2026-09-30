@@ -19,8 +19,9 @@
 #   Claim        what the law says, in plain words.
 #   Requirement  the rule it enforces: a section of the pinned W3C Trace
 #                Context Level 2 publication (Candidate Recommendation Draft
-#                of 2024-03-28), or a decision of the approved specification
-#                (issue #1) or of a ticket.
+#                of 2024-03-28), or a decision of an approved specification
+#                (issue #1, and issue #41 for the building blocks of an
+#                OpenTelemetry SDK) or of a ticket.
 #   Why          what would go wrong for an application without it.
 #   Reading      how the Bend statement expresses the claim, when the
 #                notation is not obvious.
@@ -73,7 +74,7 @@
 #
 #    1. Strict v00 codec               formatted_length, roundtrip, inverse
 #    2. Supplied identifiers           trace_id_parse ... assert_random
-#    3. Local contexts and flags       from_ids ... received_flags
+#    3. Local contexts and flags       from_ids ... received_trace_flags
 #    4. Children and restarts          sampling ... restart_accepts
 #    5. Identifiers from source words  trace_words ... words_unasserted
 #    6. Generation from a source       feed_failure ... generation_drive
@@ -252,7 +253,9 @@ law assert_random:
 # sent as if it were the participant's own operation (spec #1, "Distinguish
 # remote context, local context and the accepted original header pair"). The
 # flags of W3C Level 2, section 3.2.2.5, are bit 0 (sampled) and bit 1
-# (random-trace-id); the other six bits are reserved.
+# (random-trace-id); the other six bits are reserved. Both context types give
+# their known flags as a number too, for an exporter (spec #41, "Trace
+# flags"): the last three laws state it.
 
 # LAW from_ids
 #   Claim: Context.from_ids keeps exactly the trace ID, the span ID and the
@@ -359,6 +362,88 @@ law received_flags:
     Trace.TraceParentV00.is_sampled(traceparent) : Bool} &
   {Trace.TraceId.is_random(Trace.RemoteContext.trace_id(Trace.RemoteContext.from_traceparent(traceparent))) ==
     Trace.TraceParentV00.is_random(traceparent) : Bool}
+
+# The trace flags of a sampled indication and a randomness assertion, as a
+# number: 0, 1 (sampled), 2 (random) or 3 (both), the values of the flag
+# bytes "00" to "03" that emitted_flags gives. It is written out literally,
+# so the laws below compare the package's number with these four values
+# rather than with the package's own bit operations.
+def known_flags(sampled: Bool, random: Bool) -> U32:
+  match sampled random:
+    case False{} False{}:
+      0
+    case True{} False{}:
+      1
+    case False{} True{}:
+      2
+    case True{} True{}:
+      3
+
+# LAW local_flags
+#   Claim: a local context's trace flags are its known flags as a number from
+#     0 to 3, its sampled indication in bit 0 and its trace ID's randomness
+#     assertion in bit 1, and they are the flags of the traceparent that it
+#     emits.
+#   Requirement: spec #41, "Trace flags": LocalContext.flags gives "the known
+#     trace flags as a number from 0 to 3: bit 0 is sampled, and bit 1 is
+#     random-trace-id, from the trace ID's assertion", and "A local context's
+#     value equals the flags of the traceparent it emits" (user stories 15
+#     and 16).
+#   Why: an exporter writes these flags into the span that it exports, as
+#     OTLP's span flags for example, while the traceparent carries the same
+#     operation to the next service. If they differed, the exported span and
+#     the propagated context would disagree.
+#   Reading: known_flags, above, gives the number of each pair of flags
+#     literally. The second equation reads the two known flags back from the
+#     emitted traceparent with the codec's readers. Its reserved bits are zero
+#     (emitted_traceparent), so the number is the value of its whole flag
+#     byte.
+#   Proof: Laws.local_flags, by case analysis on both flags.
+law local_flags:
+  for context: Trace.LocalContext
+  {Trace.LocalContext.flags(context) ==
+    known_flags(Trace.LocalContext.is_sampled(context), Trace.TraceId.is_random(Trace.LocalContext.trace_id(context))) :
+    U32} &
+  {Trace.LocalContext.flags(context) ==
+    known_flags(Trace.TraceParentV00.is_sampled(Trace.LocalContext.to_traceparent(context)),
+      Trace.TraceParentV00.is_random(Trace.LocalContext.to_traceparent(context))) : U32}
+
+# LAW remote_flags
+#   Claim: a remote context's trace flags are the known flags that it keeps,
+#     as a number from 0 to 3: its sampled indication in bit 0 and its trace
+#     ID's randomness assertion in bit 1, however the context was made.
+#   Requirement: spec #41, "Trace flags", as for local_flags: a remote
+#     context's value is the known flags that it was received or built with
+#     (user stories 15 and 17).
+#   Why: an SDK exports a remote parent as it exports a local operation. The
+#     Booleans stay the canonical form, and the number says no more than they
+#     do.
+#   Scope: received_trace_flags states the value of a received context in
+#     terms of the value received.
+#   Proof: Laws.remote_flags, by case analysis on both flags.
+law remote_flags:
+  for context: Trace.RemoteContext
+  {Trace.RemoteContext.flags(context) ==
+    known_flags(Trace.RemoteContext.is_sampled(context), Trace.TraceId.is_random(Trace.RemoteContext.trace_id(context))) :
+    U32}
+
+# LAW received_trace_flags
+#   Claim: the trace flags of a context received from a strict v00 value are
+#     that value's known flags: its sampled bit as bit 0 and its
+#     random-trace-id bit as bit 1. Its reserved bits are not among them.
+#   Requirement: spec #41, "Trace flags" (user story 17); W3C Level 2,
+#     sections 3.2.2.5.1 and 3.2.2.5.2.
+#   Why: an SDK exports a remote parent with the flags that its sender sent,
+#     and never passes on a reserved bit, whose meaning the package does not
+#     know, as a known flag.
+#   Scope: the corpus checks the codec's two flag readers on all 256 flag
+#     bytes (see received_flags).
+#   Proof: Laws.received_trace_flags, by remote_flags once the flag byte is
+#     split into its two digits.
+law received_trace_flags:
+  for traceparent: Trace.TraceParentV00
+  {Trace.RemoteContext.flags(Trace.RemoteContext.from_traceparent(traceparent)) ==
+    known_flags(Trace.TraceParentV00.is_sampled(traceparent), Trace.TraceParentV00.is_random(traceparent)) : U32}
 
 # 4. Children and restarts
 # ========================
@@ -2220,11 +2305,12 @@ law read_within_budgets:
 # Level 2, section 3.4, "Unmodified header propagation"). All three remove
 # every old traceparent and tracestate field, whatever the ASCII case of its
 # name, and keep the other fields in their order. These laws state the
-# carriers written, the diagnostics apart from them, and what a receiver
-# extracts from them. The corpus, tests/INJECT.bend, covers names in every
-# case, empty and truncated states, all flags, a later version with unknown
-# fields, spec #1's 600-octet state, pairs built directly and carriers of
-# 100000 fields.
+# carriers written, the names that injection writes, which Context.field_names
+# publishes (spec #41, "Context field names"), the diagnostics apart from the
+# carriers, and what a receiver extracts from them. The corpus,
+# tests/INJECT.bend, covers names in every case, empty and truncated states,
+# all flags, a later version with unknown fields, spec #1's 600-octet state,
+# pairs built directly and carriers of 100000 fields.
 
 # Whether a field name, with its ASCII letters in lowercase, is "traceparent"
 # or "tracestate".
@@ -2286,6 +2372,50 @@ law inject_carrier:
     List.append(&2, Trace.Header, unrelated(carrier),
       written(Trace.Emission.traceparent(Trace.OutgoingContext.emit(limits, outgoing)),
         Trace.Emission.tracestate(Trace.OutgoingContext.emit(limits, outgoing)))) : List<&2, Trace.Header>}
+
+# The names of the fields of a carrier, in their order.
+def names(carrier: List<&2, Trace.Header>) -> List<&2, String>:
+  match carrier:
+    case Nil{}:
+      Nil{}
+    case Con{header, rest}:
+      Con{Trace.Header.name(header), names(rest)}
+
+# The names, among `published`, of the fields that injection writes for an
+# emitted tracestate value: all of them, or only the first when the value is
+# empty, since an empty tracestate is not written.
+def written_names(published: List<&2, String>, tracestate: String) -> List<&2, String>:
+  match tracestate:
+    case SNil{}:
+      List.take(&2, String, published, 1n)
+    case SCon{first, rest}:
+      published
+
+# LAW inject_names
+#   Claim: injection writes its fields under the published names of the
+#     context fields, in their order: after the carrier's other fields, a
+#     field named by the first published name, then one named by the second
+#     unless the emitted tracestate is empty.
+#   Requirement: spec #41, "Context field names": "A public list gives the
+#     names of the context fields as injection writes them: traceparent, then
+#     tracestate" (user stories 22 and 23).
+#   Why: a propagator lists the fields that it writes, as OpenTelemetry's
+#     propagators do, so that a carrier can be cleared of them before it is
+#     reused, and an SDK's adapter that writes the emitted values through its
+#     own setter writes them under these names. Both must be the names that
+#     injection writes.
+#   Reading: names and written_names are defined just above, and unrelated at
+#     the start of this section. inject_carrier gives the names themselves,
+#     traceparent and tracestate in lowercase, so the published list is
+#     exactly those two names.
+#   Proof: Laws.inject_names, via proofs/inject.bend, from inject_carrier.
+law inject_names:
+  for +limits: Trace.Limits
+  for +outgoing: Trace.OutgoingContext
+  for +carrier: List<&2, Trace.Header>
+  {names(Trace.Injection.carrier(Trace.Context.inject(limits, outgoing, carrier))) ==
+    List.append(&2, String, names(unrelated(carrier)), written_names(Trace.Context.field_names(),
+      Trace.Emission.tracestate(Trace.OutgoingContext.emit(limits, outgoing)))) : List<&2, String>}
 
 # LAW inject_dropped
 #   Claim: the keys an injection reports dropped are those of the emission:
