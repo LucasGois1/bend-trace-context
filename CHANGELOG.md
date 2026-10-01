@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.1-dev — unreleased
+
+No change since 0.2.0 yet.
+
 ## 0.2.0 — 2026-10-01
 
 The building blocks for an OpenTelemetry SDK, which
