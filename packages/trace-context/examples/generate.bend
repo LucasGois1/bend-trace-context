@@ -2,10 +2,10 @@ import Base
 import ../trace_context.bend as TC
 import ../generation.bend as Generate
 
-# Start a trace on the host's cryptographic source, then create the operation
-# that calls another service. Both lines end in flags 02: the generated trace
-# ID asserts random-trace-id and the child inherits the root's unsampled
-# indication. Each run prints new IDs.
+# Start a trace on the host's cryptographic source, not sampled (False), then
+# create the operation that calls another service. Both lines end in flags
+# 02: the generated trace ID asserts random-trace-id and the child inherits
+# the root's unsampled indication. Each run prints new IDs.
 def emit(context: TC.LocalContext) -> IO(Unit):
   IO.print(TC.TraceParentV00.format(TC.LocalContext.to_traceparent(context)))
 
@@ -29,5 +29,5 @@ def start(result: Result<&2, &2, TC.GenerationError, TC.LocalContext>) -> IO(Uni
 
 def main() -> IO(Unit):
   do IO<Unit>:
-    root : Result<&2, &2, TC.GenerationError, TC.LocalContext> <- Generate.Context.root()
+    root : Result<&2, &2, TC.GenerationError, TC.LocalContext> <- Generate.Context.root(False{})
     start(root)

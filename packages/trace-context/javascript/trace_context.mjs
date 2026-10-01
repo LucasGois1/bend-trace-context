@@ -1041,8 +1041,8 @@ function $Context$from_ids$(_trace_id_0, _span_id_0, _sampled_0) {
   return {$: "LocalContext", "trace_id": _trace_id_0, "span_id": _span_id_0, "sampled": _sampled_0};
 }
 
-function $Context$root_from_ids$(_trace_id_0, _span_id_0) {
-  return $Context$from_ids$(_trace_id_0, _span_id_0, false);
+function $Context$root_from_ids$(_trace_id_0, _span_id_0, _sampled_0) {
+  return $Context$from_ids$(_trace_id_0, _span_id_0, _sampled_0);
 }
 
 function $Context$child_from_id$checked$(_trace_id_0, _span_id_0, _sampled_0, _reused_0) {
@@ -1057,16 +1057,16 @@ function $Context$child_from_id$(_parent_0, _span_id_0, _sampling_0) {
   return $Context$child_from_id$checked$(($Parent$trace_id$(_parent_0)), _span_id_0, ($Sampling$resolve$(_sampling_0, ($Parent$is_sampled$(_parent_0)))), ($SpanId$is_eq$(_span_id_0, ($Parent$span_id$(_parent_0)))));
 }
 
-function $Context$restart_from_ids$checked$(_trace_id_0, _span_id_0, _reused_0) {
+function $Context$restart_from_ids$checked$(_trace_id_0, _span_id_0, _sampled_0, _reused_0) {
   if (_reused_0) {
     return {$: "Fail", "error": {$: "ReusedTraceId"}};
   } else {
-    return {$: "Done", "value": ($Context$root_from_ids$(_trace_id_0, _span_id_0))};
+    return {$: "Done", "value": ($Context$root_from_ids$(_trace_id_0, _span_id_0, _sampled_0))};
   }
 }
 
-function $Context$restart_from_ids$(_previous_0, _trace_id_0, _span_id_0) {
-  return $Context$restart_from_ids$checked$(_trace_id_0, _span_id_0, ($TraceId$is_eq$(_trace_id_0, ($RemoteContext$trace_id$(_previous_0)))));
+function $Context$restart_from_ids$(_previous_0, _trace_id_0, _span_id_0, _sampled_0) {
+  return $Context$restart_from_ids$checked$(_trace_id_0, _span_id_0, _sampled_0, ($TraceId$is_eq$(_trace_id_0, ($RemoteContext$trace_id$(_previous_0)))));
 }
 
 function $U32$to_hex$(_word_0) {
@@ -1426,8 +1426,8 @@ function $Step$of_span$(_step_0, _trace_id_0, _sampled_0) {
   }
 }
 
-function $SpanPlan$root$(_trace_id_0) {
-  return {$: "SpanPlan", "excluded": {$: "None"}, "trace_id": _trace_id_0, "sampled": false};
+function $SpanPlan$root$(_trace_id_0, _sampled_0) {
+  return {$: "SpanPlan", "excluded": {$: "None"}, "trace_id": _trace_id_0, "sampled": _sampled_0};
 }
 
 function $SpanPlan$child$(_parent_0, _sampling_0) {
@@ -1441,29 +1441,39 @@ function $SpanPlan$draw$(_plan_0) {
   return $Step$of_span$(($SpanDraw$start$(_excluded_0)), _trace_id_0, _sampled_0);
 }
 
-function $Step$of_trace$(_step_0) {
+function $Step$of_trace$(_step_0, _sampled_0) {
   if (_step_0.$ === "NeedTraceWord") {
     const _draw_0 = _step_0["draw"];
-    return {$: "NeedWord", "draw": {$: "DrawTrace", "draw": _draw_0}};
+    return {$: "NeedWord", "draw": {$: "DrawTrace", "draw": _draw_0, "sampled": _sampled_0}};
   } else if (_step_0.$ === "DrawnTraceId") {
     const _id_0 = _step_0["id"];
-    return $SpanPlan$draw$(($SpanPlan$root$(_id_0)));
+    return $SpanPlan$draw$(($SpanPlan$root$(_id_0, _sampled_0)));
   } else {
     const _error_0 = _step_0["error"];
     return {$: "Failed", "error": _error_0};
   }
 }
 
-function $Draw$restart_excluded$(_previous_0) {
-  return {$: "Some", "value": ($RemoteContext$trace_id$(_previous_0))};
+function $TracePlan$root$(_sampled_0) {
+  return {$: "TracePlan", "excluded": {$: "None"}, "sampled": _sampled_0};
 }
 
-function $Draw$root$() {
-  return $Step$of_trace$(($TraceDraw$start$({$: "None"})));
+function $TracePlan$restart$(_previous_0, _sampled_0) {
+  return {$: "TracePlan", "excluded": {$: "Some", "value": ($RemoteContext$trace_id$(_previous_0))}, "sampled": _sampled_0};
 }
 
-function $Draw$restart$(_previous_0) {
-  return $Step$of_trace$(($TraceDraw$start$(($Draw$restart_excluded$(_previous_0)))));
+function $TracePlan$draw$(_plan_0) {
+  const _excluded_0 = _plan_0["excluded"];
+  const _sampled_0 = _plan_0["sampled"];
+  return $Step$of_trace$(($TraceDraw$start$(_excluded_0)), _sampled_0);
+}
+
+function $Draw$root$(_sampled_0) {
+  return $TracePlan$draw$(($TracePlan$root$(_sampled_0)));
+}
+
+function $Draw$restart$(_previous_0, _sampled_0) {
+  return $TracePlan$draw$(($TracePlan$restart$(_previous_0, _sampled_0)));
 }
 
 function $Draw$child$(_parent_0, _sampling_0) {
@@ -1473,12 +1483,13 @@ function $Draw$child$(_parent_0, _sampling_0) {
 function $Draw$feed$(_word_0, _draw_0) {
   if (_draw_0.$ === "DrawTrace") {
     const _trace_0 = _draw_0["draw"];
-    return $Step$of_trace$(($TraceDraw$next$(_word_0, _trace_0)));
+    const _sampled_0 = _draw_0["sampled"];
+    return $Step$of_trace$(($TraceDraw$next$(_word_0, _trace_0)), _sampled_0);
   } else {
     const _span_0 = _draw_0["draw"];
     const _trace_id_0 = _draw_0["trace_id"];
-    const _sampled_0 = _draw_0["sampled"];
-    return $Step$of_span$(($SpanDraw$next$(_word_0, _span_0)), _trace_id_0, _sampled_0);
+    const _sampled_1 = _draw_0["sampled"];
+    return $Step$of_span$(($SpanDraw$next$(_word_0, _span_0)), _trace_id_0, _sampled_1);
   }
 }
 
@@ -1524,12 +1535,16 @@ function $Draw$outcome$(_done_0) {
   return $Drive$outcome$1262$(_done_0);
 }
 
-function $Generation$root$() {
-  return {$: "Generation", "fuel": 48, "step": ($Draw$root$())};
+function $TracePlan$generation$(_plan_0) {
+  return {$: "Generation", "fuel": 48, "step": ($TracePlan$draw$(_plan_0))};
 }
 
-function $Generation$restart$(_previous_0) {
-  return {$: "Generation", "fuel": 48, "step": ($Draw$restart$(_previous_0))};
+function $Generation$root$(_sampled_0) {
+  return $TracePlan$generation$(($TracePlan$root$(_sampled_0)));
+}
+
+function $Generation$restart$(_previous_0, _sampled_0) {
+  return $TracePlan$generation$(($TracePlan$restart$(_previous_0, _sampled_0)));
 }
 
 function $Generation$child$(_parent_0, _sampling_0) {
@@ -3231,8 +3246,8 @@ function $Policy$apply$done$(_policy_0, _strict_0, _done_0) {
   return {$: "Tuple", "fst": _source_0, "snd": run_loop($Policy$apply$(_policy_0, _strict_0, _value_0))};
 }
 
-function $Serve$start$(_sampling_0, _context_0) {
-  return {$: "LocalContext", "trace_id": ($LocalContext$trace_id$(_context_0)), "span_id": ($LocalContext$span_id$(_context_0)), "sampled": ($Sampling$resolve$(_sampling_0, false))};
+function $Serve$new_trace_sampled$(_sampling_0) {
+  return $Sampling$resolve$(_sampling_0, false);
 }
 
 function $Serve$from_child$(_state_0, _received_0, _result_0) {
@@ -3245,13 +3260,13 @@ function $Serve$from_child$(_state_0, _received_0, _result_0) {
   }
 }
 
-function $Serve$from_start$(_origin_0, _sampling_0, _result_0) {
+function $Serve$from_start$(_origin_0, _result_0) {
   if (_result_0.$ === "Fail") {
     const _error_0 = _result_0["error"];
     return {$: "Untraced", "error": _error_0, "received": {$: "None"}};
   } else {
     const _context_0 = _result_0["value"];
-    return {$: "Operating", "origin": _origin_0, "outgoing": ($OutgoingContext$new$(($Serve$start$(_sampling_0, _context_0)))), "received": {$: "None"}};
+    return {$: "Operating", "origin": _origin_0, "outgoing": ($OutgoingContext$new$(_context_0)), "received": {$: "None"}};
   }
 }
 
@@ -3269,13 +3284,13 @@ function $Serve$usable$(_base_0, _received_0, _reception_0, _sampling_0) {
   if (_reception_0.$ === "Continue") {
     return {$: "ContinuePlan", "generation": ($Generation$child$(($BaseContext$parent$(_base_0)), _sampling_0)), "state": ($BaseContext$state$(_base_0)), "received": _received_0};
   } else {
-    return {$: "StartPlan", "generation": ($Generation$restart$(($Serve$replaced$(_base_0)))), "origin": {$: "Restarted"}, "sampling": _sampling_0};
+    return {$: "StartPlan", "generation": ($Generation$restart$(($Serve$replaced$(_base_0)), ($Serve$new_trace_sampled$(_sampling_0)))), "origin": {$: "Restarted"}};
   }
 }
 
 function $Serve$kept$(_context_0, _received_0, _reception_0, _sampling_0) {
   if (_context_0.$ === "None") {
-    return {$: "StartPlan", "generation": ($Generation$root$()), "origin": {$: "Started"}, "sampling": _sampling_0};
+    return {$: "StartPlan", "generation": ($Generation$root$(($Serve$new_trace_sampled$(_sampling_0)))), "origin": {$: "Started"}};
   } else {
     const _base_0 = _context_0["value"];
     return $Serve$usable$(_base_0, _received_0, _reception_0, _sampling_0);
@@ -3303,8 +3318,7 @@ function $ServicePlan$service$(_plan_0, _result_0) {
     return $Serve$from_child$(_state_0, _received_0, _result_0);
   } else {
     const _origin_0 = _plan_0["origin"];
-    const _sampling_0 = _plan_0["sampling"];
-    return $Serve$from_start$(_origin_0, _sampling_0, _result_0);
+    return $Serve$from_start$(_origin_0, _result_0);
   }
 }
 
@@ -5261,11 +5275,11 @@ export default {
   "Parent.span_id": run_lib((a0) => { const r = (run_loop($Parent$span_id$((a0)))); (a0); return r; }, 1),
   "Parent.is_sampled": run_lib((a0) => { const r = (run_loop($Parent$is_sampled$((a0)))); (a0); return r; }, 1),
   "Context.from_ids": run_lib((a0, a1, a2) => { const r = (run_loop($Context$from_ids$((a0), (a1), (a2)))); (a0); (a1); (a2); return r; }, 3),
-  "Context.root_from_ids": run_lib((a0, a1) => { const r = (run_loop($Context$root_from_ids$((a0), (a1)))); (a0); (a1); return r; }, 2),
+  "Context.root_from_ids": run_lib((a0, a1, a2) => { const r = (run_loop($Context$root_from_ids$((a0), (a1), (a2)))); (a0); (a1); (a2); return r; }, 3),
   "Context.child_from_id.checked": run_lib((a0, a1, a2, a3) => { const r = (run_loop($Context$child_from_id$checked$((a0), (a1), (a2), (a3)))); (a0); (a1); (a2); (a3); return r; }, 4),
   "Context.child_from_id": run_lib((a0, a1, a2) => { const r = (run_loop($Context$child_from_id$((a0), (a1), (a2)))); (a0); (a1); (a2); return r; }, 3),
-  "Context.restart_from_ids.checked": run_lib((a0, a1, a2) => { const r = (run_loop($Context$restart_from_ids$checked$((a0), (a1), (a2)))); (a0); (a1); (a2); return r; }, 3),
-  "Context.restart_from_ids": run_lib((a0, a1, a2) => { const r = (run_loop($Context$restart_from_ids$((a0), (a1), (a2)))); (a0); (a1); (a2); return r; }, 3),
+  "Context.restart_from_ids.checked": run_lib((a0, a1, a2, a3) => { const r = (run_loop($Context$restart_from_ids$checked$((a0), (a1), (a2), (a3)))); (a0); (a1); (a2); (a3); return r; }, 4),
+  "Context.restart_from_ids": run_lib((a0, a1, a2, a3) => { const r = (run_loop($Context$restart_from_ids$((a0), (a1), (a2), (a3)))); (a0); (a1); (a2); (a3); return r; }, 4),
   "U32.to_hex": run_lib((a0) => { const r = (run_loop($U32$to_hex$((a0)))); (a0); return r; }, 1),
   "TraceId.from_digits": run_lib((a0) => { const r = (run_loop($TraceId$from_digits$((a0)))); (a0); return r; }, 1),
   "TraceId.from_words": run_lib((a0, a1, a2, a3) => { const r = (run_loop($TraceId$from_words$((a0), (a1), (a2), (a3)))); (a0); (a1); (a2); (a3); return r; }, 4),
@@ -5309,13 +5323,15 @@ export default {
   "SpanDraw.ended": run_lib((a0) => { const r = (run_loop($SpanDraw$ended$((a0)))); (a0); return r; }, 1),
   "SpanDraw.outcome": run_lib((a0) => { const r = (run_loop($SpanDraw$outcome$($0m24(a0)))); $0m25(a0); return r; }, 1),
   "Step.of_span": run_lib((a0, a1, a2) => { const r = $0m26(run_loop($Step$of_span$($0m22(a0), (a1), (a2)))); $0m19(a0); (a1); (a2); return r; }, 3),
-  "SpanPlan.root": run_lib((a0) => { const r = (run_loop($SpanPlan$root$((a0)))); (a0); return r; }, 1),
+  "SpanPlan.root": run_lib((a0, a1) => { const r = (run_loop($SpanPlan$root$((a0), (a1)))); (a0); (a1); return r; }, 2),
   "SpanPlan.child": run_lib((a0, a1) => { const r = (run_loop($SpanPlan$child$((a0), (a1)))); (a0); (a1); return r; }, 2),
   "SpanPlan.draw": run_lib((a0) => { const r = $0m26(run_loop($SpanPlan$draw$((a0)))); (a0); return r; }, 1),
-  "Step.of_trace": run_lib((a0) => { const r = $0m26(run_loop($Step$of_trace$($0m15(a0)))); $0m12(a0); return r; }, 1),
-  "Draw.restart_excluded": run_lib((a0) => { const r = (run_loop($Draw$restart_excluded$((a0)))); (a0); return r; }, 1),
-  "Draw.root": run_lib(() => { const r = $0m26(run_loop($Draw$root$()));  return r; }, 0),
-  "Draw.restart": run_lib((a0) => { const r = $0m26(run_loop($Draw$restart$((a0)))); (a0); return r; }, 1),
+  "Step.of_trace": run_lib((a0, a1) => { const r = $0m26(run_loop($Step$of_trace$($0m15(a0), (a1)))); $0m12(a0); (a1); return r; }, 2),
+  "TracePlan.root": run_lib((a0) => { const r = (run_loop($TracePlan$root$((a0)))); (a0); return r; }, 1),
+  "TracePlan.restart": run_lib((a0, a1) => { const r = (run_loop($TracePlan$restart$((a0), (a1)))); (a0); (a1); return r; }, 2),
+  "TracePlan.draw": run_lib((a0) => { const r = $0m26(run_loop($TracePlan$draw$((a0)))); (a0); return r; }, 1),
+  "Draw.root": run_lib((a0) => { const r = $0m26(run_loop($Draw$root$((a0)))); (a0); return r; }, 1),
+  "Draw.restart": run_lib((a0, a1) => { const r = $0m26(run_loop($Draw$restart$((a0), (a1)))); (a0); (a1); return r; }, 2),
   "Draw.child": run_lib((a0, a1) => { const r = $0m26(run_loop($Draw$child$((a0), (a1)))); (a0); (a1); return r; }, 2),
   "Draw.feed": run_lib((a0, a1) => { const r = $0m26(run_loop($Draw$feed$((a0), $0m28(a1)))); (a0); $0m27(a1); return r; }, 2),
   "Step.waiting": run_lib((a0) => { const r = $0m30(run_loop($Step$waiting$($0m29(a0)))); $0m26(a0); return r; }, 1),
@@ -5323,8 +5339,9 @@ export default {
   "Draw.run": run_lib((a0, a1) => { const r = (run_loop($Draw$run$(nat_host(a0), (a1)))); BigInt(a0); (a1); return r; }, 2),
   "Draw.ended": run_lib((a0) => { const r = (run_loop($Draw$ended$((a0)))); (a0); return r; }, 1),
   "Draw.outcome": run_lib((a0) => { const r = (run_loop($Draw$outcome$($0m31(a0)))); $0m32(a0); return r; }, 1),
-  "Generation.root": run_lib(() => { const r = $0m33(run_loop($Generation$root$()));  return r; }, 0),
-  "Generation.restart": run_lib((a0) => { const r = $0m33(run_loop($Generation$restart$((a0)))); (a0); return r; }, 1),
+  "TracePlan.generation": run_lib((a0) => { const r = $0m33(run_loop($TracePlan$generation$((a0)))); (a0); return r; }, 1),
+  "Generation.root": run_lib((a0) => { const r = $0m33(run_loop($Generation$root$((a0)))); (a0); return r; }, 1),
+  "Generation.restart": run_lib((a0, a1) => { const r = $0m33(run_loop($Generation$restart$((a0), (a1)))); (a0); (a1); return r; }, 2),
   "Generation.child": run_lib((a0, a1) => { const r = $0m33(run_loop($Generation$child$((a0), (a1)))); (a0); (a1); return r; }, 2),
   "Generation.needs.of": run_lib((a0, a1) => { const r = (run_loop($Generation$needs$of$(nat_host(a0), $0m29(a1)))); BigInt(a0); $0m26(a1); return r; }, 2),
   "Generation.needs": run_lib((a0) => { const r = (run_loop($Generation$needs$($0m34(a0)))); $0m33(a0); return r; }, 1),
@@ -5518,9 +5535,9 @@ export default {
   "FailurePolicy.result": run_lib((a0, a1) => { const r = (run_loop($FailurePolicy$result$((a0), (a1)))); (a0); (a1); return r; }, 2),
   "Policy.apply": run_lib((a0, a1, a2) => { const r = (run_loop($Policy$apply$((a0), (a1), (a2)))); (a0); (a1); (a2); return r; }, 3),
   "Policy.apply.done": run_lib((a0, a1, a2) => { const r = (run_loop($Policy$apply$done$((a0), (a1), (a2)))); (a0); (a1); (a2); return r; }, 3),
-  "Serve.start": run_lib((a0, a1) => { const r = (run_loop($Serve$start$((a0), (a1)))); (a0); (a1); return r; }, 2),
+  "Serve.new_trace_sampled": run_lib((a0) => { const r = (run_loop($Serve$new_trace_sampled$((a0)))); (a0); return r; }, 1),
   "Serve.from_child": run_lib((a0, a1, a2) => { const r = (run_loop($Serve$from_child$((a0), (a1), (a2)))); (a0); (a1); (a2); return r; }, 3),
-  "Serve.from_start": run_lib((a0, a1, a2) => { const r = (run_loop($Serve$from_start$((a0), (a1), (a2)))); (a0); (a1); (a2); return r; }, 3),
+  "Serve.from_start": run_lib((a0, a1) => { const r = (run_loop($Serve$from_start$((a0), (a1)))); (a0); (a1); return r; }, 2),
   "Serve.replaced": run_lib((a0) => { const r = (run_loop($Serve$replaced$((a0)))); (a0); return r; }, 1),
   "Serve.usable": run_lib((a0, a1, a2, a3) => { const r = $0m62(run_loop($Serve$usable$((a0), (a1), (a2), (a3)))); (a0); (a1); (a2); (a3); return r; }, 4),
   "Serve.kept": run_lib((a0, a1, a2, a3) => { const r = $0m62(run_loop($Serve$kept$((a0), (a1), (a2), (a3)))); (a0); (a1); (a2); (a3); return r; }, 4),

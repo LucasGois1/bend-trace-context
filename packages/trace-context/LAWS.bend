@@ -279,16 +279,25 @@ law from_ids:
 
 # LAW root
 #   Claim: a root built from supplied IDs is the explicit construction of those
-#     IDs with sampled 0.
-#   Requirement: spec #1, "New roots default to sampled 0" (user story 10).
+#     IDs with the sampled indication that it is given. With False, it is not
+#     sampled, sampled 0, as Context.continue_or_start_with starts a root by
+#     default.
+#   Requirement: spec #1, "New roots default to sampled 0" (user story 10),
+#     which Context.continue_or_start_with applies (start_unusable); spec
+#     #41, "Sampling decision when starting a trace": Context.root_from_ids
+#     takes the sampled indication explicitly, and no low-level piece applies
+#     a default of its own (user story 27).
 #   Why: starting a trace, with generated or supplied IDs, must not by itself
-#     ask downstream services to record it; sampling stays an explicit
-#     decision of the application.
+#     ask downstream services to record it, and must ask them when the
+#     application decides so: sampling stays an explicit decision of the
+#     application.
 #   Proof: Laws.root, by computation.
 law root:
   for trace_id: Trace.TraceId
   for span_id: Trace.SpanId
-  {Trace.Context.root_from_ids(trace_id, span_id) == Trace.Context.from_ids(trace_id, span_id, False{}) : Trace.LocalContext}
+  for sampled: Bool
+  {Trace.Context.root_from_ids(trace_id, span_id, sampled) == Trace.Context.from_ids(trace_id, span_id, sampled) :
+    Trace.LocalContext}
 
 # LAW remote_from_ids
 #   Claim: RemoteContext.from_ids keeps exactly the trace ID, the span ID and
@@ -565,30 +574,35 @@ law child_accepts:
     Result<&2, &2, Trace.ContextError, Trace.LocalContext>}
 
 # LAW restart
-#   Claim: a successful restart is the root of its supplied IDs (sampled 0,
-#     random as asserted by the new trace ID), and its trace ID differs from
-#     the received one.
+#   Claim: a successful restart is the root of its supplied IDs with the
+#     sampled indication that it is given (random as asserted by the new trace
+#     ID), and its trace ID differs from the received one. With False, the root
+#     defaults apply, sampled 0 included.
 #   Requirement: spec #1, "Explicit restart creates a new trace identity,
 #     discards previous tracestate and applies root defaults, including sampled
-#     0" (user story 46).
+#     0" (user story 46); spec #41, "Sampling decision when starting a trace":
+#     Context.restart_from_ids takes the sampled indication explicitly, and a
+#     restart still takes only a remote context (user story 27).
 #   Why: a restart that kept the received trace ID would be a continuation in
 #     disguise.
 #   Scope: discarding the previous tracestate belongs to the continue-or-start
-#     operation (law restart_received, section 14).
+#     operation (laws restart_usable and restart_keeps_nothing, section 14).
 #   Proof: Laws.restart, via proofs/lifecycle.bend.
 law restart:
   for previous: Trace.RemoteContext
   for trace_id: Trace.TraceId
   for span_id: Trace.SpanId
+  for sampled: Bool
   for restarted: Trace.LocalContext
-  for accepted: {Trace.Context.restart_from_ids(previous, trace_id, span_id) == Done{restarted} :
+  for accepted: {Trace.Context.restart_from_ids(previous, trace_id, span_id, sampled) == Done{restarted} :
     Result<&2, &2, Trace.ContextError, Trace.LocalContext>}
-  {restarted == Trace.Context.root_from_ids(trace_id, span_id) : Trace.LocalContext} &
+  {restarted == Trace.Context.root_from_ids(trace_id, span_id, sampled) : Trace.LocalContext} &
   {Trace.TraceId.to_string(trace_id) != Trace.TraceId.to_string(Trace.RemoteContext.trace_id(previous)) : String}
 
 # LAW restart_reuse
 #   Claim: a restart whose trace ID equals the received one is refused with
-#     ReusedTraceId, whatever its randomness assertion.
+#     ReusedTraceId, whatever its randomness assertion and its sampled
+#     indication.
 #   Requirement: as for `restart`; the decision to refuse the received trace ID
 #     was recorded on #5.
 #   Why: see `restart`.
@@ -597,14 +611,15 @@ law restart_reuse:
   for previous: Trace.RemoteContext
   for trace_id: Trace.TraceId
   for span_id: Trace.SpanId
+  for sampled: Bool
   for reused: {Trace.TraceId.to_string(trace_id) ==
     Trace.TraceId.to_string(Trace.RemoteContext.trace_id(previous)) : String}
-  {Trace.Context.restart_from_ids(previous, trace_id, span_id) == Fail{Trace.ReusedTraceId{}} :
+  {Trace.Context.restart_from_ids(previous, trace_id, span_id, sampled) == Fail{Trace.ReusedTraceId{}} :
     Result<&2, &2, Trace.ContextError, Trace.LocalContext>}
 
 # LAW restart_accepts
 #   Claim: every other trace ID is accepted, and the restart is exactly the
-#     root of the supplied IDs.
+#     root of the supplied IDs with the sampled indication that it is given.
 #   Why: with restart_reuse it makes reuse the only reason a restart can be
 #     refused.
 #   Proof: Laws.restart_accepts, via proofs/lifecycle.bend.
@@ -612,10 +627,12 @@ law restart_accepts:
   for previous: Trace.RemoteContext
   for trace_id: Trace.TraceId
   for span_id: Trace.SpanId
+  for sampled: Bool
   for distinct: {Trace.TraceId.to_string(trace_id) !=
     Trace.TraceId.to_string(Trace.RemoteContext.trace_id(previous)) : String}
-  {Trace.Context.restart_from_ids(previous, trace_id, span_id) ==
-    Done{Trace.Context.root_from_ids(trace_id, span_id)} : Result<&2, &2, Trace.ContextError, Trace.LocalContext>}
+  {Trace.Context.restart_from_ids(previous, trace_id, span_id, sampled) ==
+    Done{Trace.Context.root_from_ids(trace_id, span_id, sampled)} :
+    Result<&2, &2, Trace.ContextError, Trace.LocalContext>}
 
 # 5. Identifiers from source words
 # ================================
@@ -740,6 +757,11 @@ law words_unasserted:
 # ID, zero rejected, a child's candidate equal to the parent's span ID
 # rejected, the first source error ends generation, and there is no time or
 # counter fallback. The quality of a real host source is outside every law.
+# A root and a restart take the sampled indication of the context that they
+# create as it is given (spec #41, "Sampling decision when starting a
+# trace"), so the laws below state them for every indication; the default of
+# new traces, not sampled, lives in Context.continue_or_start_with (section
+# 14).
 
 # LAW feed_failure
 #   Claim: a source error ends generation at once with SourceFailure, carrying
@@ -783,9 +805,10 @@ def zeros(count: Nat) -> Tape():
       Con{Done{0}, zeros(p)}
 
 # LAW root_tape
-#   Claim: generating a root from a tape source does exactly what the pure tape
-#     driver Draw.run does with a budget of 48 words: the same words are read,
-#     in order, and the unread ones are handed back.
+#   Claim: generating a root from a tape source, with any sampled indication,
+#     does exactly what the pure tape driver Draw.run does with a budget of 48
+#     words: the same words are read, in order, and the unread ones are handed
+#     back.
 #   Requirement: spec #1, "Allow an explicit caller provider and deterministic
 #     sources for tests"; the IO operation must follow the machine that the
 #     other generation laws describe.
@@ -795,8 +818,9 @@ def zeros(count: Nat) -> Tape():
 #   Proof: Laws.root_tape, via proofs/generation.bend.
 law root_tape:
   for tape: Tape()
-  {Observe(TapeOutcome(), Trace.Context.root_with(~Tape(), ~Trace.Source.tape, tape)) ==
-    Emit{Trace.Draw.outcome(Tape(), Trace.Draw.run(48n, (tape, Trace.Draw.root())))} : IO.OP<TapeOutcome()>}
+  for sampled: Bool
+  {Observe(TapeOutcome(), Trace.Context.root_with(~Tape(), ~Trace.Source.tape, tape, sampled)) ==
+    Emit{Trace.Draw.outcome(Tape(), Trace.Draw.run(48n, (tape, Trace.Draw.root(sampled))))} : IO.OP<TapeOutcome()>}
 
 # LAW child_tape
 #   Claim: as root_tape, for a child with a budget of 16 words.
@@ -810,18 +834,20 @@ law child_tape:
     IO.OP<TapeOutcome()>}
 
 # LAW restart_tape
-#   Claim: as root_tape, for a restart with a budget of 48 words.
+#   Claim: as root_tape, for a restart with a budget of 48 words, with any
+#     sampled indication.
 #   Proof: Laws.restart_tape, via proofs/generation.bend.
 law restart_tape:
   for tape: Tape()
   for previous: Trace.RemoteContext
-  {Observe(TapeOutcome(), Trace.Context.restart_with(~Tape(), ~Trace.Source.tape, tape, previous)) ==
-    Emit{Trace.Draw.outcome(Tape(), Trace.Draw.run(48n, (tape, Trace.Draw.restart(previous))))} :
+  for sampled: Bool
+  {Observe(TapeOutcome(), Trace.Context.restart_with(~Tape(), ~Trace.Source.tape, tape, previous, sampled)) ==
+    Emit{Trace.Draw.outcome(Tape(), Trace.Draw.run(48n, (tape, Trace.Draw.restart(previous, sampled))))} :
     IO.OP<TapeOutcome()>}
 
 # LAW root_ends
-#   Claim: for every tape, a root generation has finished, with a context or a
-#     failure, within 48 words.
+#   Claim: for every tape and every sampled indication, a root generation has
+#     finished, with a context or a failure, within 48 words.
 #   Requirement: spec #1, "Allow at most eight candidates per ID": eight trace
 #     ID candidates of four words and eight span ID candidates of two.
 #   Why: generation always ends with an answer. The IO operation's word budget
@@ -830,7 +856,8 @@ law restart_tape:
 #   Proof: Laws.root_ends, via proofs/generation.bend.
 law root_ends:
   for tape: Tape()
-  {Trace.Draw.ended(Trace.Draw.run(48n, (tape, Trace.Draw.root()))) == True{} : Bool}
+  for +sampled: Bool
+  {Trace.Draw.ended(Trace.Draw.run(48n, (tape, Trace.Draw.root(sampled)))) == True{} : Bool}
 
 # LAW child_ends
 #   Claim: for every tape, a child generation has finished within 16 words:
@@ -844,17 +871,20 @@ law child_ends:
   {Trace.Draw.ended(Trace.Draw.run(16n, (tape, Trace.Draw.child(parent, sampling)))) == True{} : Bool}
 
 # LAW restart_ends
-#   Claim: for every tape, a restart has finished within 48 words.
+#   Claim: for every tape and every sampled indication, a restart has
+#     finished within 48 words.
 #   Requirement and Why: as for root_ends.
 #   Proof: Laws.restart_ends, via proofs/generation.bend.
 law restart_ends:
   for tape: Tape()
   for +previous: Trace.RemoteContext
-  {Trace.Draw.ended(Trace.Draw.run(48n, (tape, Trace.Draw.restart(previous)))) == True{} : Bool}
+  for +sampled: Bool
+  {Trace.Draw.ended(Trace.Draw.run(48n, (tape, Trace.Draw.restart(previous, sampled)))) == True{} : Bool}
 
 # LAW root_exhaustion
 #   Claim: eight all-zero trace ID candidates (32 zero words) make a root fail
-#     with ExhaustedTraceId, and the words after them are not read.
+#     with ExhaustedTraceId, whatever its sampled indication, and the words
+#     after them are not read.
 #   Requirement: spec #1, "Allow at most eight candidates per ID. Reject zero",
 #     and the test decision "prevention of a ninth attempt".
 #   Why: a source stuck on zeros must produce a structured error instead of
@@ -864,9 +894,10 @@ law restart_ends:
 #     tested in tests/GENERATION.bend.
 #   Proof: Laws.root_exhaustion, by computation.
 law root_exhaustion:
+  for sampled: Bool
   for rest: Tape()
-  {Trace.Draw.run(48n, (List.append(&1, Result<&1, &1, U32 & String, U32>, zeros(32n), rest), Trace.Draw.root())) ==
-    (rest, Trace.Failed{Trace.ExhaustedTraceId{}}) : TapeStep()}
+  {Trace.Draw.run(48n, (List.append(&1, Result<&1, &1, U32 & String, U32>, zeros(32n), rest),
+    Trace.Draw.root(sampled))) == (rest, Trace.Failed{Trace.ExhaustedTraceId{}}) : TapeStep()}
 
 # LAW child_exhaustion
 #   Claim: eight all-zero span ID candidates (16 zero words) make a child fail
@@ -881,22 +912,38 @@ law child_exhaustion:
     Trace.Draw.child(parent, sampling))) == (rest, Trace.Failed{Trace.ExhaustedSpanId{}}) : TapeStep()}
 
 # LAW generated_root
-#   Claim: a root created from any tape asserts random-trace-id and is not
-#     sampled, so it is emitted with flags 02.
+#   Claim: a root created from any tape asserts random-trace-id and has the
+#     sampled indication that it was given, so it is emitted with flags 03
+#     when it is sampled and 02 when it is not. With False, it is not
+#     sampled and is emitted with flags 02, as the root that
+#     Context.continue_or_start_with starts by default.
 #   Requirement: spec #1, "a default internally generated root has flags 02,
-#     despite sampled being 0".
+#     despite sampled being 0", which Context.continue_or_start_with applies
+#     by passing False for InheritSampled{} (start_unusable); spec #41,
+#     "Sampling decision when starting a trace": root generation takes the
+#     sampled indication explicitly, and no low-level piece applies a default
+#     of its own (user story 25).
 #   Why: receivers may rely on the random flag of IDs this package generates,
-#     and new roots never ask for recording by default.
+#     and a new root asks for recording exactly when its caller decides so: a
+#     background job that the application traces can be sampled without
+#     rebuilding its root from the IDs.
+#   Reading: the flags follow from the two conclusions by
+#     emitted_traceparent (section 3), whose flag byte is
+#     emitted_flags(is_sampled, is_random) of the root: with random-trace-id
+#     asserted, emitted_flags(sampled, True{}), which is 02 for False and 03
+#     for True.
 #   Scope: the source is trusted to be random; no law speaks about the quality
 #     of a real source.
 #   Proof: Laws.generated_root, via proofs/generation.bend.
 law generated_root:
   for tape: Tape()
+  for +sampled: Bool
   for rest: Tape()
   for created: Trace.LocalContext
-  for generated: {Trace.Draw.run(48n, (tape, Trace.Draw.root())) == (rest, Trace.Created{created}) : TapeStep()}
+  for generated: {Trace.Draw.run(48n, (tape, Trace.Draw.root(sampled))) == (rest, Trace.Created{created}) :
+    TapeStep()}
   {Trace.TraceId.is_random(Trace.LocalContext.trace_id(created)) == True{} : Bool} &
-  {Trace.LocalContext.is_sampled(created) == False{} : Bool}
+  {Trace.LocalContext.is_sampled(created) == sampled : Bool}
 
 # LAW generated_child
 #   Claim: a child created from any tape keeps the parent's trace ID with its
@@ -922,20 +969,31 @@ law generated_child:
 
 # LAW generated_restart
 #   Claim: a restart created from any tape has a trace ID other than the
-#     received one, asserts random-trace-id and is not sampled.
-#   Requirement: as for `restart` and generated_root.
+#     received one, asserts random-trace-id and has the sampled indication
+#     that it was given, so it is emitted with flags 03 when it is sampled and
+#     02 when it is not. With False, it is not sampled, as the restart that
+#     Context.continue_or_start_with starts by default at a trust boundary.
+#   Requirement: as for `restart` and generated_root; spec #41, "Sampling
+#     decision when starting a trace": a restart takes the sampled indication
+#     explicitly, and still takes only a remote context (user story 26).
+#   Why: a trust boundary restarts traces under the application's sampling
+#     policy, and the new trace never reuses the received one, whatever the
+#     indication.
+#   Reading: the flags follow from the last two conclusions by
+#     emitted_traceparent (section 3), as for generated_root.
 #   Proof: Laws.generated_restart, via proofs/generation.bend.
 law generated_restart:
   for tape: Tape()
   for +previous: Trace.RemoteContext
+  for +sampled: Bool
   for rest: Tape()
   for created: Trace.LocalContext
-  for generated: {Trace.Draw.run(48n, (tape, Trace.Draw.restart(previous))) ==
+  for generated: {Trace.Draw.run(48n, (tape, Trace.Draw.restart(previous, sampled))) ==
     (rest, Trace.Created{created}) : TapeStep()}
   {Trace.TraceId.to_string(Trace.LocalContext.trace_id(created)) !=
     Trace.TraceId.to_string(Trace.RemoteContext.trace_id(previous)) : String} &
   {Trace.TraceId.is_random(Trace.LocalContext.trace_id(created)) == True{} : Bool} &
-  {Trace.LocalContext.is_sampled(created) == False{} : Bool}
+  {Trace.LocalContext.is_sampled(created) == sampled : Bool}
 
 # The loop of a host that drives a generation itself, one word at a time,
 # as JavaScript code calling the package does with WebCrypto words: while
@@ -1278,19 +1336,20 @@ def context_of(+trace_id: Trace.TraceId, +sampled: Bool, done: TapeSpanId()) -> 
 
 # What follows a root's or a restart's trace ID: its failure is the
 # generation's, and otherwise a span ID, with none to exclude, from the words
-# left, and the root of both, which is not sampled.
-def root_of(done: TapeTraceId()) -> IO(TapeOutcome()):
+# left, and the root of both with the sampled indication `sampled`.
+def root_of(sampled: Bool, done: TapeTraceId()) -> IO(TapeOutcome()):
   match done:
     case Tuple{rest, Fail{error}}:
       IO.pure(TapeOutcome(), (rest, Fail{error}))
     case Tuple{rest, Done{trace_id}}:
       IO.bind(TapeSpanId(), TapeOutcome(), Trace.SpanId.generate_with(~Tape(), ~Trace.Source.tape, rest, None{}),
-        spanned => IO.pure(TapeOutcome(), context_of(trace_id, False{}, spanned)))
+        spanned => IO.pure(TapeOutcome(), context_of(trace_id, sampled, spanned)))
 
 # LAW root_composed
-#   Claim: for every tape, generating a root is generating a trace ID with
-#     none to exclude, then a span ID from the words left with none to
-#     exclude, and making the root of both; either failure is the root's.
+#   Claim: for every tape and every sampled indication, generating a root is
+#     generating a trace ID with none to exclude, then a span ID from the
+#     words left with none to exclude, and making the root of both with that
+#     indication; either failure is the root's.
 #   Requirement: spec #41, "Separate generation": "A root is a trace ID then
 #     a span ID", keeping "their word order, word budgets and results".
 #   Why: an SDK that composes the separate generation gets the roots that
@@ -1303,9 +1362,10 @@ def root_of(done: TapeTraceId()) -> IO(TapeOutcome()):
 #   Proof: Laws.root_composed, via proofs/separate.bend.
 law root_composed:
   for tape: Tape()
-  {Observe(TapeOutcome(), Trace.Context.root_with(~Tape(), ~Trace.Source.tape, tape)) ==
+  for +sampled: Bool
+  {Observe(TapeOutcome(), Trace.Context.root_with(~Tape(), ~Trace.Source.tape, tape, sampled)) ==
     Observe(TapeOutcome(), IO.bind(TapeTraceId(), TapeOutcome(),
-      Trace.TraceId.generate_with(~Tape(), ~Trace.Source.tape, tape, None{}), traced => root_of(traced))) :
+      Trace.TraceId.generate_with(~Tape(), ~Trace.Source.tape, tape, None{}), traced => root_of(sampled, traced))) :
     IO.OP<TapeOutcome()>}
 
 # LAW child_composed
@@ -1330,9 +1390,9 @@ law child_composed:
         Trace.Sampling.resolve(sampling, Trace.Parent.is_sampled(parent)), spanned)))) : IO.OP<TapeOutcome()>}
 
 # LAW restart_composed
-#   Claim: for every tape, generating a restart of `previous` is generating
-#     a trace ID that excludes the received one, then what follows a root's
-#     trace ID (root_of).
+#   Claim: for every tape and every sampled indication, generating a restart
+#     of `previous` is generating a trace ID that excludes the received one,
+#     then what follows a root's trace ID with that indication (root_of).
 #   Requirement: spec #41, "Separate generation": "a restart is a trace ID
 #     excluding the received one, then a span ID", with unchanged results.
 #   Why and Scope: as for root_composed.
@@ -1340,10 +1400,11 @@ law child_composed:
 law restart_composed:
   for tape: Tape()
   for previous: Trace.RemoteContext
-  {Observe(TapeOutcome(), Trace.Context.restart_with(~Tape(), ~Trace.Source.tape, tape, previous)) ==
+  for +sampled: Bool
+  {Observe(TapeOutcome(), Trace.Context.restart_with(~Tape(), ~Trace.Source.tape, tape, previous, sampled)) ==
     Observe(TapeOutcome(), IO.bind(TapeTraceId(), TapeOutcome(),
       Trace.TraceId.generate_with(~Tape(), ~Trace.Source.tape, tape, Some{Trace.RemoteContext.trace_id(previous)}),
-      traced => root_of(traced))) : IO.OP<TapeOutcome()>}
+      traced => root_of(sampled, traced))) : IO.OP<TapeOutcome()>}
 
 # Tracestate
 # ----------
@@ -3065,9 +3126,14 @@ law forward_idempotent:
 # was generated for it. With the laws of section 6, they give the
 # lifecycle: a usable context is continued by a child that keeps its trace,
 # without one a root starts the trace, a boundary restarts it, and each
-# message sent gets an operation of its own. The corpus, tests/CONTINUE.bend,
-# covers every case with literal tapes, including source failures and
-# exhausted candidates.
+# message sent gets an operation of its own. Context.continue_or_start_with
+# applies the default of new traces, not sampled, itself: it passes root and
+# restart generation the indication that its `sampling` resolves from that
+# default (spec #41, "Sampling decision when starting a trace").
+# Context.send_with generates only children, whose indication its own
+# `sampling` resolves from the service's operation. The corpus,
+# tests/CONTINUE.bend, covers every case with literal tapes, including source
+# failures and exhausted candidates.
 
 # The result a service operation returns under `policy`, as a tape law
 # observes it: the unread rest of the tape with the service.
@@ -3119,21 +3185,16 @@ def continued(state: Trace.TraceState, received: Maybe<&2, Trace.IncomingContext
     case Done{context}:
       Trace.Operating{Trace.Continued{}, Trace.OutgoingContext.with_state(context, state), received}
 
-# A new trace's operation with the sampled indication `sampling` resolves
-# from the root default, not sampled.
-def fresh(sampling: Trace.Sampling, +context: Trace.LocalContext) -> Trace.LocalContext:
-  Trace.LocalContext{Trace.LocalContext.trace_id(context), Trace.LocalContext.span_id(context),
-    Trace.Sampling.resolve(sampling, False{})}
-
-# The service that a new trace gives: the generated operation of `fresh`
-# without state and without a received pair, or no operation with the error.
-def begun(origin: Trace.Origin, sampling: Trace.Sampling,
-  result: Result<&2, &2, Trace.GenerationError, Trace.LocalContext>) -> Trace.Service:
+# The service that a new trace gives: the generated operation, as it was
+# generated, without state and without a received pair, or no operation with
+# the error.
+def begun(origin: Trace.Origin, result: Result<&2, &2, Trace.GenerationError, Trace.LocalContext>) ->
+  Trace.Service:
   match result:
     case Fail{error}:
       Trace.Untraced{error, None{}}
     case Done{context}:
-      Trace.Operating{origin, Trace.OutgoingContext.new(fresh(sampling, context)), None{}}
+      Trace.Operating{origin, Trace.OutgoingContext.new(context), None{}}
 
 # The observed result of continuing, from the generation's outcome.
 def continuing(+policy: Trace.FailurePolicy, state: Trace.TraceState, received: Maybe<&2, Trace.IncomingContext>,
@@ -3142,10 +3203,9 @@ def continuing(+policy: Trace.FailurePolicy, state: Trace.TraceState, received: 
   (rest, service_by(policy, continued(state, received, result)))
 
 # The observed result of a new trace, from the generation's outcome.
-def starting(+policy: Trace.FailurePolicy, origin: Trace.Origin, sampling: Trace.Sampling, outcome: TapeOutcome()) ->
-  TapeService(policy):
+def starting(+policy: Trace.FailurePolicy, origin: Trace.Origin, outcome: TapeOutcome()) -> TapeService(policy):
   (rest, result) = outcome
-  (rest, service_by(policy, begun(origin, sampling, result)))
+  (rest, service_by(policy, begun(origin, result)))
 
 # The context whose trace ID a restart must not reuse: the received context
 # of an incoming base, or the operation of an outgoing base as another
@@ -3323,18 +3383,26 @@ law continue_usable:
 #   Claim: at a trust boundary (Restart{}), the context that extraction
 #     keeps, the message's own or the base, is not continued: a new trace
 #     replaces it, as Context.restart_with does with at most 48 words, so its
-#     trace ID is not reused. Its state is discarded, the root defaults apply
-#     unless `sampling` sets sampled, and no received pair is kept, so that
-#     nothing crosses the boundary.
+#     trace ID is not reused. Its state is discarded, the restart is generated
+#     with the sampled indication that `sampling` resolves from the root
+#     default, not sampled, and no received pair is kept, so that nothing
+#     crosses the boundary.
 #   Requirement: spec #1, "Explicit restart creates a new trace identity,
 #     discards previous tracestate and applies root defaults, including
 #     sampled 0, unless the caller explicitly supplies a new policy/state";
-#     ticket #11.
+#     ticket #11; spec #41, "Sampling decision when starting a trace": the
+#     documented default lives in the ready path, here in
+#     Context.continue_or_start_with, which keeps its Sampling parameter and
+#     its behavior (user story 28).
 #   Why: a trust boundary starts its own trace without disguising it as a
 #     continuation of the caller's.
 #   Reading: `usable` says that extraction keeps `base`, and `replaced`,
 #     defined above, is the context whose trace ID the new trace avoids; with
-#     generated_restart (section 6), the new trace ID differs from it.
+#     generated_restart (section 6), the new trace ID differs from it and the
+#     restart has the indication that it is given.
+#     Sampling.resolve(sampling, False{}) is that indication: the root
+#     default, False, for InheritSampled{}, and the value of SetSampled{}
+#     otherwise (law sampling).
 #   Proof: Laws.restart_usable, via proofs/continue.bend.
 law restart_usable:
   for tape: Tape()
@@ -3345,21 +3413,27 @@ law restart_usable:
   for usable: {Trace.Extraction.context(extraction) == Some{base} : Maybe<&2, Trace.BaseContext>}
   {Observe(TapeService(policy), Trace.Context.continue_or_start_with(~Tape(), ~Trace.Source.tape, tape, extraction,
     Trace.Restart{}, sampling, policy)) ==
-    Emit{starting(policy, Trace.Restarted{}, sampling, Trace.Draw.outcome(Tape(),
-      Trace.Draw.run(48n, (tape, Trace.Draw.restart(replaced(base))))))} : IO.OP<TapeService(policy)>}
+    Emit{starting(policy, Trace.Restarted{}, Trace.Draw.outcome(Tape(), Trace.Draw.run(48n,
+      (tape, Trace.Draw.restart(replaced(base), Trace.Sampling.resolve(sampling, False{}))))))} :
+    IO.OP<TapeService(policy)>}
 
 # LAW start_unusable
 #   Claim: when extraction keeps no context, neither the message's nor a
 #     base, the service starts the trace with a root, as Context.root_with
 #     does with at most 48 words, whether it continues or restarts. The root
-#     takes its sampled indication from `sampling` over the root default, not
-#     sampled, and it has no state and no received pair.
+#     is generated with the sampled indication that `sampling` resolves from
+#     the root default, not sampled, and it has no state and no received pair.
 #   Requirement: spec #1, "and creates a root otherwise" and "New roots
-#     default to sampled 0".
+#     default to sampled 0"; spec #41, "Sampling decision when starting a
+#     trace": the documented default lives in the ready path, here in
+#     Context.continue_or_start_with, which keeps its Sampling parameter and
+#     its behavior (user story 28).
 #   Why: an untraced request still gets an operation that later services can
-#     continue.
-#   Reading: `none` says that extraction keeps no context; starting, begun
-#     and fresh are defined above.
+#     continue, and it is not sampled unless the application says so.
+#   Reading: `none` says that extraction keeps no context; starting and begun
+#     are defined above, and Sampling.resolve(sampling, False{}) is the
+#     indication, as in restart_usable, that generated_root says the root
+#     has.
 #   Proof: Laws.start_unusable, via proofs/continue.bend.
 law start_unusable:
   for tape: Tape()
@@ -3370,8 +3444,9 @@ law start_unusable:
   for none: {Trace.Extraction.context(extraction) == None{} : Maybe<&2, Trace.BaseContext>}
   {Observe(TapeService(policy), Trace.Context.continue_or_start_with(~Tape(), ~Trace.Source.tape, tape, extraction,
     reception, sampling, policy)) ==
-    Emit{starting(policy, Trace.Started{}, sampling, Trace.Draw.outcome(Tape(),
-      Trace.Draw.run(48n, (tape, Trace.Draw.root()))))} : IO.OP<TapeService(policy)>}
+    Emit{starting(policy, Trace.Started{}, Trace.Draw.outcome(Tape(),
+      Trace.Draw.run(48n, (tape, Trace.Draw.root(Trace.Sampling.resolve(sampling, False{}))))))} :
+    IO.OP<TapeService(policy)>}
 
 # LAW restart_keeps_nothing
 #   Claim: at a trust boundary, whatever the message and the base, and

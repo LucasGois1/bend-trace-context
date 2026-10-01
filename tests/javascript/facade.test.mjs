@@ -438,13 +438,19 @@ test('the ES module exports no template and no IO operation to run, so the facad
     'Context.send_with', 'Generation.run_with']) {
     assert.equal(Package[name], undefined, name);
   }
-  // The compiler's ES module of generation.bend exports no IO operation
-  // without parameters, and one with parameters comes back as an unrun IO
-  // action: it reads no word. The module names the constructors and
-  // definitions of trace_context.bend as it sees them, with their module's
-  // name, and takes no value of trace_context.mjs (bendlang/bend#1105).
+  // The compiler's ES module of a Bend file exports no IO operation without
+  // parameters, as a fixture's own shows, and exports one with parameters as
+  // a function that returns an unrun IO action. So the ES module of
+  // generation.bend gives Context.root, which takes the sampled indication,
+  // and Context.continue_or_start as actions that read no word until run.
+  // That module names the constructors and definitions of trace_context.bend
+  // as it sees them, with their module's name, and takes no value of
+  // trace_context.mjs (bendlang/bend#1105).
+  const Fixture = await moduleOf('tests/javascript/fixtures/io-operations.bend',
+    'build/javascript-modules/io-operations.mjs');
+  assert.equal(Fixture.greet, undefined);
+  assert.equal(typeof Fixture.greet_name, 'function');
   const Generate = await moduleOf('packages/trace-context/generation.bend', 'build/javascript-modules/generation.mjs');
-  assert.equal(Generate['Context.root'], undefined);
   const descriptor = Object.getOwnPropertyDescriptor(globalThis, 'crypto');
   let reads = 0;
   try {
@@ -457,6 +463,7 @@ test('the ES module exports no template and no IO operation to run, so the facad
     const action = Generate['Context.continue_or_start'](extraction, { $: 'trace_context.Continue' },
       { $: 'trace_context.InheritSampled' }, { $: 'trace_context.Lenient' });
     assert.equal(typeof action, 'function');
+    assert.equal(typeof Generate['Context.root'](false), 'function');
     assert.equal(reads, 0);
   } finally {
     Object.defineProperty(globalThis, 'crypto', descriptor);

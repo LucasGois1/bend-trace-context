@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.3-dev — unreleased
+## 0.2.0-dev — unreleased
 
 - Read the trace flags and the context field names
   ([#44](https://github.com/LucasGois1/bend-trace-context/issues/44)), for an
@@ -62,10 +62,53 @@
   `tests/expected-smoke.txt` adds the line of the identifiers generated
   alone on the host's source, and `tests/expected-host-defs.txt` the two new
   host definitions, `TraceId.generate` and `SpanId.generate`.
+- Choose the sampled indication when starting a trace
+  ([#46](https://github.com/LucasGois1/bend-trace-context/issues/46)), so
+  that a trace that an application starts, such as a background job's, can
+  be sampled without rebuilding its context. Every way to start a trace
+  takes the indication explicitly, as a `Bool`: `Generate.Context.root` and
+  `Generate.Context.restart`, `TC.Context.root_with` and
+  `TC.Context.restart_with`, the host-fed `TC.Generation.root` and
+  `TC.Generation.restart`, and `TC.Context.root_from_ids` and
+  `TC.Context.restart_from_ids`; a restart still takes only a remote
+  context. No low-level piece applies a default of its own: the default of
+  new traces, not sampled, lives in the ready path, where
+  `continue_or_start` resolves its `Sampling` over that default and passes
+  the result to root and restart generation. `continue_or_start` and `send`
+  keep their `Sampling` parameter and their behavior; `send`, which
+  generates only children, resolves each child's indication from the
+  service's operation. The `StartPlan` of `TC.ServicePlan`,
+  which the reference does not list, no longer holds the `Sampling`, since
+  its generation carries the resolved indication, and root and restart
+  generation run one internal plan of a new trace, `TracePlan`, which only
+  the trace ID to exclude tells apart. Laws `root`, `restart`,
+  `generated_root` and `generated_restart` now say that root and restart
+  honor the indication that they are given, so that, with
+  `emitted_traceparent`, a generated root is emitted with flags `02` or
+  `03`; their `False` case is an unsampled root or restart, as
+  `continue_or_start` starts one by default. The other laws that call these
+  operations take the indication and hold for every value. The JavaScript
+  facade passes the unsampled indication, so its behavior is unchanged, and
+  the ES module is rebuilt. `tests/javascript/facade.test.mjs` compiles a
+  fixture of its own to check that a module exports no IO operation without
+  parameters, since `Context.root` now takes one, and checks that
+  `Context.root(false)` reads no word. Every corpus, example and program of
+  the documentation keeps its output, and the independent consumer adds a
+  sampled root and a sampled restart, generated and from supplied IDs.
 
 **Migration from 0.1.2:** a `match` on `TC.Error` that lists every
 constructor adds a case for `InvalidByte{offset}`; a `match` with a
-catch-all case needs no change.
+catch-all case needs no change. Root, restart and their supplied-ID forms
+take the sampled indication as their last argument, and passing `False{}`
+keeps the 0.1 behavior: `Generate.Context.root(False{})`,
+`Generate.Context.restart(previous, False{})`,
+`TC.Context.root_with(~S, ~read, source, False{})`,
+`TC.Context.restart_with(~S, ~read, source, previous, False{})`,
+`TC.Generation.root(False{})`, `TC.Generation.restart(previous, False{})`,
+`TC.Context.root_from_ids(trace_id, span_id, False{})` and
+`TC.Context.restart_from_ids(previous, trace_id, span_id, False{})`. Pass
+`True{}` to sample the new trace. `continue_or_start`, `send`, the native
+HTTP shortcuts and the JavaScript facade need no change.
 
 ## 0.1.2 — 2026-09-29
 

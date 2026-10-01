@@ -80,11 +80,11 @@ SpanId.parse(text: String) -> Result<&2, &2, Error, SpanId>
 SpanId.to_string(id: SpanId) -> String
 SpanId.is_eq(a: SpanId, b: SpanId) -> Bool
 
-Context.root_from_ids(trace_id: TraceId, span_id: SpanId) -> LocalContext
+Context.root_from_ids(trace_id: TraceId, span_id: SpanId, sampled: Bool) -> LocalContext
 Context.from_ids(trace_id: TraceId, span_id: SpanId, sampled: Bool) -> LocalContext
 Context.child_from_id(parent: Parent, span_id: SpanId, sampling: Sampling) ->
   Result<&2, &2, ContextError, LocalContext>
-Context.restart_from_ids(previous: RemoteContext, trace_id: TraceId, span_id: SpanId) ->
+Context.restart_from_ids(previous: RemoteContext, trace_id: TraceId, span_id: SpanId, sampled: Bool) ->
   Result<&2, &2, ContextError, LocalContext>
 ContextError.show(error: ContextError) -> String
 
@@ -123,8 +123,12 @@ that the digits were generated randomly; the caller is responsible for it, and
 validation cannot establish it. `is_eq` compares identifiers, so a randomness
 assertion does not change which trace an ID names.
 
-- `Context.root_from_ids` starts a trace. A new root is not sampled; it
-  carries the random-trace-id flag only when its trace ID asserts it.
+- `Context.root_from_ids` starts a trace with the sampled indication that
+  the caller decided
+  ([spec #41](https://github.com/LucasGois1/bend-trace-context/issues/41),
+  "Sampling decision when starting a trace"): `False{}` for a root that is
+  not sampled, spec #1's default for new roots, and `True{}` to sample it.
+  It carries the random-trace-id flag only when its trace ID asserts it.
 - `Context.from_ids` represents an operation the caller owns with an explicit
   sampled indication. The IDs must belong to that operation: validating their
   format does not establish where they came from.
@@ -135,11 +139,21 @@ assertion does not change which trace an ID names.
   accepted. Only the parent is compared: siblings may share a span ID, so each
   distinct operation needs its own.
 - `Context.restart_from_ids` deliberately starts a new trace at a boundary
-  where a received context is not continued. It applies the root defaults,
-  including sampled `0`. A trace ID equal to the received one fails with
+  where a received context is not continued: the root of the supplied IDs,
+  with the sampled indication that it is given, so `False{}` applies the
+  root defaults, including sampled `0`. It takes only the received context,
+  none of its state. A trace ID equal to the received one fails with
   `ReusedTraceId{}`, even when only the randomness assertion differs.
   [`Context.continue_or_start`](#continuing-or-starting-a-trace) restarts at a
   trust boundary with a sampling policy of the caller's choice.
+
+No operation that starts a trace, from supplied IDs or
+[generated](#generated-contexts), applies a default of its own: the default
+of new traces, not sampled, lives in
+[`continue_or_start`](#continuing-or-starting-a-trace), which resolves its
+`sampling` over it and passes the result to root and restart generation.
+`False{}` gives an unsampled root or restart, as `continue_or_start` starts
+one by default.
 
 `RemoteContext.from_traceparent` receives a strictly parsed v00 value. It keeps
 the trace ID, the sender's span ID, sampled and random-trace-id; reserved flag
@@ -177,8 +191,8 @@ value directly bypasses these operations, and no type can reject that.
 
 The [consumer example](../../tests/consumer/main.bend) receives a context,
 creates a server operation and sampled and unsampled client operations,
-rejects a reused span ID, restarts a trace, starts a root and represents an
-existing operation with `Context.from_ids`.
+rejects a reused span ID, restarts a trace and starts a root, each unsampled
+and sampled, and represents an existing operation with `Context.from_ids`.
 
 ### Identifiers as bytes
 
@@ -235,16 +249,17 @@ to the same machine. Names below are qualified by the aliases `Generate` for
 generation.bend and `TC` for trace_context.bend:
 
 ```bend
-Generate.Context.root() -> IO(Result<&2, &2, TC.GenerationError, TC.LocalContext>)
+Generate.Context.root(sampled: Bool) -> IO(Result<&2, &2, TC.GenerationError, TC.LocalContext>)
 Generate.Context.child(parent: TC.Parent, sampling: TC.Sampling) ->
   IO(Result<&2, &2, TC.GenerationError, TC.LocalContext>)
-Generate.Context.restart(previous: TC.RemoteContext) ->
+Generate.Context.restart(previous: TC.RemoteContext, sampled: Bool) ->
   IO(Result<&2, &2, TC.GenerationError, TC.LocalContext>)
 TC.GenerationError.show(error: TC.GenerationError) -> String
 ```
 
-The [generation example](examples/generate.bend) starts a trace and creates
-the operation that calls another service. From the repository root:
+The [generation example](examples/generate.bend) starts a trace that is not
+sampled and creates the operation that calls another service. From the
+repository root:
 
 ```sh
 ./bend packages/trace-context/examples/generate.bend
@@ -271,10 +286,11 @@ Every operation follows the same rules:
   `SourceFailure{code, message}`; the remaining words are not read. There is no
   retry and no time, counter or other fallback.
 - Generation trusts its source to be random, so a generated trace ID asserts
-  random-trace-id. A root or restart is not sampled, so it is emitted with
-  flags `02`. A child keeps its parent's trace ID and randomness assertion and
-  resolves sampled as `Context.child_from_id` does, so generating its span ID
-  never changes a received random bit.
+  random-trace-id. A root or restart has the sampled indication that it is
+  given, as `Context.root_from_ids` does, so it is emitted with flags `02`
+  for `False{}` and `03` for `True{}`. A child keeps its parent's trace ID and
+  randomness assertion and resolves sampled as `Context.child_from_id` does,
+  so generating its span ID never changes a received random bit.
 
 A generation fails with a `GenerationError`: `SourceFailure{code, message}`
 when the source fails, and `ExhaustedTraceId{}` or `ExhaustedSpanId{}` after
@@ -285,10 +301,10 @@ but not the native one.
 The same operations take a caller's source in trace_context.bend:
 
 ```bend
-TC.Context.root_with(~S: Type, ~read: S -> IO(S & Result<&1, &1, U32 & String, U32>), source: S) ->
+TC.Context.root_with(~S: Type, ~read: S -> IO(S & Result<&1, &1, U32 & String, U32>), source: S, sampled: Bool) ->
   IO(S & Result<&2, &2, TC.GenerationError, TC.LocalContext>)
 TC.Context.child_with(~S, ~read, source: S, parent: TC.Parent, sampling: TC.Sampling) -> ...
-TC.Context.restart_with(~S, ~read, source: S, previous: TC.RemoteContext) -> ...
+TC.Context.restart_with(~S, ~read, source: S, previous: TC.RemoteContext, sampled: Bool) -> ...
 TC.Source.tape(tape: List<&1, Result<&1, &1, U32 & String, U32>>) -> ...
 ```
 
@@ -315,8 +331,9 @@ and `from_words` returns `None{}` for an all-zero candidate. Like parsing,
 `TraceId.assert_random` only when the words are random. The machine that the
 operations share is stated in the laws but is internal, like the parsing
 helpers: its trace ID and span ID draws (`TraceDraw` and `SpanDraw`), the
-generation that composes them (`Draw`, `Step` and `SpanPlan`) and the driver
-that runs all three (`Drive`) are not a compatibility contract. A host that
+generation that composes them (`Draw`, `Step`, `SpanPlan` and `TracePlan`,
+the plan of a root or a restart) and the driver that runs all three
+(`Drive`) are not a compatibility contract. A host that
 feeds words itself drives it through `Generation`, described in
 [Host-driven generation](#host-driven-generation).
 
@@ -351,12 +368,15 @@ sampled indication that the caller's sampler decided; the
 steps.
 
 Root, child and restart generation are compositions of these operations: a
-root is a trace ID, then a span ID from the source's next state; a child is
-a span ID that excludes the parent's; a restart is a trace ID that excludes
-the received one, then a span ID. `Context.root_with`, `child_with` and
-`restart_with` are these compositions, and `Generate.Context.root` and its
-siblings run them on the host's source, with the word order, budgets and
-results described above.
+root is a trace ID, then a span ID from the source's next state, and the
+context of both with the sampled indication that the root is given; a child
+is a span ID that excludes the parent's; a restart is a trace ID that
+excludes the received one, then a span ID, as for a root.
+`Context.root_with`, `child_with` and `restart_with` are these
+compositions, and `Generate.Context.root` and its siblings run them on the
+host's source, with the word order, budgets and results described above. A
+root or a restart takes its sampled indication before its trace ID exists,
+so an SDK whose sampler decides on the trace ID composes the steps itself.
 
 ## Tracestate
 
@@ -899,6 +919,9 @@ state, whatever `reception` says, and its origin is `Started{}`.
 `InheritSampled{}`, a child inherits its parent's, and a root or restart,
 which has nothing to inherit, takes the root default, not sampled, so it is
 emitted with flags `02`. `SetSampled{value}` sets `value` in every case.
+This default is the ready path's own: `continue_or_start` resolves it and
+passes the resulting `Bool` to root and restart generation, which take the
+indication as they are given it.
 
 | `Service` | Meaning |
 | --- | --- |
@@ -1001,9 +1024,9 @@ such a host a pure form of each generating operation. Names below are
 qualified by the alias `TC` for trace_context.bend:
 
 ```bend
-TC.Generation.root() -> TC.Generation
+TC.Generation.root(sampled: Bool) -> TC.Generation
 TC.Generation.child(parent: TC.Parent, sampling: TC.Sampling) -> TC.Generation
-TC.Generation.restart(previous: TC.RemoteContext) -> TC.Generation
+TC.Generation.restart(previous: TC.RemoteContext, sampled: Bool) -> TC.Generation
 TC.Generation.needs(generation: TC.Generation) -> Bool
 TC.Generation.feed(generation: TC.Generation, word: Result<&1, &1, U32 & String, U32>) -> TC.Generation
 TC.Generation.result(generation: TC.Generation) -> Result<&2, &2, TC.GenerationError, TC.LocalContext>
@@ -1020,15 +1043,18 @@ TC.SendPlan.sent(plan: TC.SendPlan, result: Result<&2, &2, TC.GenerationError, T
 - A `Generation` holds the machine's step with the words it may still read:
   48 for a root or a restart and 16 for a child. Its fields are internal,
   like the machine's, so a host builds one only with `Generation.root`,
-  `Generation.child` or `Generation.restart`. While `Generation.needs` says
+  `Generation.child` or `Generation.restart`; a root and a restart take the
+  sampled indication of the context they create, as `Context.root_with`
+  does. While `Generation.needs` says
   it needs a word, the host reads one word result from its source and
   passes it to `Generation.feed`; `Generation.result` then gives the
   context or the `GenerationError`. A generation that has ended ignores
   further words, and one whose budget is spent needs none.
 - `ServicePlan.new` decides what `Context.continue_or_start_with` does for a
-  message before it reads any word: which generation to drive, and what its
-  result makes of the service. `ServicePlan.service` gives that service,
-  before the policy applies.
+  message before it reads any word: which generation to drive, whose root
+  or restart has the sampled indication that `sampling` resolves from the
+  root default, and what its result makes of the service.
+  `ServicePlan.service` gives that service, before the policy applies.
 - `SendPlan.new` decides the same for a message to send. A service without an
   operation has nothing to generate: its plan's generation has already
   failed with the service's error, so the host reads no word, and
@@ -1284,17 +1310,19 @@ section describes, and the kernel needs Lean 4.34.
   every trace ID's text is accepted and every span ID's text parses back to
   that span ID. `assert_random` changes only the assertion.
 - **Construction:** `from_ids` keeps its IDs and sampled indication, and a root
-  is `from_ids` with sampled `0`. `RemoteContext.from_ids` keeps its IDs and
-  sampled indication too, so its randomness assertion is its trace ID's.
+  is `from_ids` with the sampled indication that it is given: sampled `0` for
+  `False{}`. `RemoteContext.from_ids` keeps its IDs and sampled indication
+  too, so its randomness assertion is its trace ID's.
 - **Children:** a successful child keeps the parent's trace ID and randomness
   assertion, uses the supplied span ID, whose text differs from the parent's,
   and takes sampled from `Sampling.resolve`: the parent's indication for
   `InheritSampled{}`, or the value of `SetSampled{value}`. A span ID with the
   parent's text fails with `ReusedSpanId{}`, and every other span ID creates
   the child.
-- **Restarts:** a successful restart is the root of its supplied IDs, and its
-  trace ID text differs from the received one. The received trace ID fails with
-  `ReusedTraceId{}`, and every other trace ID creates the restart.
+- **Restarts:** a successful restart is the root of its supplied IDs with the
+  sampled indication that it is given, and its trace ID text differs from the
+  received one. The received trace ID fails with `ReusedTraceId{}`, and every
+  other trace ID creates the restart, whatever the indication.
 - **Flags:** every local context is emitted as version `00` with its IDs and
   one of `00`, `01`, `02`, `03`; receiving that value recovers its trace ID,
   randomness assertion, span ID and sampled indication; and a received context
@@ -1325,10 +1353,14 @@ section describes, and the kernel needs Lean 4.34.
   tape, a root or restart ends within 48 words and a child within 16. Eight
   zero candidates exhaust a root's trace ID or a child's span ID without
   reading a ninth; the other exhaustion paths are tested. A generated root
-  asserts randomness and is unsampled; a generated child keeps the parent's
-  trace ID and randomness assertion, resolves sampled and never reuses the
-  parent's span ID; a generated restart's trace ID differs from the received
-  one, asserts randomness and is unsampled.
+  asserts randomness and has the sampled indication that it was given, so,
+  with the **Flags** laws above, it is emitted with flags `02` or `03`; a
+  generated child keeps the parent's trace ID and randomness assertion,
+  resolves sampled and never reuses the parent's span ID; a generated
+  restart's trace ID differs from the received one, asserts randomness and
+  has the sampled indication that it was given. These laws hold for every
+  indication; with `False{}`, a root or a restart is unsampled, as
+  `continue_or_start` starts one by default.
 - **Separate generation:** a source error ends a trace ID or span ID draw at
   once, and over a tape the IO operations compute the pure drivers word for
   word. When the first four words, or two, make an identifier, generation
@@ -1413,9 +1445,10 @@ section describes, and the kernel needs Lean 4.34.
   context and returns what that generation's outcome gives. With
   `Continue{}`, it is a child of the context that extraction keeps, with that
   context's state and the message's incoming context; with `Restart{}`, it is
-  a restart of that context, with the sampled indication resolved from the
-  root default, no state and no received pair; and without a kept context it
-  is a root. A failed generation gives a service without an operation under
+  a restart of that context, generated with the sampled indication resolved
+  from the root default, no state and no received pair; and without a kept
+  context it is a root generated with that indication. A failed generation
+  gives a service without an operation under
   `Lenient{}` and `Fail{error}` under `Strict{}`. With the generation laws, a
   child keeps its parent's trace and never reuses its span ID, and a
   restart's trace ID differs from the replaced one. Stated on its own, a

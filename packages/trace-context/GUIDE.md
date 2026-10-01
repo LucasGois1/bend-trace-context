@@ -160,7 +160,11 @@ To have them recorded, set the flag where they start, with
 `TC.SetSampled{True{}}`. The common policy keeps the caller's decision for
 the traces that the service continues and samples the traces that it
 starts: [New traces that are sampled](#new-traces-that-are-sampled) shows
-it. The flag never decides anything in the package itself.
+it. Code that starts a trace itself, without a `Service`, passes the flag to
+a root or a restart as a `Bool`, whether it generates the IDs or supplies
+them: `Generate.Context.root(True{})` starts a sampled trace, and
+`Generate.Context.root(False{})` an unsampled one. The flag never decides
+anything in the package itself.
 
 ### Failure policy
 
@@ -377,8 +381,9 @@ Fresh, flags 02
 ```
 <!-- test:guide-job-output:end -->
 
-`Generate.Context.root()` gives the same root without a `Service`, for code
-that manages its operations itself.
+`Generate.Context.root(False{})` gives the same root without a `Service`,
+for code that manages its operations itself, and
+`Generate.Context.root(True{})` a sampled one.
 
 ### New traces that are sampled
 
@@ -637,8 +642,8 @@ def started(root: Result<&2, &2, TC.GenerationError, TC.LocalContext>) -> IO(Uni
 
 def main() -> IO(Unit):
   do IO<Unit>:
-    # The batch's own operation, the root of a new trace.
-    root : Result<&2, &2, TC.GenerationError, TC.LocalContext> <- Generate.Context.root()
+    # The batch's own operation, the root of a new trace, not sampled.
+    root : Result<&2, &2, TC.GenerationError, TC.LocalContext> <- Generate.Context.root(False{})
     started(root)
 ```
 <!-- test:guide-worker:end -->
@@ -691,7 +696,8 @@ invalid span ID: ZeroSpanId
 <!-- test:guide-supplied-output:end -->
 
 `TC.Context.root_from_ids`, `child_from_id` and `restart_from_ids` create
-roots, children and restarts from supplied IDs, as the
+roots, children and restarts from supplied IDs, a root and a restart with
+the sampled flag that you pass, as the
 [reference](README.md#supplied-ids-and-contexts) describes.
 
 ### Deterministic tests

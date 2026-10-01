@@ -137,7 +137,7 @@ def Test.own_base() -> IO(TC.BaseContext):
     trace : TC.TraceId <- Test.id(TC.TraceId, TC.TraceId.parse("5b8efff798038103d269b633813fc60c"))
     span : TC.SpanId <- Test.id(TC.SpanId, TC.SpanId.parse("eee19b7ec3c1b174"))
     state : TC.TraceState <- Test.state("fw529a3039=cHJpbWFyeQ")
-    return TC.OutgoingBase{TC.OutgoingContext.with_state(TC.Context.root_from_ids(trace, span), state)}
+    return TC.OutgoingBase{TC.OutgoingContext.with_state(TC.Context.root_from_ids(trace, span, False{}), state)}
 
 def Test.tape() -> Type:
   List<&1, Result<&1, &1, U32 & String, U32>>

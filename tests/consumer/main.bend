@@ -68,6 +68,7 @@ def refused_span(result: Result<&2, &2, TC.Error, TC.SpanId>) -> IO(Unit):
 
 # Receive a request, handle it in a server operation, call other services from
 # child operations, and restart instead where the received trace is not continued.
+# A restart and a root take the sampled indication that the application chooses.
 def lifecycle() -> IO(Unit):
   do IO<Unit>:
     +incoming : TC.RemoteContext <- received("00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01")
@@ -82,20 +83,25 @@ def lifecycle() -> IO(Unit):
       TC.Context.child_from_id(TC.LocalParent{server}, audit_span, TC.SetSampled{False{}}))
     Unit <- refused("reused span",
       TC.Context.child_from_id(TC.LocalParent{server}, TC.LocalContext.span_id(server), TC.InheritSampled{}))
-    fresh : TC.TraceId <- trace_id("4bf92f3577b34da6a3ce929d0e0e4736")
-    restart_span : TC.SpanId <- span_id("b9c7c989f97918e1")
+    +fresh : TC.TraceId <- trace_id("4bf92f3577b34da6a3ce929d0e0e4736")
+    +restart_span : TC.SpanId <- span_id("b9c7c989f97918e1")
     restarted : TC.LocalContext <- created("restart",
-      TC.Context.restart_from_ids(incoming, TC.TraceId.assert_random(fresh), restart_span))
-    root_trace : TC.TraceId <- trace_id("5b8efff798038103d269b633813fc60c")
-    root_span : TC.SpanId <- span_id("eee19b7ec3c1b174")
-    Unit <- emit("root", TC.Context.root_from_ids(root_trace, root_span))
+      TC.Context.restart_from_ids(incoming, TC.TraceId.assert_random(fresh), restart_span, False{}))
+    sampled_restart : TC.LocalContext <- created("sampled restart",
+      TC.Context.restart_from_ids(incoming, TC.TraceId.assert_random(fresh), restart_span, True{}))
+    +root_trace : TC.TraceId <- trace_id("5b8efff798038103d269b633813fc60c")
+    +root_span : TC.SpanId <- span_id("eee19b7ec3c1b174")
+    Unit <- emit("root", TC.Context.root_from_ids(root_trace, root_span, False{}))
+    Unit <- emit("sampled root", TC.Context.root_from_ids(root_trace, root_span, True{}))
     existing_trace : TC.TraceId <- trace_id("5b8efff798038103d269b633813fc60c")
     existing_span : TC.SpanId <- span_id("2f1c8a36d5e97b40")
     Unit <- emit("existing sampled operation", TC.Context.from_ids(existing_trace, existing_span, True{}))
     refused_span(TC.SpanId.parse("0000000000000000"))
 
 # Generated identifiers come from the host's cryptographic source, so only
-# their properties are printed; a replayed tape shows exact values.
+# their properties are printed; a replayed tape shows exact values. A root
+# and a restart take the sampled indication that the application chooses:
+# not sampled, flags 02, or sampled, flags 03.
 def generated(label: String, result: Result<&2, &2, TC.GenerationError, TC.LocalContext>) -> IO(TC.LocalContext):
   match result:
     case Fail{error}:
@@ -106,23 +112,27 @@ def generated(label: String, result: Result<&2, &2, TC.GenerationError, TC.Local
 def emitted_flags(context: TC.LocalContext) -> String:
   String.drop(TC.TraceParentV00.format(TC.LocalContext.to_traceparent(context)), 53n)
 
-def replayed.show(result: Result<&2, &2, TC.GenerationError, TC.LocalContext>) -> IO(Unit):
+def replayed.show(label: String, result: Result<&2, &2, TC.GenerationError, TC.LocalContext>) -> IO(Unit):
   match result:
     case Fail{error}:
-      IO.die(Unit, 1, "replayed root: " ++ TC.GenerationError.show(error))
+      IO.die(Unit, 1, label ++ ": " ++ TC.GenerationError.show(error))
     case Done{context}:
-      emit("replayed root", context)
+      emit(label, context)
 
-def replayed(outcome: List<&1, Result<&1, &1, U32 & String, U32>> & Result<&2, &2, TC.GenerationError, TC.LocalContext>) ->
+def replayed(label: String,
+  outcome: List<&1, Result<&1, &1, U32 & String, U32>> & Result<&2, &2, TC.GenerationError, TC.LocalContext>) ->
   IO(Unit):
   (rest, result) = outcome
-  replayed.show(result)
+  replayed.show(label, result)
 
 def generation() -> IO(Unit):
   do IO<Unit>:
-    root_result : Result<&2, &2, TC.GenerationError, TC.LocalContext> <- Generate.Context.root()
+    root_result : Result<&2, &2, TC.GenerationError, TC.LocalContext> <- Generate.Context.root(False{})
     +root : TC.LocalContext <- generated("generated root", root_result)
     Unit <- IO.print("generated root flags: " ++ emitted_flags(root))
+    sampled_result : Result<&2, &2, TC.GenerationError, TC.LocalContext> <- Generate.Context.root(True{})
+    sampled_root : TC.LocalContext <- generated("generated sampled root", sampled_result)
+    Unit <- IO.print("generated sampled root flags: " ++ emitted_flags(sampled_root))
     child_result : Result<&2, &2, TC.GenerationError, TC.LocalContext> <-
       Generate.Context.child(TC.LocalParent{root}, TC.InheritSampled{})
     +child : TC.LocalContext <- generated("generated child", child_result)
@@ -132,8 +142,18 @@ def generation() -> IO(Unit):
       Bool.show(Bool.not(TC.SpanId.is_eq(TC.LocalContext.span_id(child), TC.LocalContext.span_id(root)))))
     outcome : List<&1, Result<&1, &1, U32 & String, U32>> & Result<&2, &2, TC.GenerationError, TC.LocalContext> <-
       TC.Context.root_with(~List<&1, Result<&1, &1, U32 & String, U32>>, ~TC.Source.tape,
-        [Done{183985433}, Done{382551005}, Done{2219371297}, Done{478163356}, Done{3081595761}, Done{1763717937}])
-    replayed(outcome)
+        [Done{183985433}, Done{382551005}, Done{2219371297}, Done{478163356}, Done{3081595761}, Done{1763717937}],
+        False{})
+    Unit <- replayed("replayed root", outcome)
+    # A sampled restart of the W3C example: 1274621749, 2008239526,
+    # 2748224157 and 235816758 are 4bf92f35, 77b34da6, a3ce929d and 0e0e4736
+    # in hexadecimal, and 15755178 and 195625655 are 00f067aa and 0ba902b7.
+    previous : TC.RemoteContext <- received("00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01")
+    restarted : List<&1, Result<&1, &1, U32 & String, U32>> & Result<&2, &2, TC.GenerationError, TC.LocalContext> <-
+      TC.Context.restart_with(~List<&1, Result<&1, &1, U32 & String, U32>>, ~TC.Source.tape,
+        [Done{1274621749}, Done{2008239526}, Done{2748224157}, Done{235816758}, Done{15755178}, Done{195625655}],
+        previous, True{})
+    replayed("replayed sampled restart", restarted)
 
 # Provider state received in two tracestate fields, read with the package's
 # default limits and with a smaller configured budget.
@@ -314,7 +334,7 @@ def extraction() -> IO(Unit):
     base_span : TC.SpanId <- span_id("eee19b7ec3c1b174")
     IO.print("kept base: " ++ kept(TC.Extraction.context(TC.Context.extract(limits,
       [TC.Header{"traceparent", "ff-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"}],
-      Some{TC.OutgoingBase{TC.OutgoingContext.new(TC.Context.root_from_ids(base_trace, base_span))}}))))
+      Some{TC.OutgoingBase{TC.OutgoingContext.new(TC.Context.root_from_ids(base_trace, base_span, False{}))}}))))
 
 # The service's outgoing requests: it forwards unchanged the context of a
 # request it only relays, a later version with every flag bit set and a field
@@ -561,7 +581,8 @@ def continuation() -> IO(Unit):
       TC.Continue{})
     base_trace : TC.TraceId <- trace_id("5b8efff798038103d269b633813fc60c")
     base_span : TC.SpanId <- span_id("eee19b7ec3c1b174")
-    +base : TC.BaseContext = TC.OutgoingBase{TC.OutgoingContext.new(TC.Context.root_from_ids(base_trace, base_span))}
+    +base : TC.BaseContext = TC.OutgoingBase{TC.OutgoingContext.new(TC.Context.root_from_ids(base_trace, base_span,
+      False{}))}
     Unit <- flow("invalid traceparent", [Done{15755178}, Done{195625655}], [Done{1402559551}, Done{1120766680}],
       TC.Context.extract(limits, [TC.Header{"traceparent", "00-00000000000000000000000000000000-b7ad6b7169203331-01"}],
         Some{base}), TC.Continue{})

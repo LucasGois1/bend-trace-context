@@ -10,9 +10,10 @@
 # generation" part of section 6 of LAWS.bend with this module: trace_id_tape
 # (read_trace_tape), trace_id_ends (trace_run_ends with trace_start_within)
 # and generated_trace_id (trace_run_holds, through the view TraceRunView),
-# the same for span IDs, and root_composed, child_composed and
-# restart_composed (read_trace_same and read_span_same, with root_span_same
-# and span_context_same). trace_id_failure, trace_id_exhaustion and their
+# the same for span IDs, root_composed and restart_composed
+# (new_trace_composed: read_trace_same with root_span_same), and
+# child_composed (read_span_same with span_context_same). trace_id_failure,
+# trace_id_exhaustion and their
 # span ID twins need no lemma: PROOF.bend proves them by computation, and
 # trace_id_candidate and span_id_candidate by computation once their
 # hypothesis is rewritten. proofs/generation.bend builds the laws of root,
@@ -803,7 +804,9 @@ def read_span_same(A, f, g, same, fuel, tape, step):
 # context_of) are different definitions, which the checker compares only
 # once the outcome they receive is known. read_trace_same and read_span_same
 # carry an agreement on every outcome through the drivers, and
-# root_span_same and span_context_same are those agreements.
+# root_span_same and span_context_same are those agreements. A root and a
+# restart are the new trace of a plan (TracePlan), so one lemma,
+# new_trace_composed, gives both of their laws.
 
 # The package's context of a span ID outcome, Draw.span_context, is
 # LAWS.bend's context_of, once the outcome is split.
@@ -823,19 +826,45 @@ def span_context_same(trace_id, sampled, outcome):
 
 # What the package runs after a root's or a restart's trace ID,
 # Draw.root_span_with, emits what LAWS.bend's root_of emits, for every
-# outcome of the trace ID: a failure at once, and otherwise the same span ID
-# draw, that of the root's span plan, whose continuations agree by
-# span_context_same.
+# sampled indication and every outcome of the trace ID: a failure at once,
+# and otherwise the same span ID draw, that of the root's span plan, whose
+# continuations agree by span_context_same.
 law root_span_same:
+  for +sampled: Bool
   for outcome: Laws.TapeTraceId()
-  {TC.Draw.root_span_with(~Laws.Tape(), ~TC.Source.tape, outcome)(Laws.TapeOutcome(), value => Emit{value}) ==
-    Laws.root_of(outcome)(Laws.TapeOutcome(), value => Emit{value}) : IO.OP<Laws.TapeOutcome()>}
+  {TC.Draw.root_span_with(~Laws.Tape(), ~TC.Source.tape, sampled, outcome)(Laws.TapeOutcome(),
+    value => Emit{value}) == Laws.root_of(sampled, outcome)(Laws.TapeOutcome(), value => Emit{value}) :
+    IO.OP<Laws.TapeOutcome()>}
 
-def root_span_same(outcome):
+def root_span_same(sampled, outcome):
   match outcome:
     case Tuple{rest, Fail{error}}:
       {==}
     case Tuple{rest, Done{trace_id}}:
-      read_span_same(Laws.TapeOutcome(), done => Emit{TC.Draw.span_context(Laws.Tape(), trace_id, False{}, done)},
-        done => Emit{Laws.context_of(trace_id, False{}, done)}, done => span_context_same(trace_id, False{}, done),
+      read_span_same(Laws.TapeOutcome(), done => Emit{TC.Draw.span_context(Laws.Tape(), trace_id, sampled, done)},
+        done => Emit{Laws.context_of(trace_id, sampled, done)}, done => span_context_same(trace_id, sampled, done),
         16n, rest, TC.SpanDraw.start(None{}))
+
+# Laws root_composed and restart_composed: over a tape, the new trace of the
+# plan of `excluded` and `sampled`, as TracePlan.generate_with runs it, is
+# generating a trace ID that excludes `excluded`, then what LAWS.bend's
+# root_of does with `sampled`: read_trace_same from the first trace ID
+# candidate, with root_span_same on every outcome. Laws.root_composed applies
+# it with nothing to exclude, the plan of a root, and Laws.restart_composed
+# with the received trace ID, the plan of a restart.
+law new_trace_composed:
+  for tape: Laws.Tape()
+  for +excluded: Maybe<&2, TC.TraceId>
+  for +sampled: Bool
+  {Laws.Observe(Laws.TapeOutcome(), TC.TracePlan.generate_with(~Laws.Tape(), ~TC.Source.tape, tape,
+    TC.TracePlan{excluded, sampled})) ==
+    Laws.Observe(Laws.TapeOutcome(), IO.bind(Laws.TapeTraceId(), Laws.TapeOutcome(),
+      TC.TraceId.generate_with(~Laws.Tape(), ~TC.Source.tape, tape, excluded), traced => Laws.root_of(sampled, traced))) :
+    IO.OP<Laws.TapeOutcome()>}
+
+def new_trace_composed(tape, excluded, sampled):
+  read_trace_same(Laws.TapeOutcome(),
+    outcome => TC.Draw.root_span_with(~Laws.Tape(), ~TC.Source.tape, sampled, outcome)(Laws.TapeOutcome(),
+      value => Emit{value}),
+    outcome => Laws.root_of(sampled, outcome)(Laws.TapeOutcome(), value => Emit{value}),
+    outcome => root_span_same(sampled, outcome), 32n, tape, TC.TraceDraw.start(excluded))

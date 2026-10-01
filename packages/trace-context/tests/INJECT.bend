@@ -135,7 +135,7 @@ def Test.inject() -> IO(Unit):
   do IO<Unit>:
     trace : TC.TraceId <- Test.id(TC.TraceId, TC.TraceId.parse("4bf92f3577b34da6a3ce929d0e0e4736"))
     +span : TC.SpanId <- Test.id(TC.SpanId, TC.SpanId.parse("53995c3f42cd8ad8"))
-    Unit <- Test.inject_root(limits, TC.OutgoingContext.new(TC.Context.root_from_ids(trace, span)))
+    Unit <- Test.inject_root(limits, TC.OutgoingContext.new(TC.Context.root_from_ids(trace, span, False{})))
     received : TC.TraceParentV00 <- Test.id(TC.TraceParentV00,
       TC.TraceParentV00.parse("00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-ff"))
     child : TC.LocalContext <- Test.local(TC.LocalContext, TC.Context.child_from_id(
@@ -378,7 +378,8 @@ def Test.projection() -> IO(Unit):
     state : TC.TraceState <- Test.state("congo=t61rcWkgMzE , rojo=00f067aa0ba902b7")
     large : TC.TraceState <- Test.state(Test.six_hundred_state())
     Unit <- Test.projection_of("an unsampled root without state", limits,
-      TC.OutgoingContext.new(TC.Context.root_from_ids(trace, span)), "4bf92f3577b34da6a3ce929d0e0e4736-53995c3f42cd8ad8-00", "")
+      TC.OutgoingContext.new(TC.Context.root_from_ids(trace, span, False{})),
+      "4bf92f3577b34da6a3ce929d0e0e4736-53995c3f42cd8ad8-00", "")
     Unit <- Test.projection_of("a sampled operation with a random trace ID and a state", limits,
       TC.OutgoingContext.with_state(TC.Context.from_ids(TC.TraceId.assert_random(random), span, True{}), state),
       "0af7651916cd43dd8448eb211c80319c-53995c3f42cd8ad8-03", "congo=t61rcWkgMzE,rojo=00f067aa0ba902b7")
@@ -484,8 +485,8 @@ def Test.large() -> IO(Unit):
   do IO<Unit>:
     trace : TC.TraceId <- Test.id(TC.TraceId, TC.TraceId.parse("4bf92f3577b34da6a3ce929d0e0e4736"))
     span : TC.SpanId <- Test.id(TC.SpanId, TC.SpanId.parse("53995c3f42cd8ad8"))
-    Unit <- Test.large_carriers(TC.Limits.default(), TC.OutgoingContext.with_state(TC.Context.root_from_ids(trace, span),
-      TC.TraceState.empty()))
+    Unit <- Test.large_carriers(TC.Limits.default(),
+      TC.OutgoingContext.with_state(TC.Context.root_from_ids(trace, span, False{}), TC.TraceState.empty()))
     Test.large_forward("cc-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01-" ++ Test.fill(32712n, 'x', ""),
       "k=v" ++ Test.fill(32765n, ' ', ""))
 

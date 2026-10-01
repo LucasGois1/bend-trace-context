@@ -424,8 +424,10 @@ restart(previous, { crypto }) -> LocalContext
 - an immediate stop at the first source error, without retry or fallback.
 
 A root or a restart is not sampled and asserts random-trace-id, so it is sent
-with flags `02`. A child keeps its parent's trace ID and randomness
-assertion. When generation fails, these functions throw a `GenerationError`.
+with flags `02`: the package's root and restart take the sampled indication
+explicitly, and the facade passes the unsampled one, with no option for it.
+A child keeps its parent's trace ID and randomness assertion. When
+generation fails, these functions throw a `GenerationError`.
 
 The facade reads one word at a time from `crypto`, and only while the
 package says that the generation needs one, so it never reads more than the
@@ -445,8 +447,8 @@ An application that already has identifiers, such as those of another
 tracer, passes them as text, as the package's
 [supplied-ID operations](README.md#supplied-ids-and-contexts) take them:
 
-- `rootFromIds` starts a trace: not sampled, and asserting random-trace-id
-  only with `random: true`.
+- `rootFromIds` starts a trace: not sampled, as `root` is, and asserting
+  random-trace-id only with `random: true`.
 - `fromIds` represents an operation that the application owns, with its
   sampled indication, `false` by default. Its identifiers must belong to that
   operation: validating their format does not establish where they came
@@ -991,10 +993,10 @@ a service starts and keep the caller's decision for the others, as the
 
 The compiler's ES module of a `.bend` file (`bend file.bend -o file.mjs`)
 exports the file's definitions as JavaScript functions, but it runs no IO
-operation. An IO operation without parameters, such as `Context.root` of
-generation.bend, is not exported. One with parameters, such as
-`Context.continue_or_start`, returns an unrun IO action: calling it reads
-no word. A definition that takes a template, such as
+operation. An IO operation without parameters is not exported. One with
+parameters, such as `Context.root` or `Context.continue_or_start` of
+generation.bend, returns an unrun IO action: calling it reads no word. A
+definition that takes a template, such as
 `Context.continue_or_start_with`, is not exported at all. The package
 therefore gives a host that feeds words itself a pure form of each
 generating operation, described in
