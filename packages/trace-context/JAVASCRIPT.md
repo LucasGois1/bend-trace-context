@@ -45,7 +45,7 @@ the [root README](../../README.md#install) shows:
 
 ```sh
 mkdir -p deps
-git clone --branch v0.1.2 https://github.com/LucasGois1/bend-trace-context.git deps/bend-trace-context
+git clone --branch v0.2.0 https://github.com/LucasGois1/bend-trace-context.git deps/bend-trace-context
 npm install ./deps/bend-trace-context/packages/trace-context
 ```
 

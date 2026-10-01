@@ -62,6 +62,9 @@ sdk generation: trace ID 4bf92f3577b34da6a3ce929d0e0e4736, random True
 sdk generation: sampled True
 sdk generation: span ID 00f067aa0ba902b7
 sdk generation: local context: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-03
+sdk generation: trace flags 3
+sdk generation: trace ID as bytes 75 249 47 53 119 179 77 166 163 206 146 157 14 14 71 54, as hex 4bf92f3577b34da6a3ce929d0e0e4736
+sdk generation: span ID as bytes 0 240 103 170 11 169 2 183, as hex 00f067aa0ba902b7
 sdk generation: child span ID 53995c3f42cd8ad8, not the parent's 00f067aa0ba902b7
 sdk generation: new trace ID 0af7651916cd43dd8448eb211c80319c, not the replaced 4bf92f3577b34da6a3ce929d0e0e4736
 sdk flags: local 0 emits 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-00
