@@ -993,10 +993,10 @@ a service starts and keep the caller's decision for the others, as the
 
 The compiler's ES module of a `.bend` file (`bend file.bend -o file.mjs`)
 exports the file's definitions as JavaScript functions, but it runs no IO
-operation. An IO operation without parameters, such as `read_u32` of
-entropy.bend, is not exported. One with parameters, such as `Context.root`
-or `Context.continue_or_start` of generation.bend, returns an unrun IO
-action: calling it reads no word. A definition that takes a template, such as
+operation. An IO operation without parameters is not exported. One with
+parameters, such as `Context.root` or `Context.continue_or_start` of
+generation.bend, returns an unrun IO action: calling it reads no word. A
+definition that takes a template, such as
 `Context.continue_or_start_with`, is not exported at all. The package
 therefore gives a host that feeds words itself a pure form of each
 generating operation, described in

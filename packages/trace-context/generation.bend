@@ -52,7 +52,8 @@ def SpanId.generate(excluded: Maybe<&2, TC.SpanId>) -> IO(Result<&2, &2, TC.Gene
 # Start a trace: a trace ID, then a span ID, as TC.Context.root_with composes
 # them, with the sampled indication `sampled`, as it is given. The trace ID
 # asserts random-trace-id, so the root is emitted with flags 03 when it is
-# sampled and 02 when it is not: False gives the unsampled root of 0.1.
+# sampled and 02 when it is not: False gives an unsampled root, as
+# Context.continue_or_start starts one by default.
 def Context.root(sampled: Bool) -> IO(Result<&2, &2, TC.GenerationError, TC.LocalContext>):
   on_host(Result<&2, &2, TC.GenerationError, TC.LocalContext>,
     TC.Context.root_with(~Unit, ~Source.host, Unit{}, sampled))

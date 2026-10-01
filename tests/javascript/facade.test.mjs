@@ -438,15 +438,19 @@ test('the ES module exports no template and no IO operation to run, so the facad
     'Context.send_with', 'Generation.run_with']) {
     assert.equal(Package[name], undefined, name);
   }
-  // The compiler's ES module of generation.bend exports no IO operation
-  // without parameters, such as entropy.bend's read_u32, and one with
-  // parameters, such as Context.root, which takes the sampled indication,
-  // comes back as an unrun IO action: it reads no word. The module names the
-  // constructors and definitions of trace_context.bend and entropy.bend as it
-  // sees them, with their module's name, and takes no value of
+  // The compiler's ES module of a Bend file exports no IO operation without
+  // parameters, as a fixture's own shows, and exports one with parameters as
+  // a function that returns an unrun IO action. So the ES module of
+  // generation.bend gives Context.root, which takes the sampled indication,
+  // and Context.continue_or_start as actions that read no word until run.
+  // That module names the constructors and definitions of trace_context.bend
+  // as it sees them, with their module's name, and takes no value of
   // trace_context.mjs (bendlang/bend#1105).
+  const Fixture = await moduleOf('tests/javascript/fixtures/io-operations.bend',
+    'build/javascript-modules/io-operations.mjs');
+  assert.equal(Fixture.greet, undefined);
+  assert.equal(typeof Fixture.greet_name, 'function');
   const Generate = await moduleOf('packages/trace-context/generation.bend', 'build/javascript-modules/generation.mjs');
-  assert.equal(Generate['entropy.read_u32'], undefined);
   const descriptor = Object.getOwnPropertyDescriptor(globalThis, 'crypto');
   let reads = 0;
   try {

@@ -129,9 +129,10 @@ def starting_read(policy, generation, origin, current):
 
 # Law restart_usable: with `usable`, a boundary reduces to the generation of
 # a restart of the context that `base` replaces, with the sampled
-# indication that `sampling` resolves from the root default (Serve.sampled
-# computes to it). By cases on the base, for which the package's and
-# LAWS.bend's replaced context compute alike; then starting_read.
+# indication that `sampling` resolves from the root default
+# (Serve.new_trace_sampled computes to it). By cases on the base, for which
+# the package's and LAWS.bend's replaced context compute alike; then
+# starting_read.
 law restart_usable:
   for tape: Laws.Tape()
   for +extraction: TC.Extraction
@@ -148,7 +149,7 @@ law restart_usable:
 def restart_usable(tape, extraction, base, sampling, policy, usable):
   match base:
     case TC.IncomingBase{+incoming}:
-      +sampled = TC.Serve.sampled(sampling)
+      +sampled = TC.Serve.new_trace_sampled(sampling)
       %Equal.sym(Maybe<&2, TC.BaseContext>, TC.Extraction.context(extraction), Some{TC.IncomingBase{incoming}}, usable) :
         {TC.Serve.run(~Laws.Tape(), ~TC.Source.tape, tape, TC.Serve.kept(_, TC.Extraction.incoming(extraction),
           TC.Restart{}, sampling))(Laws.TapeService(policy), done => Emit{TC.Policy.apply.done(Laws.Tape(), policy,
@@ -159,7 +160,7 @@ def restart_usable(tape, extraction, base, sampling, policy, usable):
       starting_read(policy, TC.Generation.restart(TC.IncomingContext.context(incoming), sampled), TC.Restarted{},
         (tape, TC.Draw.restart(TC.IncomingContext.context(incoming), sampled)))
     case TC.OutgoingBase{+outgoing}:
-      +sampled = TC.Serve.sampled(sampling)
+      +sampled = TC.Serve.new_trace_sampled(sampling)
       +previous = TC.RemoteContext.from_traceparent(TC.LocalContext.to_traceparent(TC.OutgoingContext.context(outgoing)))
       %Equal.sym(Maybe<&2, TC.BaseContext>, TC.Extraction.context(extraction), Some{TC.OutgoingBase{outgoing}}, usable) :
         {TC.Serve.run(~Laws.Tape(), ~TC.Source.tape, tape, TC.Serve.kept(_, TC.Extraction.incoming(extraction),
@@ -187,7 +188,7 @@ law start_unusable:
     IO.OP<Laws.TapeService(policy)>}
 
 def start_unusable(tape, extraction, reception, sampling, policy, none):
-  +sampled = TC.Serve.sampled(sampling)
+  +sampled = TC.Serve.new_trace_sampled(sampling)
   %Equal.sym(Maybe<&2, TC.BaseContext>, TC.Extraction.context(extraction), None{}, none) :
     {TC.Serve.run(~Laws.Tape(), ~TC.Source.tape, tape, TC.Serve.kept(_, TC.Extraction.incoming(extraction),
       reception, sampling))(Laws.TapeService(policy), done => Emit{TC.Policy.apply.done(Laws.Tape(), policy,
@@ -255,14 +256,14 @@ law restart_keeps.kept:
 def restart_keeps.kept(tape, extraction, sampling, policy, context, same):
   match context:
     case None{}:
-      +sampled = TC.Serve.sampled(sampling)
+      +sampled = TC.Serve.new_trace_sampled(sampling)
       %Equal.sym(Maybe<&2, TC.BaseContext>, TC.Extraction.context(extraction), None{}, same) :
         {TC.Serve.run(~Laws.Tape(), ~TC.Source.tape, tape, TC.Serve.kept(_, TC.Extraction.incoming(extraction),
           TC.Restart{}, sampling))(Bool, done => Emit{Laws.kept_nothing(policy, TC.Policy.apply.done(Laws.Tape(),
             policy, TC.Service, TC.Serve.strict, done))}) == Emit{True{}} : IO.OP<Bool>}
       started_read(policy, TC.Generation.root(sampled), TC.Started{}, (tape, TC.Draw.root(sampled)))
     case Some{+base}:
-      +sampled = TC.Serve.sampled(sampling)
+      +sampled = TC.Serve.new_trace_sampled(sampling)
       %Equal.sym(Maybe<&2, TC.BaseContext>, TC.Extraction.context(extraction), Some{base}, same) :
         {TC.Serve.run(~Laws.Tape(), ~TC.Source.tape, tape, TC.Serve.kept(_, TC.Extraction.incoming(extraction),
           TC.Restart{}, sampling))(Bool, done => Emit{Laws.kept_nothing(policy, TC.Policy.apply.done(Laws.Tape(),

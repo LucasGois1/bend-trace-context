@@ -34,7 +34,7 @@
 #   Identifiers as bytes             TraceId.to_bytes, TraceId.from_bytes,
 #                                    SpanId.to_bytes, SpanId.from_bytes
 #   Generation machine               Drive.*, TraceDraw.*, SpanDraw.*,
-#                                    SpanPlan.*, Step.*, Draw.*,
+#                                    SpanPlan.*, TracePlan.*, Step.*, Draw.*,
 #                                    TraceId.generate_with,
 #                                    SpanId.generate_with, Generation.*,
 #                                    Context.*_with, Source.tape
@@ -60,10 +60,10 @@
 #
 # The public names are documented in packages/trace-context/README.md. Names in
 # the Parse, Parsed, ParsedBytes, Flags, Drive, TraceDraw, SpanDraw,
-# TraceStep, SpanStep, SpanPlan, Draw, Step, Tape, Scan, Member, Value, Budget,
-# Utf8, Entries, StateChar, Carrier, Text, Read, Extract, Forward, Policy, Serve
-# and Send namespaces are internal: Bend lets any module import them, but they
-# are not a compatibility contract.
+# TraceStep, SpanStep, SpanPlan, TracePlan, Draw, Step, Tape, Scan, Member,
+# Value, Budget, Utf8, Entries, StateChar, Carrier, Text, Read, Extract,
+# Forward, Policy, Serve and Send namespaces are internal: Bend lets any module
+# import them, but they are not a compatibility contract.
 #
 # Notes for readers new to Bend
 # -----------------------------
@@ -243,7 +243,7 @@ type SpanWords is Data:
 
 # The generation machine below is shared by the IO operations and stated in
 # the laws. Its types and its TraceDraw, SpanDraw, TraceStep, SpanStep,
-# SpanPlan, Draw, Step and Drive functions are internal: callers use
+# SpanPlan, TracePlan, Draw, Step and Drive functions are internal: callers use
 # TraceId.generate_with, SpanId.generate_with and the `Context.*_with`
 # operations, or generation.bend, and a host that feeds words itself uses
 # Generation.
@@ -282,6 +282,17 @@ type SpanStep is Data:
 # give the plans of a root and a child.
 type SpanPlan is Data:
   SpanPlan{excluded: Maybe<&2, SpanId>, trace_id: TraceId, sampled: Bool}
+
+# What a new trace needs, a root or a restart: the trace ID that its trace
+# ID must not repeat (`excluded`), none for a root and the received one for
+# a restart, and the sampled indication of the context that it creates.
+# TracePlan.root and TracePlan.restart give the plans of a root and a
+# restart; the generation machine (TracePlan.draw), the generation that a
+# host feeds (Generation.new_trace) and the composition on a caller's source
+# (TracePlan.generate_with) each run one plan, so a root and a restart
+# differ only in it.
+type TracePlan is Data:
+  TracePlan{excluded: Maybe<&2, TraceId>, sampled: Bool}
 
 # A generation in progress: the trace ID draw of a root or a restart, with
 # the sampled indication of the context that it starts, or a span ID draw,
@@ -702,9 +713,10 @@ def Context.from_ids(trace_id: TraceId, span_id: SpanId, sampled: Bool) -> Local
 
 # Start a trace with supplied IDs and the sampled indication that the caller
 # decided, kept as it is given (spec #41, "Sampling decision when starting a
-# trace"; law root). False gives the default of spec #1, "New roots default
-# to sampled `0`", which the ready path applies itself. generation.bend
-# provides Context.root, Context.child and Context.restart for generated IDs.
+# trace"; law root). False gives an unsampled root, the default of spec #1,
+# "New roots default to sampled `0`", which Context.continue_or_start_with
+# applies itself. generation.bend provides Context.root, Context.child and
+# Context.restart for generated IDs.
 def Context.root_from_ids(trace_id: TraceId, span_id: SpanId, sampled: Bool) -> LocalContext:
   Context.from_ids(trace_id, span_id, sampled)
 
@@ -911,9 +923,11 @@ def SpanId.from_bytes(bytes: List<&2, U32>) -> Result<&2, &2, Error, SpanId>:
 # candidates, rejects zero and the identifier to exclude, and stops at the
 # first source error. TraceId.generate_with and SpanId.generate_with run one
 # piece alone. A generation (Draw, Step) runs the pieces in turn: a root or
-# a restart draws its trace ID, then its span ID, and a child only its span
-# ID, as its span plan (SpanPlan) says. Context.root_with and its siblings
-# compose the two operations in the same order. One driver (Drive) runs the
+# a restart draws its trace ID, then its span ID, as its trace plan
+# (TracePlan) says, and a child only its span ID, as its span plan
+# (SpanPlan) says. A root and a restart differ only in their plan.
+# Context.root_with and its siblings compose the two operations in the same
+# order. One driver (Drive) runs the
 # three machines, over a replayed tape in the laws and over the host's
 # cryptographic source in generation.bend.
 
@@ -1288,18 +1302,31 @@ def Step.of_trace(step: TraceStep, sampled: Bool) -> Step:
     case TraceFailed{error}:
       Failed{error}
 
-# The trace ID that a restart excludes: the received one that it replaces.
-def Draw.restart_excluded(previous: RemoteContext) -> Maybe<&2, TraceId>:
-  Some{RemoteContext.trace_id(previous)}
+# The plan of a root: no trace ID to exclude, and the sampled indication
+# `sampled`, as it is given.
+def TracePlan.root(sampled: Bool) -> TracePlan:
+  TracePlan{None{}, sampled}
 
-# A root draws its trace ID, with none to exclude, then its span ID, and
-# starts with the sampled indication that it is given.
+# The plan of a restart replacing `previous`: the received trace ID to
+# exclude, and the sampled indication `sampled`, as it is given.
+def TracePlan.restart(previous: RemoteContext, sampled: Bool) -> TracePlan:
+  TracePlan{Some{RemoteContext.trace_id(previous)}, sampled}
+
+# The generation that draws the new trace of a plan: its trace ID, from the
+# first candidate, then the span ID of the root's span plan (Step.of_trace).
+def TracePlan.draw(plan: TracePlan) -> Step:
+  match plan:
+    case TracePlan{excluded, sampled}:
+      Step.of_trace(TraceDraw.start(excluded), sampled)
+
+# A root draws the new trace of its plan (TracePlan.root).
 def Draw.root(sampled: Bool) -> Step:
-  Step.of_trace(TraceDraw.start(None{}), sampled)
+  TracePlan.draw(TracePlan.root(sampled))
 
-# A restart draws like a root but excludes the received trace ID.
+# A restart draws like a root but excludes the received trace ID
+# (TracePlan.restart).
 def Draw.restart(previous: RemoteContext, sampled: Bool) -> Step:
-  Step.of_trace(TraceDraw.start(Draw.restart_excluded(previous)), sampled)
+  TracePlan.draw(TracePlan.restart(previous, sampled))
 
 # A child draws the span ID of its plan (SpanPlan.child).
 def Draw.child(+parent: Parent, sampling: Sampling) -> Step:
@@ -1367,16 +1394,20 @@ def Draw.outcome(-S: Type, done: S & Step) -> S & Result<&2, &2, GenerationError
 def Draw.finished(~S: Type, action: IO(S & Step)) -> IO(S & Result<&2, &2, GenerationError, LocalContext>):
   Drive.finished(~Step, ~LocalContext, ~Step.result, ~S, action)
 
-# A root with the sampled indication `sampled`, as it is given: at most 48
-# words, eight trace ID candidates of four words and eight span ID candidates
-# of two.
-def Generation.root(sampled: Bool) -> Generation:
-  Generation{48n, Draw.root(sampled)}
+# The generation of the new trace of a plan: at most 48 words, eight trace ID
+# candidates of four words and eight span ID candidates of two.
+def TracePlan.generation(plan: TracePlan) -> Generation:
+  Generation{48n, TracePlan.draw(plan)}
 
-# A restart replacing `previous`, with the sampled indication `sampled`: at
-# most 48 words, as a root.
+# A root with the sampled indication `sampled`, as it is given
+# (TracePlan.root).
+def Generation.root(sampled: Bool) -> Generation:
+  TracePlan.generation(TracePlan.root(sampled))
+
+# A restart replacing `previous`, with the sampled indication `sampled`, as a
+# root (TracePlan.restart).
 def Generation.restart(previous: RemoteContext, sampled: Bool) -> Generation:
-  Generation{48n, Draw.restart(previous, sampled)}
+  TracePlan.generation(TracePlan.restart(previous, sampled))
 
 # A child of `parent`: at most 16 words, eight span ID candidates.
 def Generation.child(+parent: Parent, sampling: Sampling) -> Generation:
@@ -1473,19 +1504,30 @@ def Draw.root_span_with(~S: Type, ~read: S -> IO(S & Result<&1, &1, U32 & String
     case Tuple{state, Done{trace_id}}:
       SpanPlan.generate_with(~S, ~read, state, SpanPlan.root(trace_id, sampled))
 
+# The local context of the new trace of a plan, from a caller's source: a
+# trace ID that excludes the plan's (TraceId.generate_with), then, from the
+# source's next state, the span ID of the root's span plan with the plan's
+# sampled indication (Draw.root_span_with).
+def TracePlan.generate_with(~S: Type, ~read: S -> IO(S & Result<&1, &1, U32 & String, U32>), source: S,
+  plan: TracePlan) -> IO(S & Result<&2, &2, GenerationError, LocalContext>):
+  match plan:
+    case TracePlan{excluded, sampled}:
+      IO.bind(S & Result<&2, &2, GenerationError, TraceId>, S & Result<&2, &2, GenerationError, LocalContext>,
+        TraceId.generate_with(~S, ~read, source, excluded), outcome => Draw.root_span_with(~S, ~read, sampled, outcome))
+
 # Generated contexts from a caller's source. `read` returns the source's next
 # state with each word result. The source is trusted to be random: a generated
 # trace ID asserts random-trace-id. A root is a trace ID, with none to
 # exclude, then a span ID: TraceId.generate_with, then SpanId.generate_with
-# from the source's next state. It reads at most 48 words and has the sampled
-# indication `sampled`, as it is given: no default applies here, and False
-# gives the unsampled root of 0.1, emitted with flags 02 (spec #41, "Sampling
-# decision when starting a trace"). Laws: root_composed, root_tape,
-# root_ends, root_exhaustion and generated_root.
+# from the source's next state (TracePlan.root and TracePlan.generate_with).
+# It reads at most 48 words and has the sampled indication `sampled`, as it
+# is given: no default applies here, and False gives an unsampled root,
+# emitted with flags 02, as Context.continue_or_start_with starts one by
+# default (spec #41, "Sampling decision when starting a trace"). Laws:
+# root_composed, root_tape, root_ends, root_exhaustion and generated_root.
 def Context.root_with(~S: Type, ~read: S -> IO(S & Result<&1, &1, U32 & String, U32>), source: S, sampled: Bool) ->
   IO(S & Result<&2, &2, GenerationError, LocalContext>):
-  IO.bind(S & Result<&2, &2, GenerationError, TraceId>, S & Result<&2, &2, GenerationError, LocalContext>,
-    TraceId.generate_with(~S, ~read, source, None{}), outcome => Draw.root_span_with(~S, ~read, sampled, outcome))
+  TracePlan.generate_with(~S, ~read, source, TracePlan.root(sampled))
 
 # A generated child of `parent` from a caller's source: the local context of
 # its span plan (SpanPlan.child), a span ID that excludes the parent's, with
@@ -1498,13 +1540,12 @@ def Context.child_with(~S: Type, ~read: S -> IO(S & Result<&1, &1, U32 & String,
 
 # A generated restart replacing `previous` from a caller's source: a trace ID
 # that excludes the received one, then a span ID, as for a root, with the
-# sampled indication `sampled`. It reads at most 48 words. Laws:
+# sampled indication `sampled` (TracePlan.restart and
+# TracePlan.generate_with). It reads at most 48 words. Laws:
 # restart_composed, restart_tape, restart_ends and generated_restart.
 def Context.restart_with(~S: Type, ~read: S -> IO(S & Result<&1, &1, U32 & String, U32>), source: S,
   previous: RemoteContext, sampled: Bool) -> IO(S & Result<&2, &2, GenerationError, LocalContext>):
-  IO.bind(S & Result<&2, &2, GenerationError, TraceId>, S & Result<&2, &2, GenerationError, LocalContext>,
-    TraceId.generate_with(~S, ~read, source, Draw.restart_excluded(previous)),
-    outcome => Draw.root_span_with(~S, ~read, sampled, outcome))
+  TracePlan.generate_with(~S, ~read, source, TracePlan.restart(previous, sampled))
 
 # A deterministic source that replays a tape of word results.
 def Source.tape(tape: List<&1, Result<&1, &1, U32 & String, U32>>) ->
@@ -3454,13 +3495,14 @@ def Policy.apply.done(-S: Type, policy: FailurePolicy, -A: Data, strict: A -> Re
   (source, value) = done
   (source, Policy.apply(policy, A, strict, value))
 
-# The sampled indication of a new trace, a root or a restart: the one that
-# `sampling` resolves from the root default, not sampled (spec #1, "New
-# roots default to sampled `0`"). InheritSampled{} has nothing to inherit,
-# and SetSampled{} sets its own. The default lives here, in the ready path:
-# root and restart generation take the indication that they are given
-# (spec #41, "Sampling decision when starting a trace").
-def Serve.sampled(sampling: Sampling) -> Bool:
+# The sampled indication of the new trace, a root or a restart, that
+# Context.continue_or_start_with starts: the one that `sampling` resolves
+# from the default, not sampled (spec #1, "New roots default to sampled
+# `0`"). InheritSampled{} has nothing to inherit, and SetSampled{} sets its
+# own. The default lives here: root and restart generation take the
+# indication that they are given (spec #41, "Sampling decision when starting
+# a trace").
+def Serve.new_trace_sampled(sampling: Sampling) -> Bool:
   Sampling.resolve(sampling, False{})
 
 # The service that a child of the kept context gives, with `state`, or
@@ -3474,8 +3516,8 @@ def Serve.from_child(state: TraceState, received: Maybe<&2, IncomingContext>,
       Operating{Continued{}, OutgoingContext.with_state(context, state), received}
 
 # The service that a new trace gives: its generated operation, whose sampled
-# indication Serve.sampled gave its generation, and no state, or Untraced
-# with the error. A new trace keeps no received pair.
+# indication Serve.new_trace_sampled gave its generation, and no state, or
+# Untraced with the error. A new trace keeps no received pair.
 def Serve.from_start(origin: Origin, result: Result<&2, &2, GenerationError, LocalContext>) -> Service:
   match result:
     case Fail{error}:
@@ -3490,7 +3532,8 @@ def Serve.from_start(origin: Origin, result: Result<&2, &2, GenerationError, Loc
 #                                               sending its `state`
 #   StartPlan{generation, origin}               a root or a restart, whose
 #                                               generation has the sampled
-#                                               indication of Serve.sampled
+#                                               indication of
+#                                               Serve.new_trace_sampled
 # A host that feeds a generation one word at a time, such as JavaScript code
 # calling this module, drives ServicePlan.generation and hands the result to
 # ServicePlan.service (law hosted_service).
@@ -3516,14 +3559,14 @@ def Serve.usable(+base: BaseContext, received: Maybe<&2, IncomingContext>, recep
     case Continue{}:
       ContinuePlan{Generation.child(BaseContext.parent(base), sampling), BaseContext.state(base), received}
     case Restart{}:
-      StartPlan{Generation.restart(Serve.replaced(base), Serve.sampled(sampling)), Restarted{}}
+      StartPlan{Generation.restart(Serve.replaced(base), Serve.new_trace_sampled(sampling)), Restarted{}}
 
 # Take the context that extraction keeps, or start a root without one.
 def Serve.kept(context: Maybe<&2, BaseContext>, received: Maybe<&2, IncomingContext>, reception: Reception,
   sampling: Sampling) -> ServicePlan:
   match context:
     case None{}:
-      StartPlan{Generation.root(Serve.sampled(sampling)), Started{}}
+      StartPlan{Generation.root(Serve.new_trace_sampled(sampling)), Started{}}
     case Some{+base}:
       Serve.usable(base, received, reception, sampling)
 

@@ -72,24 +72,29 @@
   `TC.Generation.restart`, and `TC.Context.root_from_ids` and
   `TC.Context.restart_from_ids`; a restart still takes only a remote
   context. No low-level piece applies a default of its own: the default of
-  new traces, not sampled, lives in the ready path, whose
-  `continue_or_start` and `send` keep their `Sampling` parameter and their
-  behavior and pass the indication that they resolve to root and restart
-  generation. The `StartPlan` of `TC.ServicePlan`, which the reference does
-  not list, no longer holds the `Sampling`, since its generation carries the
-  resolved indication. Laws `root`, `restart`, `generated_root` and
-  `generated_restart` now say that root and restart honor the indication
-  that they are given, so a generated root is emitted with flags `02` or
-  `03`, and the old default is their `False` case; the other laws that call
-  these operations take the indication and hold for every value. The
-  JavaScript facade passes the unsampled indication, so it behaves as
-  before, and the ES module is rebuilt. `tests/javascript/facade.test.mjs`
-  checks that the ES module of generation.bend leaves out entropy.bend's
-  `read_u32`, an IO operation without parameters, where it checked
-  `Context.root`, which now takes one, and that `Context.root(false)` reads
-  no word. Every corpus, example and program of the documentation keeps its
-  output, and the independent consumer adds a sampled root and a sampled
-  restart, generated and from supplied IDs.
+  new traces, not sampled, lives in the ready path, where
+  `continue_or_start` resolves its `Sampling` over that default and passes
+  the result to root and restart generation. `continue_or_start` and `send`
+  keep their `Sampling` parameter and their behavior; `send`, which
+  generates only children, resolves each child's indication from the
+  service's operation. The `StartPlan` of `TC.ServicePlan`,
+  which the reference does not list, no longer holds the `Sampling`, since
+  its generation carries the resolved indication, and root and restart
+  generation run one internal plan of a new trace, `TracePlan`, which only
+  the trace ID to exclude tells apart. Laws `root`, `restart`,
+  `generated_root` and `generated_restart` now say that root and restart
+  honor the indication that they are given, so that, with
+  `emitted_traceparent`, a generated root is emitted with flags `02` or
+  `03`; their `False` case is an unsampled root or restart, as
+  `continue_or_start` starts one by default. The other laws that call these
+  operations take the indication and hold for every value. The JavaScript
+  facade passes the unsampled indication, so its behavior is unchanged, and
+  the ES module is rebuilt. `tests/javascript/facade.test.mjs` compiles a
+  fixture of its own to check that a module exports no IO operation without
+  parameters, since `Context.root` now takes one, and checks that
+  `Context.root(false)` reads no word. Every corpus, example and program of
+  the documentation keeps its output, and the independent consumer adds a
+  sampled root and a sampled restart, generated and from supplied IDs.
 
 **Migration from 0.1.2:** a `match` on `TC.Error` that lists every
 constructor adds a case for `InvalidByte{offset}`; a `match` with a

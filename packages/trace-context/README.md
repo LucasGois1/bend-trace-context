@@ -149,8 +149,11 @@ assertion does not change which trace an ID names.
 
 No operation that starts a trace, from supplied IDs or
 [generated](#generated-contexts), applies a default of its own: the default
-of new traces, not sampled, lives in the ready path, `continue_or_start` and
-`send`, and passing `False{}` elsewhere keeps the 0.1 behavior.
+of new traces, not sampled, lives in
+[`continue_or_start`](#continuing-or-starting-a-trace), which resolves its
+`sampling` over it and passes the result to root and restart generation.
+`False{}` gives an unsampled root or restart, as `continue_or_start` starts
+one by default.
 
 `RemoteContext.from_traceparent` receives a strictly parsed v00 value. It keeps
 the trace ID, the sender's span ID, sampled and random-trace-id; reserved flag
@@ -328,8 +331,9 @@ and `from_words` returns `None{}` for an all-zero candidate. Like parsing,
 `TraceId.assert_random` only when the words are random. The machine that the
 operations share is stated in the laws but is internal, like the parsing
 helpers: its trace ID and span ID draws (`TraceDraw` and `SpanDraw`), the
-generation that composes them (`Draw`, `Step` and `SpanPlan`) and the driver
-that runs all three (`Drive`) are not a compatibility contract. A host that
+generation that composes them (`Draw`, `Step`, `SpanPlan` and `TracePlan`,
+the plan of a root or a restart) and the driver that runs all three
+(`Drive`) are not a compatibility contract. A host that
 feeds words itself drives it through `Generation`, described in
 [Host-driven generation](#host-driven-generation).
 
@@ -1349,13 +1353,14 @@ section describes, and the kernel needs Lean 4.34.
   tape, a root or restart ends within 48 words and a child within 16. Eight
   zero candidates exhaust a root's trace ID or a child's span ID without
   reading a ninth; the other exhaustion paths are tested. A generated root
-  asserts randomness and has the sampled indication that it was given, so it
-  is emitted with flags `02` or `03`; a generated child keeps the parent's
-  trace ID and randomness assertion, resolves sampled and never reuses the
-  parent's span ID; a generated restart's trace ID differs from the received
-  one, asserts randomness and has the sampled indication that it was given.
-  These laws hold for every indication, `False{}`, the 0.1 behavior, among
-  them.
+  asserts randomness and has the sampled indication that it was given, so,
+  with the **Flags** laws above, it is emitted with flags `02` or `03`; a
+  generated child keeps the parent's trace ID and randomness assertion,
+  resolves sampled and never reuses the parent's span ID; a generated
+  restart's trace ID differs from the received one, asserts randomness and
+  has the sampled indication that it was given. These laws hold for every
+  indication; with `False{}`, a root or a restart is unsampled, as
+  `continue_or_start` starts one by default.
 - **Separate generation:** a source error ends a trace ID or span ID draw at
   once, and over a tape the IO operations compute the pure drivers word for
   word. When the first four words, or two, make an identifier, generation

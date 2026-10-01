@@ -280,12 +280,13 @@ law from_ids:
 # LAW root
 #   Claim: a root built from supplied IDs is the explicit construction of those
 #     IDs with the sampled indication that it is given. With False, it is not
-#     sampled: the old default, sampled 0.
+#     sampled, sampled 0, as Context.continue_or_start_with starts a root by
+#     default.
 #   Requirement: spec #1, "New roots default to sampled 0" (user story 10),
-#     which the ready path applies (start_unusable); spec #41, "Sampling
-#     decision when starting a trace": Context.root_from_ids takes the sampled
-#     indication explicitly, and no low-level piece applies a default of its
-#     own (user story 27).
+#     which Context.continue_or_start_with applies (start_unusable); spec
+#     #41, "Sampling decision when starting a trace": Context.root_from_ids
+#     takes the sampled indication explicitly, and no low-level piece applies
+#     a default of its own (user story 27).
 #   Why: starting a trace, with generated or supplied IDs, must not by itself
 #     ask downstream services to record it, and must ask them when the
 #     application decides so: sampling stays an explicit decision of the
@@ -759,7 +760,8 @@ law words_unasserted:
 # A root and a restart take the sampled indication of the context that they
 # create as it is given (spec #41, "Sampling decision when starting a
 # trace"), so the laws below state them for every indication; the default of
-# new traces, not sampled, lives in the ready path of section 14.
+# new traces, not sampled, lives in Context.continue_or_start_with (section
+# 14).
 
 # LAW feed_failure
 #   Claim: a source error ends generation at once with SourceFailure, carrying
@@ -832,7 +834,8 @@ law child_tape:
     IO.OP<TapeOutcome()>}
 
 # LAW restart_tape
-#   Claim: as root_tape, for a restart with a budget of 48 words.
+#   Claim: as root_tape, for a restart with a budget of 48 words, with any
+#     sampled indication.
 #   Proof: Laws.restart_tape, via proofs/generation.bend.
 law restart_tape:
   for tape: Tape()
@@ -868,7 +871,8 @@ law child_ends:
   {Trace.Draw.ended(Trace.Draw.run(16n, (tape, Trace.Draw.child(parent, sampling)))) == True{} : Bool}
 
 # LAW restart_ends
-#   Claim: for every tape, a restart has finished within 48 words.
+#   Claim: for every tape and every sampled indication, a restart has
+#     finished within 48 words.
 #   Requirement and Why: as for root_ends.
 #   Proof: Laws.restart_ends, via proofs/generation.bend.
 law restart_ends:
@@ -910,19 +914,24 @@ law child_exhaustion:
 # LAW generated_root
 #   Claim: a root created from any tape asserts random-trace-id and has the
 #     sampled indication that it was given, so it is emitted with flags 03
-#     when it is sampled and 02 when it is not. With False, the old default,
-#     it is not sampled and is emitted with flags 02.
+#     when it is sampled and 02 when it is not. With False, it is not
+#     sampled and is emitted with flags 02, as the root that
+#     Context.continue_or_start_with starts by default.
 #   Requirement: spec #1, "a default internally generated root has flags 02,
-#     despite sampled being 0", which the ready path applies by passing False
-#     (start_unusable); spec #41, "Sampling decision when starting a trace":
-#     root generation takes the sampled indication explicitly, and no
-#     low-level piece applies a default of its own (user story 25).
+#     despite sampled being 0", which Context.continue_or_start_with applies
+#     by passing False for InheritSampled{} (start_unusable); spec #41,
+#     "Sampling decision when starting a trace": root generation takes the
+#     sampled indication explicitly, and no low-level piece applies a default
+#     of its own (user story 25).
 #   Why: receivers may rely on the random flag of IDs this package generates,
 #     and a new root asks for recording exactly when its caller decides so: a
 #     background job that the application traces can be sampled without
 #     rebuilding its root from the IDs.
-#   Reading: emitted_traceparent (section 3) gives the flags that the two
-#     facts make: 02 for False and 03 for True.
+#   Reading: the flags follow from the two conclusions by
+#     emitted_traceparent (section 3), whose flag byte is
+#     emitted_flags(is_sampled, is_random) of the root: with random-trace-id
+#     asserted, emitted_flags(sampled, True{}), which is 02 for False and 03
+#     for True.
 #   Scope: the source is trusted to be random; no law speaks about the quality
 #     of a real source.
 #   Proof: Laws.generated_root, via proofs/generation.bend.
@@ -962,13 +971,16 @@ law generated_child:
 #   Claim: a restart created from any tape has a trace ID other than the
 #     received one, asserts random-trace-id and has the sampled indication
 #     that it was given, so it is emitted with flags 03 when it is sampled and
-#     02 when it is not. With False, the old default, it is not sampled.
+#     02 when it is not. With False, it is not sampled, as the restart that
+#     Context.continue_or_start_with starts by default at a trust boundary.
 #   Requirement: as for `restart` and generated_root; spec #41, "Sampling
 #     decision when starting a trace": a restart takes the sampled indication
 #     explicitly, and still takes only a remote context (user story 26).
 #   Why: a trust boundary restarts traces under the application's sampling
 #     policy, and the new trace never reuses the received one, whatever the
 #     indication.
+#   Reading: the flags follow from the last two conclusions by
+#     emitted_traceparent (section 3), as for generated_root.
 #   Proof: Laws.generated_restart, via proofs/generation.bend.
 law generated_restart:
   for tape: Tape()
@@ -3114,10 +3126,12 @@ law forward_idempotent:
 # was generated for it. With the laws of section 6, they give the
 # lifecycle: a usable context is continued by a child that keeps its trace,
 # without one a root starts the trace, a boundary restarts it, and each
-# message sent gets an operation of its own. This ready path applies the
-# default of new traces, not sampled, itself: it passes root and restart
-# generation the indication that its `sampling` resolves from that default
-# (spec #41, "Sampling decision when starting a trace"). The corpus,
+# message sent gets an operation of its own. Context.continue_or_start_with
+# applies the default of new traces, not sampled, itself: it passes root and
+# restart generation the indication that its `sampling` resolves from that
+# default (spec #41, "Sampling decision when starting a trace").
+# Context.send_with generates only children, whose indication its own
+# `sampling` resolves from the service's operation. The corpus,
 # tests/CONTINUE.bend, covers every case with literal tapes, including source
 # failures and exhausted candidates.
 
@@ -3377,8 +3391,9 @@ law continue_usable:
 #     discards previous tracestate and applies root defaults, including
 #     sampled 0, unless the caller explicitly supplies a new policy/state";
 #     ticket #11; spec #41, "Sampling decision when starting a trace": the
-#     documented default lives in the ready path, which keeps its Sampling
-#     parameter and its behavior (user story 28).
+#     documented default lives in the ready path, here in
+#     Context.continue_or_start_with, which keeps its Sampling parameter and
+#     its behavior (user story 28).
 #   Why: a trust boundary starts its own trace without disguising it as a
 #     continuation of the caller's.
 #   Reading: `usable` says that extraction keeps `base`, and `replaced`,
@@ -3410,8 +3425,9 @@ law restart_usable:
 #     the root default, not sampled, and it has no state and no received pair.
 #   Requirement: spec #1, "and creates a root otherwise" and "New roots
 #     default to sampled 0"; spec #41, "Sampling decision when starting a
-#     trace": the documented default lives in the ready path, which keeps its
-#     Sampling parameter and its behavior (user story 28).
+#     trace": the documented default lives in the ready path, here in
+#     Context.continue_or_start_with, which keeps its Sampling parameter and
+#     its behavior (user story 28).
 #   Why: an untraced request still gets an operation that later services can
 #     continue, and it is not sampled unless the application says so.
 #   Reading: `none` says that extraction keeps no context; starting and begun

@@ -299,31 +299,34 @@ def Laws.feed_failure(code, message, draw):
         case Trace.SpanDraw{remaining, words, excluded}:
           {==}
 
-# The IO driver over a tape source computes the pure driver step by step.
+# The IO driver over a tape source computes the pure driver step by step: a
+# root is the new trace of its plan (proofs/generation.bend).
 def Laws.root_tape(tape, sampled):
-  GenerationProof.root_tape(tape, sampled)
+  GenerationProof.new_trace_tape(tape, Trace.TracePlan.root(sampled))
 
-# As root_tape.
+# As root_tape, through the span ID draw of the child's span plan.
 def Laws.child_tape(tape, parent, sampling):
   GenerationProof.child_tape(tape, parent, sampling)
 
-# As root_tape.
+# As root_tape, for the plan of a restart.
 def Laws.restart_tape(tape, previous, sampled):
-  GenerationProof.restart_tape(tape, previous, sampled)
+  GenerationProof.new_trace_tape(tape, Trace.TracePlan.restart(previous, sampled))
 
-# Every step reads a word, and each candidate takes a bounded number of steps.
+# Every step reads a word, and each candidate takes a bounded number of
+# steps: the bound of the new trace of a root's plan.
 def Laws.root_ends(tape, sampled):
-  GenerationProof.run_ends(48n, Trace.Draw.root(sampled), tape, GenerationProof.root_within(sampled))
+  GenerationProof.run_ends(48n, Trace.Draw.root(sampled), tape,
+    GenerationProof.new_trace_within(Trace.TracePlan.root(sampled)))
 
-# As root_ends.
+# As root_ends, with the bound of the child's span ID draw.
 def Laws.child_ends(tape, parent, sampling):
   GenerationProof.run_ends(16n, Trace.Draw.child(parent, sampling), tape,
     GenerationProof.child_within(parent, sampling))
 
-# As root_ends.
+# As root_ends, for the plan of a restart.
 def Laws.restart_ends(tape, previous, sampled):
   GenerationProof.run_ends(48n, Trace.Draw.restart(previous, sampled), tape,
-    GenerationProof.restart_within(previous, sampled))
+    GenerationProof.new_trace_within(Trace.TracePlan.restart(previous, sampled)))
 
 # By computation on the concrete tape of 32 zero words, whatever the sampled
 # indication, which the trace ID draw only carries.
@@ -335,10 +338,11 @@ def Laws.child_exhaustion(parent, sampling, rest):
   {==}
 
 # Rewrite the hypothesis into the view of the driver's final step: a root is
-# a new trace with nothing to avoid and the sampled indication it is given.
+# the new trace of its plan, with nothing to avoid and the sampled
+# indication it is given.
 def Laws.generated_root(tape, sampled, rest, created, generated):
-  %generated : GenerationProof.NewTraceRun(Tuple{None{}, sampled}, _)
-  GenerationProof.new_trace_run(Tuple{None{}, sampled}, 48n, Trace.Draw.root(sampled), tape, (Unit{}, ({==}, {==})))
+  %generated : GenerationProof.NewTraceRun(Trace.TracePlan.root(sampled), _)
+  GenerationProof.new_trace_generated(Trace.TracePlan.root(sampled), tape)
 
 # Rewrite the hypothesis into the view of the driver's final step, for the
 # child's span plan.
@@ -348,12 +352,11 @@ def Laws.generated_child(tape, parent, sampling, rest, created, generated):
     (Unit{}, ({==}, ({==}, {==}))))
 
 # Rewrite the hypothesis into the view of the driver's final step: a restart
-# is a new trace that avoids the received trace ID, with the sampled
-# indication it is given.
+# is the new trace of its plan, which avoids the received trace ID, with the
+# sampled indication it is given.
 def Laws.generated_restart(tape, previous, sampled, rest, created, generated):
-  %generated : GenerationProof.NewTraceRun(Tuple{Some{Trace.RemoteContext.trace_id(previous)}, sampled}, _)
-  GenerationProof.new_trace_run(Tuple{Some{Trace.RemoteContext.trace_id(previous)}, sampled}, 48n,
-    Trace.Draw.restart(previous, sampled), tape, (Unit{}, ({==}, {==})))
+  %generated : GenerationProof.NewTraceRun(Trace.TracePlan.restart(previous, sampled), _)
+  GenerationProof.new_trace_generated(Trace.TracePlan.restart(previous, sampled), tape)
 
 # The host's loop feeds the words the pure driver reads (proofs/generation.bend).
 def Laws.generation_drive(fuel, tape, step, extra):
@@ -425,14 +428,11 @@ def Laws.generated_span_id(tape, excluded, rest, id, generated):
   %generated : SeparateProof.SpanRunView(excluded, _)
   SeparateProof.span_run_holds(excluded, 16n, Trace.SpanDraw.start(excluded), tape, (Unit{}, {==}))
 
-# Context.root_with runs that composition; its continuation agrees with
-# root_of on every outcome of the trace ID (proofs/separate.bend).
+# Context.root_with runs that composition, the new trace of a root's plan,
+# with nothing to exclude; its continuation agrees with root_of on every
+# outcome of the trace ID (proofs/separate.bend).
 def Laws.root_composed(tape, sampled):
-  SeparateProof.read_trace_same(Laws.TapeOutcome(),
-    outcome => Trace.Draw.root_span_with(~Laws.Tape(), ~Trace.Source.tape, sampled, outcome)(Laws.TapeOutcome(),
-      value => Emit{value}),
-    outcome => Laws.root_of(sampled, outcome)(Laws.TapeOutcome(), value => Emit{value}),
-    outcome => SeparateProof.root_span_same(sampled, outcome), 32n, tape, Trace.TraceDraw.start(None{}))
+  SeparateProof.new_trace_composed(tape, None{}, sampled)
 
 # Context.child_with runs that composition; its continuation agrees with
 # context_of on every outcome of the span ID (proofs/separate.bend).
@@ -446,14 +446,10 @@ def Laws.child_composed(tape, parent, sampling):
       Trace.Sampling.resolve(sampling, Trace.Parent.is_sampled(parent)), outcome),
     16n, tape, Trace.SpanDraw.start(Some{Trace.Parent.span_id(parent)}))
 
-# As root_composed, from the trace ID draw that excludes the received one.
+# As root_composed, for the plan of a restart, which excludes the received
+# trace ID.
 def Laws.restart_composed(tape, previous, sampled):
-  SeparateProof.read_trace_same(Laws.TapeOutcome(),
-    outcome => Trace.Draw.root_span_with(~Laws.Tape(), ~Trace.Source.tape, sampled, outcome)(Laws.TapeOutcome(),
-      value => Emit{value}),
-    outcome => Laws.root_of(sampled, outcome)(Laws.TapeOutcome(), value => Emit{value}),
-    outcome => SeparateProof.root_span_same(sampled, outcome), 32n, tape,
-    Trace.TraceDraw.start(Some{Trace.RemoteContext.trace_id(previous)}))
+  SeparateProof.new_trace_composed(tape, Some{Trace.RemoteContext.trace_id(previous)}, sampled)
 
 # 7. Limits
 # =========
