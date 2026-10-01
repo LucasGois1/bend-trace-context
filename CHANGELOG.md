@@ -1,6 +1,16 @@
 # Changelog
 
-## 0.2.0-dev — unreleased
+## 0.2.0 — 2026-10-01
+
+The building blocks for an OpenTelemetry SDK, which
+[#41](https://github.com/LucasGois1/bend-trace-context/issues/41)
+specifies: the trace flags and the context field names, contexts built from
+parts, identifiers as bytes, a trace ID or a span ID generated on its own,
+and the sampled indication chosen when a trace starts. The release breaks
+source compatibility, since root and restart take that indication and
+`TC.Error` gains a constructor: the migration note below gives the changes.
+It is published on BendHub as `bend-trace-context@0.2.0.0`, which names the
+package `0x665ae73e3f32ce98f72c7cf6844cfd3f`, and tagged `v0.2.0`.
 
 - Read the trace flags and the context field names
   ([#44](https://github.com/LucasGois1/bend-trace-context/issues/44)), for an
@@ -95,12 +105,20 @@
   `Context.root(false)` reads no word. Every corpus, example and program of
   the documentation keeps its output, and the independent consumer adds a
   sampled root and a sampled restart, generated and from supplied IDs.
+- Qualify the release
+  ([#47](https://github.com/LucasGois1/bend-trace-context/issues/47)).
+  `qualify-release.sh` refuses a release whose README, reference or guides
+  name another release in a `bend-trace-context@` import or a `--branch`
+  clone, where it checked only the README's first import and two clone
+  lines. The independent consumer's SDK flow reads the trace flags and the
+  bytes of the context that it generates, as the SDK's exporter does.
 
-**Migration from 0.1.2:** a `match` on `TC.Error` that lists every
-constructor adds a case for `InvalidByte{offset}`; a `match` with a
-catch-all case needs no change. Root, restart and their supplied-ID forms
-take the sampled indication as their last argument, and passing `False{}`
-keeps the 0.1 behavior: `Generate.Context.root(False{})`,
+**Migration from 0.1.2:** import `bend-trace-context@0.2.0.0/`. A `match`
+on `TC.Error` that lists every constructor adds a case for
+`InvalidByte{offset}`; a `match` with a catch-all case needs no change.
+Root, restart and their supplied-ID forms take the sampled indication as
+their last argument, and passing `False{}` keeps the 0.1 behavior:
+`Generate.Context.root(False{})`,
 `Generate.Context.restart(previous, False{})`,
 `TC.Context.root_with(~S, ~read, source, False{})`,
 `TC.Context.restart_with(~S, ~read, source, previous, False{})`,
@@ -517,12 +535,15 @@ which performs no host effect of its own,
 cryptographic source, and `packages/trace-context/native_http.bend`, which
 adapts the header maps of bend-kit's native HTTP package. Their documented
 types, constructors, functions and error behavior form the current API
-contract. Internal parsing, generation
-machine (`Draw`/`Step`), tracestate reading machine (`Scan`/`Member`),
-extraction steps (`Carrier`, `Text`, `Read`, `Extract`), forwarding steps
-(`Forward`), continue-or-start and sending steps (`Policy`, `Serve`, `Send`),
-the native HTTP adapter's `Headers` steps and proof helpers are not
-compatibility promises, even where Bend makes their names importable.
+contract. Internal parsing and flag helpers (`Parse`, `Parsed`,
+`ParsedBytes` and `Flags`), the generation machine (`TraceDraw`,
+`SpanDraw`, `TraceStep`, `SpanStep`, `SpanPlan`, `TracePlan`, `Draw`,
+`Step`, `Drive` and `Tape`), the tracestate reading machine (`Scan`,
+`Member`, `Value`, `Budget`, `Utf8`, `Entries` and `StateChar`), extraction
+steps (`Carrier`, `Text`, `Read`, `Extract`), forwarding steps (`Forward`),
+continue-or-start and sending steps (`Policy`, `Serve`, `Send`), the native
+HTTP adapter's `Headers` steps and proof helpers are not compatibility
+promises, even where Bend makes their names importable.
 
 The documented JavaScript entries are `bend-trace-context`,
 `bend-trace-context/node` and `bend-trace-context/fetch`: their functions,
@@ -533,8 +554,8 @@ form the JavaScript API contract. Their internal modules, such as
 shared WebCrypto source are not, and no other path of the package is
 exported.
 
-Future releases will record API, wire-policy and toolchain changes here,
-including migration steps for incompatible changes. When upgrading an earlier
+Each release's section records its API, wire-policy and toolchain changes,
+with migration steps for incompatible changes. When upgrading an earlier
 development snapshot, update the dependency pin and imports together to use
 `packages/trace-context/trace_context.bend`. The protocol, public types and
 functions are unchanged by this directory migration.

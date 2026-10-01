@@ -591,6 +591,22 @@ def continuation() -> IO(Unit):
       TC.Context.extract(limits, received_request(), Some{base}), TC.Restart{})
     strict_service([Fail{(3, "no entropy")}], TC.Context.extract(limits, received_request(), None{}))
 
+# An identifier's byte cells as an exporter writes them to protobuf, in
+# decimal.
+def byte_cells.rest(cells: List<&2, U32>) -> String:
+  match cells:
+    case Nil{}:
+      ""
+    case Con{cell, rest}:
+      " " ++ U32.show(cell) ++ byte_cells.rest(rest)
+
+def byte_cells(cells: List<&2, U32>) -> String:
+  match cells:
+    case Nil{}:
+      "none"
+    case Con{cell, rest}:
+      U32.show(cell) ++ byte_cells.rest(rest)
+
 # The steps of an OpenTelemetry SDK that starts spans on the package, as the
 # guide's "Building blocks for an OpenTelemetry SDK" describes them.
 # Replayed words give exact IDs.
@@ -622,7 +638,15 @@ def sdk_generation() -> IO(Unit):
       ~TC.Source.tape, [Done{15755178}, Done{195625655}], None{})
     +span_id : TC.SpanId <- sdk_generation.id(TC.SpanId, "span ID", span_outcome)
     Unit <- IO.print("sdk generation: span ID " ++ TC.SpanId.to_string(span_id))
-    Unit <- emit("sdk generation: local context", TC.Context.from_ids(trace_id, span_id, sampled))
+    +context : TC.LocalContext = TC.Context.from_ids(trace_id, span_id, sampled)
+    Unit <- emit("sdk generation: local context", context)
+    # What the SDK's exporter writes of it: its trace flags, and its IDs as
+    # bytes for protobuf and as hexadecimal text for JSON.
+    Unit <- IO.print("sdk generation: trace flags " ++ U32.show(TC.LocalContext.flags(context)))
+    Unit <- IO.print("sdk generation: trace ID as bytes " ++ byte_cells(TC.TraceId.to_bytes(
+      TC.LocalContext.trace_id(context))) ++ ", as hex " ++ TC.TraceId.to_string(TC.LocalContext.trace_id(context)))
+    Unit <- IO.print("sdk generation: span ID as bytes " ++ byte_cells(TC.SpanId.to_bytes(
+      TC.LocalContext.span_id(context))) ++ ", as hex " ++ TC.SpanId.to_string(TC.LocalContext.span_id(context)))
     # A child's span ID excludes its parent's: the first candidate repeats it
     # and is replaced by the next, 53995c3f and 42cd8ad8.
     child_outcome : Words() & Result<&2, &2, TC.GenerationError, TC.SpanId> <- TC.SpanId.generate_with(~Words(),
@@ -681,20 +705,6 @@ def sdk_flags() -> IO(Unit):
 # bytes to protobuf and the text to JSON, and IDs that another tracer hands
 # over as bytes are validated as parsed ones are. The cells below are the
 # bytes of the W3C example IDs.
-def sdk_bytes.cells.rest(cells: List<&2, U32>) -> String:
-  match cells:
-    case Nil{}:
-      ""
-    case Con{cell, rest}:
-      " " ++ U32.show(cell) ++ sdk_bytes.cells.rest(rest)
-
-def sdk_bytes.cells(cells: List<&2, U32>) -> String:
-  match cells:
-    case Nil{}:
-      "none"
-    case Con{cell, rest}:
-      U32.show(cell) ++ sdk_bytes.cells.rest(rest)
-
 def sdk_bytes.refused(-A: Data, label: String, result: Result<&2, &2, TC.Error, A>) -> IO(Unit):
   match result:
     case Done{_}:
@@ -715,15 +725,15 @@ def sdk_bytes() -> IO(Unit):
     # operation is sent without random-trace-id.
     +operation : TC.LocalContext = TC.Context.from_ids(trace, span, True{})
     Unit <- emit("sdk bytes: operation", operation)
-    Unit <- IO.print("sdk bytes: trace ID as bytes " ++ sdk_bytes.cells(TC.TraceId.to_bytes(
+    Unit <- IO.print("sdk bytes: trace ID as bytes " ++ byte_cells(TC.TraceId.to_bytes(
       TC.LocalContext.trace_id(operation))) ++ ", as hex " ++ TC.TraceId.to_string(TC.LocalContext.trace_id(operation)))
-    Unit <- IO.print("sdk bytes: span ID as bytes " ++ sdk_bytes.cells(TC.SpanId.to_bytes(
+    Unit <- IO.print("sdk bytes: span ID as bytes " ++ byte_cells(TC.SpanId.to_bytes(
       TC.LocalContext.span_id(operation))) ++ ", as hex " ++ TC.SpanId.to_string(TC.LocalContext.span_id(operation)))
     +parent : TC.RemoteContext <- received("00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01")
     Unit <- IO.print("sdk bytes: received trace ID as bytes " ++
-      sdk_bytes.cells(TC.TraceId.to_bytes(TC.RemoteContext.trace_id(parent))))
+      byte_cells(TC.TraceId.to_bytes(TC.RemoteContext.trace_id(parent))))
     Unit <- IO.print("sdk bytes: received span ID as bytes " ++
-      sdk_bytes.cells(TC.SpanId.to_bytes(TC.RemoteContext.span_id(parent))))
+      byte_cells(TC.SpanId.to_bytes(TC.RemoteContext.span_id(parent))))
     Unit <- sdk_bytes.refused(TC.TraceId, "15 bytes", TC.TraceId.from_bytes(
       [75, 249, 47, 53, 119, 179, 77, 166, 163, 206, 146, 157, 14, 14, 71]))
     Unit <- sdk_bytes.refused(TC.TraceId, "17 bytes", TC.TraceId.from_bytes(

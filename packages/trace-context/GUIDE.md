@@ -206,7 +206,7 @@ Each recipe is a complete program. Put the package in your project as the
 and run a recipe with `./deps/bend-trace-context/bend recipe.bend`, or
 build it with `-o recipe` for a native binary. To import the package from
 BendHub instead, replace `./deps/bend-trace-context/packages/trace-context/`
-in the imports with `bend-trace-context@0.1.2.0/`. The recipes with new IDs
+in the imports with `bend-trace-context@0.2.0.0/`. The recipes with new IDs
 print only what does not change from run to run, apart from the span IDs of
 log fields; each shows its output.
 
@@ -898,8 +898,9 @@ span, and its W3C propagator stays thin: it builds a carrier from
 OpenTelemetry's getter and writes what an outgoing context emits through
 its setter. What OpenTelemetry itself defines, such as its span context,
 samplers and propagator interface, belongs to the SDK.
-[Spec #41](https://github.com/LucasGois1/bend-trace-context/issues/41) adds
-these pieces, and the [reference](README.md) lists their signatures.
+Release 0.2.0 adds these pieces, which
+[#41](https://github.com/LucasGois1/bend-trace-context/issues/41) specifies,
+and the [reference](README.md) lists their signatures.
 
 ### A span's identifiers
 

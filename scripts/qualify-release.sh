@@ -159,6 +159,14 @@ if [ "$release" = "$version" ]; then
     grep -Fq -- "git clone --branch v$release " "$source_dir/$document" || fail "$document does not install the tag v$release."
   done
   grep -Fq "import $named/trace_context.bend as TC" "$source_dir/README.md" || fail "README.md does not import $named."
+  # The README, the reference and the guides name no other release in an
+  # import or a clone; the changelog and the validation records keep them.
+  for document in README.md packages/trace-context/README.md packages/trace-context/GUIDE.md \
+    packages/trace-context/JAVASCRIPT.md packages/trace-context/NATIVE-HTTP.md; do
+    others=$(grep -oE -- 'bend-trace-context@[0-9]+(\.[0-9]+){3}|--branch v[0-9]+(\.[0-9]+){2}' "$source_dir/$document" \
+      | grep -vFx -e "$named" -e "--branch v$release" | sort -u | paste -sd ' ' -)
+    [ -z "$others" ] || fail "$document names another release: $others"
+  done
   echo "PASS: the version, license, changelog and install instructions of $release agree"
 fi
 

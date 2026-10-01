@@ -295,6 +295,26 @@ pins. On Linux CI, Playwright uses `install --with-deps` for its system
 libraries. Playwright is locked to `1.63.0` in `package-lock.json`, and its
 browser builds are recorded with each test.
 
+## 2026-10-01 — Release 0.2.0 candidate, macOS ARM64
+
+0.2.0 releases the building blocks for an OpenTelemetry SDK that
+[#41](https://github.com/LucasGois1/bend-trace-context/issues/41)
+specifies. Its candidate ran every repository gate from the repository
+root, on Bend 2.0.34 and the same machine and versions as the records below:
+macOS 26.7 ARM64 with Apple clang 21, Node 24.16.0, Python 3.14.7,
+Playwright 1.63.0 and TypeScript 5.9.3 and 7.0.2.
+
+| Gate | Result |
+| --- | --- |
+| `./scripts/validate.sh native` and `node` | `ALL PROOFS CHECK`; the host operations of `generation.bend`, and only those, rely on foreign code; the static rejections, corpora and examples give their expected outputs |
+| `./scripts/test-installer.sh` | 9 installer cases pass |
+| `./scripts/qualify-js.sh node` and `browser` | the committed ES module is the 2.0.34 build; 51 Node tests and 75 browser tests, none failed or skipped; the pages' bundle is reproducible and relocatable |
+| `./scripts/test-consumer.sh native`, `node` and `browser` | every program of the README and the guides, the independent consumer with its SDK flow, 9 recipe tests, the declarations with both TypeScript versions, and the pages in the three engines, from a fresh clone |
+| `./scripts/qualify-native-http.sh` | bend-kit's laws and 49 checks, and 2 transport tests on `bend-kit-http` 0.23.0.1 |
+| `./scripts/qualify-propagation.sh native` and `node` | 13 propagation checks, the gateway check, and the W3C harness's 41 tests, none failed or skipped |
+| `./scripts/qualify-release.sh candidate` | the package `0x665ae73e3f32ce98f72c7cf6844cfd3f`, 9 files and 207641 bytes under the MIT license, described by the first line of `entropy.bend`; the name belongs to LucasGois1 on BendHub; a clean consumer imports it as `bend-trace-context@0.2.0.0` |
+| `./scripts/check-requirements.sh` | the requirements matrix cites all 155 laws |
+
 ## 2026-09-29 — Release 0.1.2 candidate, macOS ARM64
 
 0.1.2 is the move to Bend 2.0.34 below, released. On the same machine and
