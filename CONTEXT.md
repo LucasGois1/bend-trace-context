@@ -67,12 +67,12 @@ The most UTF-8 octets of a received traceparent value or combined tracestate val
 The most UTF-8 octets of tracestate the package emits. It is a capacity policy of the package, not a limit set by the standard.
 
 **Trace flags**:
-The traceparent byte that carries the sampling indication and the randomness assertion. A context keeps only those two known flags, so its trace flags are 00, 01, 02 or 03.
+The traceparent byte that carries the sampled indication and the randomness assertion. A context keeps only those two known flags, so its trace flags are 00, 01, 02 or 03.
 _Avoid_: Span flags
 
-**Sampling indication (sampled)**:
-The trace-flags bit used to communicate the sampling indication between participants. Its value does not guarantee that operations have been or will be recorded.
-_Avoid_: Proof of collection, exporter activation
+**Sampled indication (sampled)**:
+The trace-flags bit that communicates a sampling decision between participants. Its value does not guarantee that operations have been or will be recorded.
+_Avoid_: Sampling indication, proof of collection, exporter activation
 
 **Randomness assertion (random-trace-id)**:
 The trace-flags bit stating that a trace ID was generated randomly. It is made by whoever produced the trace ID and travels with it; it is not evidence of how the ID was generated.
